@@ -421,8 +421,20 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun loadPersistedSettings() {
         displayScaleTenths = AirPlayPersistence.loadDisplayScaleTenths(this)
-        // Size is now chosen only through CarPlaySize; ignore the canvas scale older builds stored.
-        uiScalePercent = CarPlayUiScale.DEFAULT
+        // The size preset drives BOTH channels iOS reacts to: the physical width in /info AND
+        // the pixel canvas. v2.0-65 proved physical width alone is invisible (widthPhysical
+        // 300->350 reached the phone but the UI did not change), so translate the preset into
+        // a canvas scale too: a larger canvas renders the same controls across more pixels,
+        // which shows up as visibly smaller icons/text once the stream is stretched back to
+        // the same physical screen. 大=115 (bigger controls), 小=85 (smaller controls).
+        uiScalePercent = when (
+            com.shilapi.xcertplay.airplay.CarPlaySize
+                .fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(this))
+        ) {
+            com.shilapi.xcertplay.airplay.CarPlaySize.LARGE -> 115
+            com.shilapi.xcertplay.airplay.CarPlaySize.SMALL -> 85
+            else -> CarPlayUiScale.DEFAULT
+        }
         hevcEnabled = AirPlayPersistence.loadHevcEnabled(this)
         hevcSoftwareDecoderEnabled =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -2949,7 +2961,23 @@ class CarPlayHostActivity : ComponentActivity() {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
         val controllerGeneration = restartGeneration
-        val config = createRuntimeConfig()
+        // A blank external-Wi-Fi setup used to escape as an IllegalArgumentException and kill
+        // the activity (the "flash back to the main page" of v2.0-65). Surface it as guidance.
+        val config = runCatching { createRuntimeConfig() }.getOrElse { error ->
+            appendLog("启动配置无效：${error.message}")
+            runOnUiThread {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("无法启动 CarPlay")
+                    .setMessage(
+                        "外部 Wi-Fi 模式：请确认手机已连接外部 Wi-Fi。\n" +
+                            "如需校验网络名称或连接其他网络，到 DiPlay 设置 → 无线连接 填写名称与密码。\n" +
+                            "（${error.message}）",
+                    )
+                    .setPositiveButton("知道了", null)
+                    .show()
+            }
+            return
+        }
         val airPlayConfig = createAirPlayConfig(size)
         val locationProvider: Iap2LocationProvider? =
             if (config.locationReportingEnabled) {

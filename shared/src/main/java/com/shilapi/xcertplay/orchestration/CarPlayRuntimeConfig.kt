@@ -95,16 +95,22 @@ class CarPlayRuntimeConfig(
         require(remoteMfiToken?.contains('\u0000') != true) {
             "Remote MFi token must not contain U+0000"
         }
-        if (wirelessHotspotMode == WirelessHotspotMode.MANUAL ||
-            wirelessHotspotMode == WirelessHotspotMode.EXTERNAL_WIFI
-        ) {
+        if (wirelessHotspotMode == WirelessHotspotMode.EXTERNAL_WIFI) {
+            // The car is a plain station client: ExternalWifiManager reads the live SSID, BSSID,
+            // channel and addresses from the joined network, so both stored fields may stay
+            // blank. A stored SSID is only an optional expectation check, and Android apps
+            // cannot read back the passphrase of the joined network anyway.
+            require('\u0000' !in manualHotspotSsid.orEmpty()) {
+                "manualHotspotSsid must not contain U+0000"
+            }
+            require('\u0000' !in manualHotspotPassphrase.orEmpty()) {
+                "manualHotspotPassphrase must not contain U+0000"
+            }
+        }
+        if (wirelessHotspotMode == WirelessHotspotMode.MANUAL) {
             val ssid = manualHotspotSsid
             require(!ssid.isNullOrBlank()) {
-                if (wirelessHotspotMode == WirelessHotspotMode.MANUAL) {
-                    "manualHotspotSsid is required in manual hotspot mode"
-                } else {
-                    "manualHotspotSsid is required in external Wi-Fi mode"
-                }
+                "manualHotspotSsid is required in manual hotspot mode"
             }
             require('\u0000' !in ssid) {
                 "manualHotspotSsid must not contain U+0000"
