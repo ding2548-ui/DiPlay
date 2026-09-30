@@ -172,7 +172,7 @@ jobs:
         if: env.DIPLAY_RELEASE_ENABLED == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: diplay-release-apk
+          name: diplay-release-apk-${{ github.ref_name == 'leapmotor' && 'leapmotor' || 'BYD' }}
           path: mobile/build/outputs/apk/release/*.apk
           if-no-files-found: warn
       - name: Publish GitHub release
@@ -182,9 +182,11 @@ jobs:
         run: |
           set -euo pipefail
           APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
+          VARIANT="BYD"
+          if [ "${GITHUB_REF_NAME}" = "leapmotor" ]; then VARIANT="leapmotor"; fi
           TAG="v2.0-${GITHUB_RUN_NUMBER}"
-          NAME="DiPlay-2.0-${GITHUB_RUN_NUMBER}.apk"
+          NAME="DiPlay-2.0-${GITHUB_RUN_NUMBER}-${VARIANT}.apk"
           cp "$APK" "$NAME"
           gh release create "$TAG" "$NAME" \
-            --title "DiPlay 2.0（${GITHUB_RUN_NUMBER}）" \
+            --title "DiPlay 2.0（${GITHUB_RUN_NUMBER}）· ${VARIANT}" \
             --notes-file RELEASE_NOTES.md
