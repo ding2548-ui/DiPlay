@@ -3037,9 +3037,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // Leapmotor steering-wheel keys: the car broadcasts them on car.meter.music.BROADCAST and
         // LeapmotorMediaKeys turns each press into a CarPlay media HID press (see the reference
         // notes for the protocol).
-        LeapmotorMediaKeys.onDiagnostic = { message ->
-            diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
-        }
+        LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
             runOnUiThread {
