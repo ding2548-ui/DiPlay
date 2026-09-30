@@ -3034,6 +3034,13 @@ class CarPlayHostActivity : ComponentActivity() {
             locationProvider = locationProvider,
         )
         controller = next
+        // Leapmotor steering-wheel keys: the car broadcasts them on car.meter.music.BROADCAST and
+        // LeapmotorMediaKeys turns each press into a CarPlay media HID press (see the reference
+        // notes for the protocol).
+        LeapmotorMediaKeys.onDiagnostic = { message ->
+            diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
+        }
+        LeapmotorMediaKeys.attach(this, next)
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
             runOnUiThread {
                 shutdown(terminateProcess = false, reason = "DiPlay 断开连接", completion = completion)
@@ -3185,6 +3192,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldController = controller
         val oldSink = sink
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
+        LeapmotorMediaKeys.detach(oldController)
         controller = null
         sink = null
         teardownExecutor.execute {
@@ -3258,6 +3266,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldController = controller
         val oldSink = sink
         CarPlayBackgroundSession.clear(oldController)
+        LeapmotorMediaKeys.detach(oldController)
         controller = null
         sink = null
         Log.i(TAG, "关闭 原因=$reason 结束进程=$terminateProcess")

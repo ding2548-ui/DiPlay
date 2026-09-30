@@ -416,6 +416,35 @@ class CarPlayController(
         }
     }
 
+    /**
+     * A hardware media key of the head unit (steering wheel) as a CarPlay media press; the index
+     * comes from [com.shilapi.xcertplay.airplay.CarPlayButton]. The Leapmotor car sends its keys
+     * as `car.meter.music.BROADCAST` commands, which [com.shilapi.xcertplay.LeapmotorMediaKeys]
+     * turns into these presses. May be called from any thread.
+     */
+    fun sendMediaButton(index: Int): Boolean {
+        if (closed) return false
+        val session = activeSession ?: return false
+        return try {
+            touchExecutor.execute { session.sendMedia(index) }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Opens Siri on the iPhone; used by the head unit's voice key. */
+    fun invokeSiri(): Boolean {
+        if (closed) return false
+        val session = activeSession ?: return false
+        return try {
+            touchExecutor.execute { session.invokeSiri() }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     override fun close() {
         synchronized(this) {
             if (closed) return
