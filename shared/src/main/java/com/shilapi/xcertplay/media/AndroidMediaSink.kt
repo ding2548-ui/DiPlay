@@ -39,6 +39,8 @@ class AndroidMediaSink(
     onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
+    /** True while any music ("media") audio stream is running; called from media threads. */
+    private val onMediaAudioChanged: (Boolean) -> Unit = {},
 ) : MediaSink {
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
@@ -48,6 +50,7 @@ class AndroidMediaSink(
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRenderer>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneUplink>()
+    private val mediaAudioTypes = mutableSetOf<Int>()
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
@@ -119,6 +122,9 @@ class AndroidMediaSink(
 
     override fun onAudioStarted(type: Int, format: AudioFormat, firstSample: Int) {
         audioRenderer(type, format).start()
+        // Ported from upstream 0.2.7: music activity feeds the media-button layer (steering
+        // wheel keys are only claimed while the iPhone actually plays).
+        if (format.audioType == "media") updateMediaAudio(type, true)
     }
 
     override fun onAudioRtp(type: Int, format: AudioFormat, rtp: ByteArray, sample: Int) {
@@ -127,6 +133,16 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(type: Int) {
         audioRenderers.remove(type)?.close()
+        updateMediaAudio(type, false)
+    }
+
+    private fun updateMediaAudio(type: Int, active: Boolean) {
+        val (before, after) = synchronized(mediaAudioTypes) {
+            val before = mediaAudioTypes.isNotEmpty()
+            if (active) mediaAudioTypes.add(type) else mediaAudioTypes.remove(type)
+            before to mediaAudioTypes.isNotEmpty()
+        }
+        if (before != after) onMediaAudioChanged(after)
     }
 
     override fun onMicrophoneStarted(type: Int, config: MicrophoneConfig) {
@@ -151,6 +167,10 @@ class AndroidMediaSink(
         recoveryExecutor.shutdownNow()
         audioRenderers.values.forEach(AudioRenderer::close)
         audioRenderers.clear()
+        val hadMedia = synchronized(mediaAudioTypes) {
+            mediaAudioTypes.isNotEmpty().also { mediaAudioTypes.clear() }
+        }
+        if (hadMedia) onMediaAudioChanged(false)
         microphoneUplinks.values.forEach(MicrophoneUplink::close)
         microphoneUplinks.clear()
     }

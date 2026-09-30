@@ -113,8 +113,11 @@ class ExternalWifiManager(
             security = security,
             channel = channel,
             frequencyMHz = frequencyMHz,
+            // Some head units mask connectionInfo.bssid; the MAC-derived IPv6 link-local of the
+            // joined network's interface carries it (upstream 0.2.7 HotspotInterfaceBssid).
             bssid = runCatching { info.bssid }.getOrNull()
-                ?.takeUnless { it == "02:00:00:00:00:00" || it.isBlank() },
+                ?.takeUnless { it == "02:00:00:00:00:00" || it.isBlank() }
+                ?: HotspotInterfaceBssid.read(iface.name),
             interfaceName = iface.name,
             // The AirPlay listener and the 0x4301 address selection both key off the link-local:
             // the iPhone dials fe80::<car>:7000 on the network it joined, exactly like LIVI.

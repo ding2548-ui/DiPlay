@@ -251,6 +251,10 @@ class AirPlaySession(
         )
 
     private fun runControl() {
+        // Ported from upstream 0.2.7: a vanished peer is detected by TCP keep-alive instead of
+        // treating a legitimately idle CarPlay screen as a failure. On Android 9 and older the
+        // socket-level tuning is unavailable and only keepAlive is enabled (graceful degradation).
+        com.shilapi.xcertplay.network.TcpLiveness.configure(socket) { debugLog(it) }
         val input = BufferedInputStream(socket.getInputStream())
         val output = BufferedOutputStream(socket.getOutputStream())
         var accumulated = ByteArray(0)

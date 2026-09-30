@@ -222,7 +222,13 @@ class ManualHotspotManager(
                     LocalHotspotInterface(
                         name = networkInterface.name,
                         hostAddress = address,
-                        hardwareAddress = networkInterface.hardwareAddress?.toMacAddressString(),
+                        // Ported from upstream 0.2.7: some head units mask hardwareAddress, so
+                        // fall back to reversing the MAC-derived IPv6 link-local (EUI-64), which
+                        // is exactly the BSSID the iPhone needs in 0x5703/0x4301.
+                        hardwareAddress = runCatching { networkInterface.hardwareAddress?.toMacAddressString() }
+                            .getOrNull()
+                            ?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
+                            ?: HotspotInterfaceBssid.read(networkInterface.name),
                         score = interfaceScore(networkInterface.name, address),
                     )
                 }
