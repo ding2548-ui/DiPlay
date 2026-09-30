@@ -17,6 +17,22 @@ object CarPlayButton {
     const val PREVIOUS = 5
 
     /**
+     * Whether [action] is a press of a physical wheel key, as opposed to a car-internal command.
+     *
+     * The car re-uses its media bus for its own housekeeping: it emits `pause` (and friends) when
+     * another app takes audio focus, and it echoes commands it received. Those must never reach
+     * CarPlay as key presses — on the real car that made CarPlay pause itself the moment it started
+     * playing (v2.0-79 report). Only the three wheel keys are forwarded; everything else is logged
+     * and dropped.
+     */
+    fun isWheelAction(action: String?): Boolean = when (action?.trim()?.lowercase()) {
+        "nextone", "next", "nexttrack" -> true
+        "preone", "previous", "prev", "previoustrack" -> true
+        "playpause", "pauseplay", "toggleplay", "toggleplaypause" -> true
+        else -> false
+    }
+
+    /**
      * Leapmotor steering-wheel commands, as they arrive in the car's `car.meter.music.BROADCAST`
      * JSON payload (`data.action`), mapped to the CarPlay press. Unknown commands return null so a
      * future firmware command can never fire a random key.

@@ -94,7 +94,10 @@ internal object CarPlayAudioOwnership {
                 null
             }
         }
-        pauseStockPlayerLocked()
+        // The stock-player pause broadcast was REMOVED in v2.0-80 (manual §58): the car echoes it
+        // back on the same actions without our marker, and the car ALSO emits its own `pause` when
+        // another app takes audio focus. Both came back as "wheel presses" and paused CarPlay
+        // itself, so pressing a key ended with nothing playing at all. Focus alone is kept.
     }
 
     private fun releaseLocked(reason: String) {
@@ -147,37 +150,6 @@ internal object CarPlayAudioOwnership {
     }.getOrElse {
         report("audio focus request failed: ${it.message}")
         false
-    }
-
-    /**
-     * Sends one `pause` on the car's own media bus so a stock player that ignores audio focus stops
-     * as well. The payload mirrors the captured protocol (`data.type = -1`) and carries the self
-     * marker, which keeps the command out of our own key handling.
-     */
-    private fun pauseStockPlayerLocked() {
-        val context = appContext ?: return
-        val body = JSONObject()
-            .put("type", "music")
-            .put("data", JSONObject().put("action", "pause").put("type", -1))
-            .put(SELF_MARKER_KEY, SELF_MARKER_VALUE)
-            .toString()
-        val payload = frame(body)
-        for (action in LeapmotorMediaProtocol.ACTIONS) {
-            // No setPackage: the command must reach the stock player's receivers, not only ours.
-            // Our own receiver drops it through the self marker in the payload.
-            val intent = android.content.Intent(action).apply {
-                putExtra("receiver", payload)
-                putExtra("action", "pause")
-            }
-            runCatching { context.sendBroadcast(intent) }
-        }
-        report("stock player pause sent on ${LeapmotorMediaProtocol.ACTIONS.size} actions")
-    }
-
-    /** The car's framing: two length bytes, `(b0 * 0x64) + b1`, then the UTF-8 JSON body. */
-    private fun frame(json: String): ByteArray {
-        val body = json.toByteArray(Charsets.UTF_8)
-        return byteArrayOf((body.size / 0x64).toByte(), (body.size % 0x64).toByte()) + body
     }
 
     private fun report(message: String) {

@@ -125,6 +125,13 @@ internal object LeapmotorMediaKeys {
         val mapped = CarPlayButton.forLeapmotorAction(action)
         val active = controller
         if (action.isNullOrBlank()) return false
+        if (!CarPlayButton.isWheelAction(action)) {
+            // The car's own commands (its `pause` when another app takes focus, its echoes of what
+            // we sent) share this bus. Forwarding them paused CarPlay itself; drop them and keep the
+            // evidence in the report.
+            report("media key ignored: car-internal command source=$source action=$action")
+            return false
+        }
         if (mapped == null) {
             // Unknown button: keep the evidence, a voice/Siri key is expected to show up here.
             report("media key unmapped source=$source action=$action")

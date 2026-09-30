@@ -346,16 +346,24 @@ class Iap2UsbSession internal constructor(
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
         if (data.isEmpty()) return@synchronized
         var transferred = connection.bulkTransfer(outEndpoint, data, data.size, timeoutMillis)
-        if (transferred != data.size) {
+        var recovered = false
+        var attempt = 1
+        while (transferred != data.size && attempt < WRITE_ATTEMPTS) {
             // A halted endpoint keeps returning -1 until CLEAR_FEATURE(ENDPOINT_HALT). The CH341
             // path already recovers this way; the iPhone path did not, so one stalled transfer used
             // to kill the whole control channel (manual §57: "write transferred -1" x2).
             clearEndpointHalt(outEndpoint, "write")
+            recovered = true
+            attempt += 1
+            Thread.sleep(WRITE_RETRY_BACKOFF_MILLIS)
             transferred = connection.bulkTransfer(outEndpoint, data, data.size, timeoutMillis)
         }
         if (transferred != data.size) {
+            // Name the recovery in the message: Log.* from this package never reaches the app's
+            // diagnostic report, while the caller puts this text into the bring-up verdict.
+            val recovery = if (recovered) " after " + (attempt - 1) + " halt-clear+retry" else ""
             throw IphoneUsbException.DeviceUnavailable(
-                "USBMUX write transferred $transferred of ${data.size} bytes",
+                "USBMUX write transferred $transferred of ${data.size} bytes$recovery",
             )
         }
     }
@@ -517,6 +525,10 @@ class Iap2UsbSession internal constructor(
 
         /** Milliseconds allowed for the halt-clear control transfer before recovery is abandoned. */
         const val RECOVERY_TIMEOUT_MILLIS = 200
+
+        /** Control frames are small; a couple of halt-clear retries beat a full re-enumeration. */
+        const val WRITE_ATTEMPTS = 3
+        const val WRITE_RETRY_BACKOFF_MILLIS = 50L
 
         // USB 2.0 standard request: CLEAR_FEATURE(ENDPOINT_HALT). Android exposes USB_DIR_* and
         // USB_TYPE_* on UsbConstants but not the recipient codes, so it is spelled out locally.

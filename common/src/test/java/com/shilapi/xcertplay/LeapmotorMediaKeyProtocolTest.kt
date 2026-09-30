@@ -2,7 +2,9 @@ package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.airplay.CarPlayButton
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -53,6 +55,18 @@ class LeapmotorMediaKeyProtocolTest {
     fun nonMusicTypeIsRejected() {
         val payload = framed("""{"data":{"action":"nextOne","type":-1},"type":"phone"}""")
         assertNull(LeapmotorMediaProtocol.actionFromPayload(payload))
+    }
+
+    @Test
+    fun onlyWheelKeysAreForwardedAndCarCommandsAreDropped() {
+        // The car emits its own `pause` when another app takes audio focus, and echoes what it
+        // received; forwarding those paused CarPlay itself (v2.0-79 report).
+        for (wheel in listOf("nextOne", "preOne", "playpause", "PLAYPAUSE")) {
+            assertTrue("wheel key $wheel must be forwarded", CarPlayButton.isWheelAction(wheel))
+        }
+        for (internal in listOf("pause", "play", "stop", "info", "unknownKey", "")) {
+            assertFalse("car command '$internal' must be dropped", CarPlayButton.isWheelAction(internal))
+        }
     }
 
     @Test
