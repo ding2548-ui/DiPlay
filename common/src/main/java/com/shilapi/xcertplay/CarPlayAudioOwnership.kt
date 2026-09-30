@@ -163,10 +163,11 @@ internal object CarPlayAudioOwnership {
             .toString()
         val payload = frame(body)
         for (action in LeapmotorMediaProtocol.ACTIONS) {
+            // No setPackage: the command must reach the stock player's receivers, not only ours.
+            // Our own receiver drops it through the self marker in the payload.
             val intent = android.content.Intent(action).apply {
                 putExtra("receiver", payload)
                 putExtra("action", "pause")
-                setPackage(context.packageName)
             }
             runCatching { context.sendBroadcast(intent) }
         }
