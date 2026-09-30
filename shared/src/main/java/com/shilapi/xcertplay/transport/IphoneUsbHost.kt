@@ -431,7 +431,7 @@ class Iap2UsbSession internal constructor(
                 usbCompat.requestWait(connection, timeoutMillis)
             } catch (_: TimeoutException) {
                 drainCancelledRead(request)
-                return@synchronized null
+                return null
             }
             if (completed == null) {
                 // requestWait(timeout) returns null on timeout on API 26+; that is not a failure.
