@@ -1,16 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    android:sharedUserId="android.uid.system">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Platform-signed (this ROM's framework-res cert = our platform.jks) + system uid:
-         grants these signature permissions so the app can reach NetworkManagementService
-         (ip6tables via netd, running as root) and enable network adb for diagnostics.
-         NOTE: switching uid REQUIRES an uninstall-then-install; cover installs keep the
-         old uid (the v2.0-59 uid=10104 mystery). -->
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
-    <uses-permission android:name="android.permission.CONNECTIVITY_INTERNAL" />
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
