@@ -48,6 +48,14 @@ internal object LeapmotorMediaProtocol {
         if (body.isEmpty() || !body.startsWith("{")) return null
         return runCatching {
             val root = JSONObject(body)
+            // Our own "pause the stock player" command travels on the same car actions; it carries
+            // a self marker so it never comes back to us as a key press.
+            if (
+                root.optString(CarPlayAudioOwnership.SELF_MARKER_KEY) ==
+                CarPlayAudioOwnership.SELF_MARKER_VALUE
+            ) {
+                return@runCatching null
+            }
             val type = root.optString("type")
             if (type.isNotEmpty() && !type.equals("music", ignoreCase = true)) return@runCatching null
             root.optJSONObject("data")?.optString("action")?.trim()?.takeIf { it.isNotEmpty() }
@@ -149,7 +157,16 @@ internal object LeapmotorMediaKeys {
         val action = LeapmotorMediaProtocol.actionFromPayload(payload)
             ?: intent.getStringExtra("action")?.takeIf { it.isNotBlank() }
             ?: run {
-                report("media key payload unusable action=$actionName bytes=${payload?.size ?: 0}")
+                // A self-marked payload (our stock-player pause) lands here by design.
+                val marked = runCatching {
+                    val text = payload?.let { String(it, 2, (it.size - 2).coerceAtLeast(0), Charsets.UTF_8) }
+                        ?: ""
+                    text.contains("\"${CarPlayAudioOwnership.SELF_MARKER_KEY}\":\"${CarPlayAudioOwnership.SELF_MARKER_VALUE}\"")
+                }.getOrDefault(false)
+                report(
+                    if (marked) "media key ignored: self-marked command action=$actionName"
+                    else "media key payload unusable action=$actionName bytes=${payload?.size ?: 0}",
+                )
                 return
             }
         dispatch(action, actionName)

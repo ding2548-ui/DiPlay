@@ -2823,6 +2823,9 @@ class CarPlayHostActivity : ComponentActivity() {
             onAudioDiagnostic = { message ->
                 diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
             },
+            // Music activity drives the audio-ownership claim (focus + stock-player pause) so the
+            // car's own player cannot play on top of CarPlay.
+            onMediaAudioChanged = CarPlayAudioOwnership::onMediaAudioChanged,
         )
     }
 
@@ -3039,6 +3042,8 @@ class CarPlayHostActivity : ComponentActivity() {
         // notes for the protocol).
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)
+        CarPlayAudioOwnership.onDiagnostic = { message -> appendLog(message) }
+        CarPlayAudioOwnership.attach(this, next)
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
             runOnUiThread {
                 shutdown(terminateProcess = false, reason = "DiPlay 断开连接", completion = completion)
@@ -3191,6 +3196,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldSink = sink
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         LeapmotorMediaKeys.detach(oldController)
+        CarPlayAudioOwnership.detach(oldController)
         controller = null
         sink = null
         teardownExecutor.execute {
@@ -3265,6 +3271,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldSink = sink
         CarPlayBackgroundSession.clear(oldController)
         LeapmotorMediaKeys.detach(oldController)
+        CarPlayAudioOwnership.detach(oldController)
         controller = null
         sink = null
         Log.i(TAG, "关闭 原因=$reason 结束进程=$terminateProcess")
