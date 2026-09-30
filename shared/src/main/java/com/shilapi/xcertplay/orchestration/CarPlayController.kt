@@ -1187,19 +1187,29 @@ class CarPlayController(
         if (!wirelessRunReachedHotspot) return
         val discoveryEvents = wirelessControlDiscoveryEvents.get()
         val airPlayConnections = wirelessAirPlayConnections.get()
+        // A session that already came up must never be reported as a handshake failure. This line
+        // also runs on a timer during a healthy session, and the run-80 report showed it claiming
+        // "问题在 AirPlay 握手" in a run whose own log carried handoff/complete and 23 fps video.
+        val sessionEstablished = wirelessActiveReported.get()
         val verdict = when {
+            sessionEstablished -> "session"
             airPlayConnections > 0 -> "carplay"
             discoveryEvents > 0 -> "connect"
             else -> "discovery"
         }
         val hint = when (verdict) {
+            "session" -> "；无线会话此前已建立（AirPlay 连接与蓝牙交接均完成），本行只是进行中的摘要"
             "discovery" -> "；手机从未连上 AirPlay 端口：看 group clients 判断手机有没有入网"
             "connect" -> "；已发现手机但连接被拒：比对 features 与 /info 的协议版本"
-            else -> "；发现与连接均正常：问题在 AirPlay 握手（/pair-* /auth-setup SETUP）"
+            else -> "；已连上 AirPlay 端口但会话未建立：问题在 AirPlay 握手（/pair-* /auth-setup SETUP）"
         }
         val stage = result?.let {
             "iap2Stage=${it.stage} carPlayStartSessions=${it.carPlayStartSessionsSent}"
-        } ?: "iap2Stage=unknown (会话被中途结束)"
+        } ?: if (sessionEstablished) {
+            "iap2Stage=session-established"
+        } else {
+            "iap2Stage=unknown (进行中摘要，尚未建立会话)"
+        }
         debugLog(
             "wireless bring-up verdict=$verdict " +
                 "discoveryEvents=$discoveryEvents airPlayConnections=$airPlayConnections " +

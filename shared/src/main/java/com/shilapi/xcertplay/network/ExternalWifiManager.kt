@@ -52,15 +52,32 @@ class ExternalWifiManager(
             "ExternalWifiManager.start must not run on the main thread"
         }
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
-        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
+        // A station connection is visible in connectionInfo the moment it exists, so waiting the
+        // full timeout only buys a slow, noisy retry loop in the one state the user has to fix by
+        // hand. The run-80 report showed exactly that: 201 rounds, one every 90 s for five hours,
+        // three ERROR lines each, while the car was simply not on any network.
+        val probeDeadline = System.nanoTime() +
+            minOf(STATION_PROBE_WINDOW_MILLIS, timeoutMillis) * 1_000_000
         var lastReason = "Wi-Fi station was not connected"
+        var announced = false
         while (true) {
             check(!closed) { "ExternalWifiManager is closed" }
             val live = readStationState()
             if (live != null) {
+                if (announced) onDiagnostic("External Wi-Fi station connected; proceeding")
                 return live
             }
-            if (System.nanoTime() >= deadline) {
+            lastReason = if (runCatching { wifiManager.isWifiEnabled }.getOrDefault(false)) {
+                "Wi-Fi is on but no network is connected"
+            } else {
+                "Wi-Fi is turned off"
+            }
+            // One line per attempt, not one per 250 ms poll.
+            if (!announced) {
+                announced = true
+                onDiagnostic("External Wi-Fi not connected ($lastReason); waiting for the car to join")
+            }
+            if (System.nanoTime() >= probeDeadline) {
                 throw IOException(
                     "外部 Wi-Fi 未连接：请先在车机设置中把车机连接到外部 Wi-Fi（$lastReason）",
                 )
@@ -144,5 +161,13 @@ class ExternalWifiManager(
 
     override fun close() {
         closed = true
+    }
+
+    private companion object {
+        /**
+         * How long to wait for a station connection before giving up. A connected station is
+         * reported immediately, so a short window is enough; the retry policy belongs to the caller.
+         */
+        const val STATION_PROBE_WINDOW_MILLIS = 3_000L
     }
 }

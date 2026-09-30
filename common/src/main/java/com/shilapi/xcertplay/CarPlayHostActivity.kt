@@ -13,6 +13,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -312,6 +313,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private var startAfterHandshakeReset = false
     private var restartGeneration = 0
     private var reconnectScheduled = false
+
+    /** Set while the external-Wi-Fi route waits for the car to join a network (see below). */
+    private var waitingForExternalWifi = false
     private var sessionLog: SessionLogFile? = null
     private var gestureSequenceActive = false
     private var gestureTracking = false
@@ -3154,6 +3158,14 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun reconnectAfterLoss(reason: String) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
+        if (containsAny(reason, "外部 Wi-Fi 未连接", "External Wi-Fi not connected")) {
+            // The external-Wi-Fi route needs a network only the user can join from the car
+            // settings, so a timed retry cannot fix it — the run-80 report spent five hours
+            // logging one failed round every 90 s (201 rounds, three ERROR lines each). Wait
+            // quietly for the station instead and continue the moment it comes up.
+            waitForExternalWifiAndRetry(reason)
+            return
+        }
         if (reconnectScheduled) return
         reconnectScheduled = true
         val generation = restartGeneration
@@ -3179,6 +3191,45 @@ class CarPlayHostActivity : ComponentActivity() {
             },
             delayMillis,
         )
+    }
+
+    /**
+     * Waits for the car to join a Wi-Fi network, then restarts CarPlay.
+     *
+     * Used by the external-Wi-Fi route, where the missing piece is a network only the user can
+     * join. A timed retry loop cannot fix that state and only produces noise, so this waits without
+     * logging and resumes as soon as the station comes up.
+     */
+    private fun waitForExternalWifiAndRetry(reason: String) {
+        if (waitingForExternalWifi) return
+        waitingForExternalWifi = true
+        setConnectionStage("请在车机设置中把车机连接到 Wi-Fi；连接后会自动继续")
+        appendLog("$reason；已暂停自动重试，等待车机连接外部 Wi-Fi")
+        mainHandler.post(
+            object : Runnable {
+                override fun run() {
+                    if (shuttingDown.get() || menuOpen || handshakeResetInProgress) {
+                        waitingForExternalWifi = false
+                        return
+                    }
+                    if (isWifiStationConnected()) {
+                        waitingForExternalWifi = false
+                        appendLog("检测到车机已连接 Wi-Fi，继续连接 CarPlay")
+                        restartCarPlay("车机已连接 Wi-Fi 后重连")
+                        return
+                    }
+                    mainHandler.postDelayed(this, EXTERNAL_WIFI_WAIT_POLL_MILLIS)
+                }
+            },
+        )
+    }
+
+    /** True when the car's Wi-Fi station currently has a usable network name. */
+    private fun isWifiStationConnected(): Boolean {
+        val wifi = applicationContext.getSystemService(WifiManager::class.java) ?: return false
+        val ssid = runCatching { wifi.connectionInfo?.ssid }.getOrNull()
+            ?.removePrefix("\"")?.removeSuffix("\"")
+        return !ssid.isNullOrEmpty() && ssid != "<unknown ssid>"
     }
 
     /** Full-stack fallback when an AirPlay-only reconnect is unavailable. */
@@ -3403,6 +3454,8 @@ class CarPlayHostActivity : ComponentActivity() {
         // Internal messages may still be English (thrown by the shared modules) or Chinese
         // (produced by the localised UI), so every branch matches both spellings.
         containsAny(message, "Turn on Wi-Fi", "打开 Wi-Fi") -> "请在车机设置中打开 Wi-Fi 以连接。"
+        containsAny(message, "连接到 Wi-Fi", "连接 Wi-Fi") ->
+            "请在车机设置中把车机连接到 Wi-Fi；连接后会自动继续。"
         containsAny(message, "Allow precise Location", "允许精确位置") -> "请在车机应用权限中为 DiPlay 允许精确位置。"
         containsAny(message, "Allow Nearby devices", "允许附近设备") -> "请在车机应用权限中为 DiPlay 允许“附近设备”。"
         containsAny(message, "createGroup failed", "创建 Wi-Fi Direct 组失败") -> "车机无法启动 CarPlay Wi-Fi。请检查 Wi-Fi 并关闭其他投屏应用。正在重试…"
@@ -3526,6 +3579,9 @@ class CarPlayHostActivity : ComponentActivity() {
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
         const val RECONNECT_DELAY_MILLIS = 2_000L
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
+
+        /** How often the external-Wi-Fi route re-checks whether the car joined a network. */
+        const val EXTERNAL_WIFI_WAIT_POLL_MILLIS = 5_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"

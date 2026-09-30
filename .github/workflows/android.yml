@@ -187,6 +187,18 @@ jobs:
           TAG="v2.0-${GITHUB_RUN_NUMBER}"
           NAME="DiPlay-2.0-${GITHUB_RUN_NUMBER}-${VARIANT}.apk"
           cp "$APK" "$NAME"
+          # The status page describes the current whole; the change log has to describe THIS
+          # build, so the commit message is appended automatically (a hand-written page alone
+          # ends up identical on every release).
+          {
+            cat RELEASE_NOTES.md
+            echo
+            echo "---"
+            echo
+            echo "## 本次构建（2.0（${GITHUB_RUN_NUMBER}）· ${VARIANT}）"
+            echo
+            git log -1 --pretty='%B'
+          } > "$RUNNER_TEMP/diplay-notes.md"
           gh release create "$TAG" "$NAME" \
             --title "DiPlay 2.0（${GITHUB_RUN_NUMBER}）· ${VARIANT}" \
-            --notes-file RELEASE_NOTES.md
+            --notes-file "$RUNNER_TEMP/diplay-notes.md"
