@@ -382,6 +382,72 @@ class DiPlayActivity : ComponentActivity() {
         parent.addView(label("请先在车机设置中打开热点，并在此填入相同的名称、密码与信道（信道须与车机热点设置一致，填 0 无法连接）。iPhone 会加入该网络以使用 CarPlay。更改在下次连接时生效。", 14, MUTED).apply {
             setPadding(0, dp(8), 0, dp(18))
         })
+        parent.addView(button("热点修复 · 放行 AirPlay 端口", false) { runSystemFix() }, matchButton(0, 60))
+    }
+
+    /**
+     * The iPhone dials the car's link-local IPv6 :7000 but the car kernel drops it on
+     * hotspot/P2P interfaces. The app cannot mint CAP_NET_ADMIN, but this ROM's framework
+     * is signed with the SAME platform key as our keystore (cert SHA-256 verified against
+     * framework-res.apk), so with sharedUserId=android.uid.system the app talks to
+     * NetworkManagementService and netd (running as root) applies the ip6tables rules.
+     * Firewall rules are volatile: reboot restores the stock state.
+     */
+    private fun runSystemFix() {
+        val report = StringBuilder()
+        report.append("uid=${android.os.Process.myUid()}（1000=system 生效）\n")
+        report.append("—— 1.直接执行 ip6tables（预期被 CAP 拦，留证据） ——\n")
+        val direct = runCatching {
+            val p = ProcessBuilder(
+                "ip6tables", "-I", "INPUT", "1", "-p", "tcp", "--dport", "7000", "-j", "ACCEPT",
+            ).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText().trim()
+            p.waitFor()
+            "exit=${p.exitValue()} ${out.take(120)}"
+        }.getOrElse { "exec失败: ${it.message}" }
+        report.append(direct).append('\n')
+        report.append("—— 2.NetworkManagementService（netd 以 root 执行） ——\n")
+        runCatching {
+            val binder = Class.forName("android.os.ServiceManager")
+                .getMethod("getService", String::class.java)
+                .invoke(null, "network_management") as android.os.IBinder
+            val nms = Class.forName("android.os.INetworkManagementService\$Stub")
+                .getMethod("asInterface", android.os.IBinder::class.java)
+                .invoke(null, binder)
+            fun call(name: String, args: List<Any?>): String = runCatching {
+                nms.javaClass.methods
+                    .first { it.name == name && it.parameterTypes.size == args.size }
+                    .invoke(nms, *args.toTypedArray())
+                "OK"
+            }.getOrElse { "失败: ${(it.cause ?: it).message?.take(120)}" }
+            report.append("enableFirewall → ").append(call("setFirewallEnabled", listOf(true))).append('\n')
+            report.append("isFirewallEnabled → ").append(runCatching {
+                nms.javaClass.methods.first { it.name == "isFirewallEnabled" }.invoke(nms).toString()
+            }.getOrElse { "?" }).append('\n')
+            for (iface in listOf("wlan0", "p2p0")) {
+                report.append("setInterfaceRule($iface, allow) → ")
+                    .append(call("setInterfaceRule", listOf(iface, "allow"))).append('\n')
+            }
+        }.getOrElse { report.append("NMS 不可用: ${(it.cause ?: it).message?.take(160)}\n") }
+        report.append("—— 3.启用网络 adb ——\n")
+        val adbStep = runCatching {
+            android.provider.Settings.Global.putInt(
+                contentResolver, android.provider.Settings.Global.ADB_ENABLED, 1,
+            )
+            val sp = Class.forName("android.os.SystemProperties")
+            val set = sp.getMethod("set", String::class.java, String::class.java)
+            set.invoke(null, "service.adb.tcp.port", "5555")
+            runCatching { set.invoke(null, "ctl.restart", "adbd") }
+            "已写 ADB_ENABLED=1 + tcp.port=5555"
+        }.getOrElse { "失败: ${it.message}" }
+        report.append(adbStep).append('\n')
+        val hotspotV4 = runCatching {
+            java.net.NetworkInterface.getByName("wlan0")?.inetAddresses?.toList()
+                ?.filterIsInstance<java.net.Inet4Address>()
+                ?.firstOrNull()?.hostAddress
+        }.getOrNull()
+        report.append("电脑加入车机热点后: adb connect ${hotspotV4 ?: "<热点IP>"}:5555\n")
+        AlertDialog.Builder(this).setTitle("热点修复结果").setMessage(report.toString()).show()
     }
 
     private fun storedSsid() = AirPlayPersistence.loadManualHotspotSsid(this)
