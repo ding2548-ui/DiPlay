@@ -6,6 +6,7 @@ import com.shilapi.xcertplay.iap2.message.Iap2WirelessSessionParameters
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
+import kotlin.math.min
 
 /**
  * The wireless LIVI control sequence after a CSM channel is ready:
