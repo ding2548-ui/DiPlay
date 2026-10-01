@@ -19,9 +19,8 @@ import com.shilapi.xcertplay.orchestration.CarPlayController
  *
  * Consumers:
  *  - 倒车（R）→ 暂停 CarPlay 音乐；退出 R → 恢复（仅当是本次倒车自己暂停的）。
- *  - 视频门控（iOS 27 video in car）：只有确认在 P 挡才允许视频。
- *    ⚠️ 0 同时表示"P"和"从未收到数据"，所以 [parked] 在收到任何档位数据前一律返回 null（禁止视频），
- *    避免把"无数据"误当驻车。
+ *  - 视频门控（iOS 27 video in car）：**零跑没有 P 挡读数，改为 N 挡（raw==2）允许视频**。
+ *    收到任何档位数据之前一律返回 null（禁止视频），避免把"无数据"误当可用。
  */
 internal object LeapmotorGearMonitor {
     private const val TAG = "DiPlay-Gear"
@@ -92,18 +91,20 @@ internal object LeapmotorGearMonitor {
         pausedByReverse = false
     }
 
-    /** Whether the car is in P (video allowed); null when no gear data ever arrived. */
-    fun parked(): Boolean? {
+    /** Whether video may play now (N 挡，零跑没有 P 挡读数); null when no gear data ever arrived. */
+    fun videoAllowed(): Boolean? {
         if (rawGear == -1) return null
-        return rawGear != GEAR_R && rawGear != GEAR_N && rawGear != GEAR_D
+        return rawGear == GEAR_N
     }
 
-    /** Current gear as P/R/N/D, or null without data. */
-    fun gearName(): String? = parked()?.let { if (it) "P" else when (rawGear) {
+    /** Current gear as R/N/D（零跑无 P 档读数，0 视为 N 以外的"未知"）, or null without data. */
+    fun gearName(): String? = when (rawGear) {
+        -1 -> null
         GEAR_R -> "R"
         GEAR_N -> "N"
-        else -> "D"
-    } }
+        GEAR_D -> "D"
+        else -> "?"
+    }
 
     private fun runPoll() {
         while (!Thread.currentThread().isInterrupted) {

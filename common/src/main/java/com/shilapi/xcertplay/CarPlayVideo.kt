@@ -16,10 +16,10 @@ import java.util.concurrent.Executors
 /**
  * iOS 27 video in car (see [VideoInCar]). The iPhone hands the car a media URL (insertPlayQueueItem)
  * and drives it (setRate, seek, stop); the car plays it in [CarPlayVideoActivity], which opens when the
- * iPhone sends requestUI "videoplayback:" and only while the car is in P.
+ * iPhone sends requestUI "videoplayback:" and only while the car is in N (Leapmotor has no P).
  *
- * The parked state comes from [LeapmotorGearMonitor] (the Leapmotor CAN broadcast), replacing the
- * upstream BYD ADB source.
+ * The video-allowed state comes from [LeapmotorGearMonitor] (the Leapmotor CAN broadcast, N 挡),
+ * replacing the upstream BYD parked source; Leapmotor gates on N instead of P.
  */
 internal object CarPlayVideo : CarPlayVideoListener {
     private const val TAG = "DiPlay-Video"
@@ -56,10 +56,10 @@ internal object CarPlayVideo : CarPlayVideoListener {
         stop()
     }
 
-    override fun readParked(): Boolean? = LeapmotorGearMonitor.parked()
+    override fun readVideoAllowed(): Boolean? = LeapmotorGearMonitor.videoAllowed()
 
     override fun onVideoAllowedChanged(allowed: Boolean) {
-        if (!allowed) main.post { closePlayer("the car left P") }
+        if (!allowed) main.post { closePlayer("the car left N") }
     }
 
     override fun onVideoSessionEnded() {
@@ -110,7 +110,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
         stop()
     }
 
-    /** The player closed on the car (Back, or the car left P): pause, so the iPhone shows it paused. */
+    /** The player closed on the car (Back, or the car left N): pause, so the iPhone shows it paused. */
     fun onPlayerClosed(positionMillis: Int?) {
         positionMillis?.let { startMillis = it }
         if (playing) setPlaying(false)
@@ -174,7 +174,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
         val context = appContext ?: return
         when {
             url == null -> Log.w(TAG, "video player requested without a playable item")
-            !VideoInCar.allowed -> Log.w(TAG, "video player requested while not parked")
+            !VideoInCar.allowed -> Log.w(TAG, "video player requested while not in N")
             activity != null -> Unit
             else -> context.startActivity(
                 Intent(context, CarPlayVideoActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),

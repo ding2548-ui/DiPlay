@@ -33,7 +33,7 @@ object VideoInCar {
     const val ERROR_DECODER = -12911
     const val ERROR_INCOMPATIBLE_ASSET = -12927
 
-    /** Whether video may play now; the host sets it from the car's gear (P only). */
+    /** Whether video may play now; the host sets it from the car's gear (Leapmotor: N). */
     @Volatile var allowed = false
 
     /** Bits the AirPlay web app's manifest adds to the legacy feature bits (featureList.additionalAirPlayFeatures). */

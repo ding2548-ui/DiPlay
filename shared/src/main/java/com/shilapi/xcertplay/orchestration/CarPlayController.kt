@@ -401,7 +401,7 @@ class CarPlayController(
             if (closed) return
         }
         videoListener?.let { listener ->
-            videoGate = VideoInCarGate(listener::readParked) { allowed ->
+            videoGate = VideoInCarGate(listener::readVideoAllowed) { allowed ->
                 val sent = activeSession?.setVideoPlaybackAllowed(allowed)
                 debugLog("video in car allowed=$allowed sent=${sent ?: "no session"}")
                 listener.onVideoAllowedChanged(allowed)

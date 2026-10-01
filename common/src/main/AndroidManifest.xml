@@ -43,7 +43,7 @@
             android:exported="false"
             android:theme="@style/Theme.Xcertplay" />
 
-        <!-- iOS 27 video in car: the car's own full-screen player (only while parked, in P). -->
+        <!-- iOS 27 video in car: the car's own full-screen player (only while in N; Leapmotor has no P). -->
         <activity
             android:name="com.shilapi.xcertplay.CarPlayVideoActivity"
             android:exported="false"
