@@ -128,6 +128,7 @@ object BplistCodec {
 
         return when (type) {
             0x0 -> when (nibble) {
+                0x00 -> null
                 0x08 -> false
                 0x09 -> true
                 else -> throw IllegalArgumentException("bplist: unsupported primitive 0x0$nibble")
@@ -144,10 +145,16 @@ object BplistCodec {
                     else -> throw IllegalArgumentException("bplist: unsupported real size $size")
                 }
             }
+            // Date: 8-byte real, seconds since 2001-01-01 UTC.
+            0x3 -> java.util.Date(
+                Math.round((Double.fromBits(readBigEndianLong(bytes, position.toLong(), 8)) + APPLE_EPOCH_SECONDS) * 1000),
+            )
             0x4 -> {
                 val count = readCount()
                 bytes.copyOfRange(position, position + count)
             }
+            // UID (keyed archives): its integer value.
+            0x8 -> readBigEndianLong(bytes, position.toLong(), nibble + 1)
             0x5 -> {
                 val count = readCount()
                 String(bytes, position, count, Charsets.US_ASCII)
@@ -156,7 +163,7 @@ object BplistCodec {
                 val count = readCount()
                 String(bytes, position, count * 2, Charsets.UTF_16BE)
             }
-            0xa -> {
+            0xa, 0xc -> {
                 val count = readCount()
                 val array = ArrayList<Any?>(count)
                 for (i in 0 until count) {
@@ -271,4 +278,6 @@ object BplistCodec {
     private sealed class Node
     private class Leaf(val body: ByteArray) : Node()
     private class Container(val head: ByteArray, val refs: IntArray) : Node()
+
+    private const val APPLE_EPOCH_SECONDS = 978_307_200.0
 }

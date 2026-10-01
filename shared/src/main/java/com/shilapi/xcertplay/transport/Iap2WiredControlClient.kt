@@ -7,7 +7,6 @@ import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import java.net.Inet6Address
 import java.net.InetAddress
-import kotlin.math.min
 
 /**
  * The wired LIVI control sequence after a CSM channel is ready:
@@ -53,23 +52,15 @@ class Iap2WiredControlClient(
 
         var forwardedFrames = 0
         var carPlayStartSessions = 0
-        var locationActive = false
-        var locationSentLogged = false
+        val location = Iap2LocationReporter(locationProvider, onProgress)
         try {
             while (true) {
                 val remaining = remainingMillis(deadlineNanos)
                 if (remaining == 0L) {
                     return Iap2WiredControlResult(Iap2WiredControlTerminal.TIMED_OUT, stage, forwardedFrames, carPlayStartSessions)
                 }
-                if (locationActive && sendLatestLocation(locationProvider, deadlineNanos) && !locationSentLogged) {
-                    locationSentLogged = true
-                    onProgress("iap2 tx=0xfffb location-information")
-                }
-                val pollTimeout = if (locationActive) {
-                    min(remaining, LOCATION_POLL_INTERVAL_MILLIS)
-                } else {
-                    remaining
-                }
+                location.tick { send(it, deadlineNanos) }
+                val pollTimeout = location.pollTimeout(remaining)
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
                     if (session.isClosed) {
@@ -103,21 +94,8 @@ class Iap2WiredControlClient(
                         onProgress("iap2 tx=0x4301 carplay-start-session")
                     }
 
-                    Iap2LocationMessages.START_LOCATION_INFORMATION -> {
-                        onProgress("iap2 rx=0xfffa start-location-information")
-                        locationActive = startLocationUpdates(locationProvider, onProgress)
-                        locationSentLogged = false
-                        if (locationActive && sendLatestLocation(locationProvider, deadlineNanos)) {
-                            locationSentLogged = true
-                            onProgress("iap2 tx=0xfffb location-information")
-                        }
-                    }
-
-                    Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
-                        onProgress("iap2 rx=0xfffc stop-location-information")
-                        locationActive = false
-                        locationSentLogged = false
-                        locationProvider?.stop()
+                    Iap2LocationMessages.START_LOCATION_INFORMATION, Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
+                        location.handle(incoming) { send(it, deadlineNanos) }
                     }
 
                     else -> {
@@ -136,38 +114,10 @@ class Iap2WiredControlClient(
         session.send(frame, requireRemaining(deadlineNanos))
     }
 
-    private fun sendLatestLocation(
-        provider: Iap2LocationProvider?,
-        deadlineNanos: Iap2ControlDeadline,
-    ): Boolean {
-        val sentence = provider?.latestNmea() ?: return false
-        session.send(
-            Iap2LocationMessages.locationInformation(sentence),
-            requireRemaining(deadlineNanos),
-        )
-        return true
-    }
-
-    private fun startLocationUpdates(
-        provider: Iap2LocationProvider?,
-        onProgress: (String) -> Unit,
-    ): Boolean {
-        if (provider == null) return false
-        return try {
-            provider.start().also { started ->
-                if (!started) onProgress("iap2 location provider did not start")
-            }
-        } catch (error: Exception) {
-            onProgress("iap2 location provider start failed: ${error.message}")
-            false
-        }
-    }
-
     companion object {
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
         private const val CARPLAY_AVAILABILITY = 0x4300
         private const val CARPLAY_START_SESSION = 0x4301
-        private const val LOCATION_POLL_INTERVAL_MILLIS = 1_000L
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         private const val MAX_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L
         private const val MAX_RECV_TIMEOUT_MILLIS = 5 * 60 * 1_000L

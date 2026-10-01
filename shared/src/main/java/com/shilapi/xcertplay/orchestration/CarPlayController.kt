@@ -58,6 +58,7 @@ import com.shilapi.xcertplay.transport.Ch341UsbHost
 import com.shilapi.xcertplay.transport.Ch341UsbSession
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.Iap2LocationProvider
+import com.shilapi.xcertplay.transport.Iap2LocationRequest
 import com.shilapi.xcertplay.transport.Iap2UsbMuxHost
 import com.shilapi.xcertplay.transport.Iap2UsbSession
 import com.shilapi.xcertplay.transport.Iap2WiredCarPlayEndpoint
@@ -238,6 +239,7 @@ class CarPlayController(
     @Volatile private var wirelessTunnelChannel: Iap2Session? = null
     @Volatile private var wirelessIdentification: Iap2IdentificationConfig? = null
     @Volatile private var wirelessAirPlayEndpoint: Iap2WirelessCarPlayEndpoint? = null
+    @Volatile private var wirelessLocationRequest = Iap2LocationRequest()
     @Volatile private var vpnService: CarPlayVpnService? = null
     @Volatile private var vpnBound = false
     private val wirelessHandoffRequested = AtomicBoolean(false)
@@ -1096,6 +1098,7 @@ class CarPlayController(
             )
             wirelessIdentification = identification
             wirelessAirPlayEndpoint = endpoint
+            wirelessLocationRequest = Iap2LocationRequest()
             media.setIapTunnelHandler(::startWirelessTunnelControl)
 
             onStatus(CarPlayStatus.RunningWireless)
@@ -1108,6 +1111,7 @@ class CarPlayController(
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
+                locationRequest = wirelessLocationRequest,
                 onIncoming = ::onRouteFrame,
                 onProgress = ::debugLog,
             )
@@ -1320,6 +1324,9 @@ class CarPlayController(
                         endpoint = endpoint,
                         timeoutMillis = Iap2WirelessControlClient.NO_TIMEOUT_MILLIS,
                         locationProvider = locationProvider,
+                        // The iPhone asks for location only on the Bluetooth link (see Iap2LocationRequest).
+                        locationRequest = wirelessLocationRequest,
+                        continueLocationRequest = true,
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
@@ -1426,6 +1433,17 @@ class CarPlayController(
                     !wirelessHandoffRequested.get() ||
                     wirelessActiveReported.get()
                 ) {
+                    return@postDelayed
+                }
+                if (!wirelessConnectionProof.hasRenderedFrame(generation)) {
+                    // No frame ever rendered: the session never really came up, so teardown-and-retry
+                    // is the right response (upstream 0.2.8 gate).
+                    debugLog(
+                        "wireless handoff timed out with no rendered frame; " +
+                            "restarting the wireless stack",
+                    )
+                    closeWirelessStack()
+                    fail(IOException("Wireless CarPlay handoff timed out waiting for tunnel iAP2"))
                     return@postDelayed
                 }
                 debugLog(
@@ -1757,8 +1775,9 @@ class CarPlayController(
             val carkit = try {
                 carKitClient.open(pairRecord, config.label)
             } catch (error: Throwable) {
-                if (!isInvalidPairRecord(error)) throw error
-                debugLog("saved Lockdown pair record rejected; pairing again")
+                val rejection = rejectedPairRecordError(error)
+                if (savedPairRecord == null || rejection == null) throw error
+                debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
                 clearPairRecord()
                 pairRecord = pairNewRecord(pairingClient)
                 carKitClient.open(pairRecord, config.label)
@@ -1859,13 +1878,15 @@ class CarPlayController(
             isCancelled = { closed },
         ).pairRecord.also(savePairRecord)
 
-    private fun isInvalidPairRecord(error: Throwable): Boolean {
+    private fun rejectedPairRecordError(error: Throwable): String? {
         var cause: Throwable? = error
         while (cause != null) {
-            if (cause.message?.contains("InvalidPairRecord", ignoreCase = true) == true) return true
+            val message = cause.message.orEmpty()
+            if (message.contains("InvalidPairRecord", ignoreCase = true)) return "InvalidPairRecord"
+            if (message.contains("InvalidHostID", ignoreCase = true)) return "InvalidHostID"
             cause = cause.cause
         }
-        return false
+        return null
     }
 
     private fun isBluetoothHandoffCommand(type: String): Boolean =

@@ -385,6 +385,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         initializeSessionLog()
+        // Forensic probe for the car's own vehicle-data bus (car.meter.caninfo/carinfo): the first
+        // drive that engages reverse tells us whether the ICU exposes a gear field to apps.
+        LeapmotorCanInfoProbe.onDiagnostic = { message -> appendLog(message) }
+        LeapmotorCanInfoProbe.attach(this)
         darkMode = isDarkMode(resources.configuration.uiMode)
         advancedAudioChannelMappingSupported =
             resources.getBoolean(R.bool.config_advanced_audio_channel_mapping)
@@ -610,6 +614,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         currentSurface = null
         currentSurfaceTexture = null
+        LeapmotorCanInfoProbe.detach(this)
         sessionLog?.append("界面已销毁")
         sessionLog?.close()
         sessionLog = null
