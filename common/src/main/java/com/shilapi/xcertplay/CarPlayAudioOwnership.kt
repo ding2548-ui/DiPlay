@@ -131,6 +131,9 @@ internal object CarPlayAudioOwnership {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(attributes)
                 .setOnAudioFocusChangeListener { change ->
+                    // Forensics: the run-80-era question is what the car does to audio when the
+                    // driver engages reverse. Record every change into the diagnostic report.
+                    report("audio focus change=$change")
                     // A permanent loss moves the keys elsewhere; transient losses come back.
                     if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
                 }
@@ -141,6 +144,7 @@ internal object CarPlayAudioOwnership {
             @Suppress("DEPRECATION")
             manager.requestAudioFocus(
                 { change ->
+                    report("audio focus change=$change")
                     if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
                 },
                 AudioManager.STREAM_MUSIC,

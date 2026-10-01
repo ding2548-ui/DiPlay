@@ -22,6 +22,7 @@ internal object LeapmotorCanInfoProbe {
     private const val MAX_REPORTED = 30
     private const val ACTION_CANINFO = "car.meter.caninfo.BROADCAST"
     private const val ACTION_CARINFO = "car.meter.carinfo.BROADCAST"
+    private const val ACTION_NOISY = "android.media.AUDIO_BECOMING_NOISY"
 
     private val seen = HashSet<String>()
     private var reported = 0
@@ -34,6 +35,12 @@ internal object LeapmotorCanInfoProbe {
         override fun onReceive(context: Context, intent: Intent) {
             if (reported >= MAX_REPORTED) return
             val action = intent.action ?: return
+            if (action == ACTION_NOISY) {
+                // Fired by the system just before noisy audio starts (radar beeps while
+                // reversing) — the standard hook players use to pause themselves.
+                report("audio becoming noisy (system pre-noise event)")
+                return
+            }
             val payload = intent.getByteArrayExtra("receiver")
             if (payload == null) {
                 report("$action receiver extra missing")
@@ -62,6 +69,7 @@ internal object LeapmotorCanInfoProbe {
         val filter = IntentFilter().apply {
             addAction(ACTION_CANINFO)
             addAction(ACTION_CARINFO)
+            addAction(ACTION_NOISY)
         }
         runCatching { context.applicationContext.registerReceiver(receiver, filter) }
             .onFailure { report("register failed: ${it.message}") }
