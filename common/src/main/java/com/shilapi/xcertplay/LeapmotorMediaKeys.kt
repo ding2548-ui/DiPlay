@@ -141,6 +141,11 @@ internal object LeapmotorMediaKeys {
             report("media key ignored (no CarPlay session) action=$action")
             return false
         }
+        // While the iOS 27 video player is on screen the keys drive it (skip / pause), not CarPlay.
+        if (CarPlayVideo.onMediaKey(mapped)) {
+            report("media key source=$source action=$action -> video player $mapped")
+            return true
+        }
         // A duplicate DOWN/UP pair from the car would otherwise jump two tracks.
         val now = SystemClock.uptimeMillis()
         val label = "$action=$mapped"

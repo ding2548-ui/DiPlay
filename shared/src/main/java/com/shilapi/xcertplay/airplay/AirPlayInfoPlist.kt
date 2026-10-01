@@ -61,6 +61,11 @@ object AirPlayInfoPlist {
             info["audioLatencies"] = audioLatencies()
             info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone)
         }
+        if (config.videoInCar) {
+            // The iPhone tears down a session that enables videoPlayback without this key.
+            val legacy = if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES
+            info["videoPlaybackInfo"] = VideoInCar.info(legacy, VideoInCar.allowed)
+        }
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
         info["hidDevices"] = listOf(

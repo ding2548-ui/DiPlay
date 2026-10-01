@@ -92,6 +92,13 @@ class CarPlayVpnService : VpnService() {
             val tunFd = Builder()
                 .addAddress(linkLocal, LINK_PREFIX)
                 .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+                // The VPN only carries the link-local IPv6 route, but Android's leak-prevention
+                // blocks every address family the VPN does not configure for all covered apps
+                // (everyone but us). Without this line the head unit's own IPv4 internet died the
+                // moment the wired VPN came up and returned only when the cable was unplugged.
+                // allowFamily(AF_INET) explicitly lets IPv4 traffic of other apps use the
+                // underlying network (API 21+, Android 7 included).
+                .allowFamily(AF_INET)
                 .setSession(SESSION_NAME)
                 .setMtu(TUN_MTU)
                 .setBlocking(true)
@@ -355,6 +362,8 @@ class CarPlayVpnService : VpnService() {
         private const val LINK_LOCAL_ROUTE = "fe80::"
         private const val SESSION_NAME = "xcertplay CarPlay"
         private const val TUN_MTU = 1500
+        /** IPv4 address family for [android.net.VpnService.Builder.allowFamily]. */
+        private const val AF_INET = 2 // OsConstants.AF_INET
 
         /** Returns the VPN consent intent, or null when consent is already granted. */
         fun prepare(context: Context): Intent? = VpnService.prepare(context)

@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">DiPlay</string>
+    <string name="video_back_to_carplay">返回 CarPlay</string>
+    <string name="video_play">播放</string>
+    <string name="video_pause">暂停</string>
+    <string name="video_cannot_play">该视频无法在车机播放（可能受版权保护）</string>
 </resources>

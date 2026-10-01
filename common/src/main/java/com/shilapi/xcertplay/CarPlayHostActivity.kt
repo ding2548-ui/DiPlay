@@ -2663,6 +2663,7 @@ class CarPlayHostActivity : ComponentActivity() {
             model = normalizedModel(),
             oemLabel = oemLabel,
             icons = listOf(loadAirPlayIcon()),
+            videoInCar = true,
         )
     }
 
@@ -3051,8 +3052,15 @@ class CarPlayHostActivity : ComponentActivity() {
         // notes for the protocol).
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)
+        // Leapmotor gear (P/R/N/D) via the CAN server broadcast: reverse pauses CarPlay music, and
+        // P gates the iOS 27 video in car player.
+        LeapmotorGearMonitor.onDiagnostic = { message -> appendLog(message) }
+        LeapmotorGearMonitor.attach(this, next)
         CarPlayAudioOwnership.onDiagnostic = { message -> appendLog(message) }
         CarPlayAudioOwnership.attach(this, next)
+        // iOS 27 video in car (VideoInCar): only offers itself to the iPhone because
+        // airPlayConfig.videoInCar is true; playback is gated to P by LeapmotorGearMonitor.
+        CarPlayVideo.attach(this, next)
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
             runOnUiThread {
                 shutdown(terminateProcess = false, reason = "DiPlay 断开连接", completion = completion)
@@ -3252,6 +3260,8 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldSink = sink
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         LeapmotorMediaKeys.detach(oldController)
+        LeapmotorGearMonitor.detach(oldController)
+        CarPlayVideo.detach(oldController)
         CarPlayAudioOwnership.detach(oldController)
         controller = null
         sink = null
@@ -3327,6 +3337,8 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldSink = sink
         CarPlayBackgroundSession.clear(oldController)
         LeapmotorMediaKeys.detach(oldController)
+        LeapmotorGearMonitor.detach(oldController)
+        CarPlayVideo.detach(oldController)
         CarPlayAudioOwnership.detach(oldController)
         controller = null
         sink = null
