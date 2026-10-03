@@ -3074,6 +3074,10 @@ class CarPlayHostActivity : ComponentActivity() {
         // LeapmotorMediaKeys turns each press into a CarPlay media HID press (see the reference
         // notes for the protocol).
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
+        LearnedWheelKeys.onDiagnostic = { message -> appendLog(message) }
+        BluetoothAudioHandoff.onDiagnostic = { message -> appendLog(message) }
+        OemEnvironment.onDiagnostic = { message -> appendLog(message) }
+        OemEnvironment.probe(this)
         LeapmotorMediaKeys.attach(this, next)
         // Leapmotor gear (P/R/N/D) via the CAN server broadcast: reverse pauses CarPlay music, and
         // P gates the iOS 27 video in car player.

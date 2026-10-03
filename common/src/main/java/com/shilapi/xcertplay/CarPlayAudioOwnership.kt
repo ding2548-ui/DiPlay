@@ -74,6 +74,9 @@ internal object CarPlayAudioOwnership {
 
     private fun acquireLocked() {
         val manager = audioManager ?: return
+        // CarPlay now carries the audio: drop the phone's Bluetooth audio profiles so the
+        // sound cannot keep leaking through the car's A2DP sink (beta feature, toggleable).
+        appContext?.let { BluetoothAudioHandoff.onCarPlayMediaActive(it) }
         if (!focusHeld) {
             focusHeld = requestFocus(manager)
             report("audio focus request granted=$focusHeld")

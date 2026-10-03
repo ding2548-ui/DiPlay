@@ -1,7 +1,7 @@
 name: Android checks
 on:
   push:
-    branches: [main, leapmotor]
+    branches: [main, leapmotor, beta]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -172,7 +172,7 @@ jobs:
         if: env.DIPLAY_RELEASE_ENABLED == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: diplay-release-apk-${{ github.ref_name == 'leapmotor' && 'leapmotor' || 'BYD' }}
+          name: diplay-release-apk-${{ github.ref_name == 'leapmotor' && 'leapmotor' || github.ref_name == 'beta' && 'beta' || 'BYD' }}
           path: mobile/build/outputs/apk/release/*.apk
           if-no-files-found: warn
       - name: Publish GitHub release
@@ -182,10 +182,22 @@ jobs:
         run: |
           set -euo pipefail
           APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
-          VARIANT="BYD"
-          if [ "${GITHUB_REF_NAME}" = "leapmotor" ]; then VARIANT="leapmotor"; fi
-          TAG="v2.0-${GITHUB_RUN_NUMBER}"
-          NAME="DiPlay-2.0-${GITHUB_RUN_NUMBER}-${VARIANT}.apk"
+          # The beta branch is an experimental test line: its releases use their own tag
+          # namespace (v2.10-beta-NN) so the in-app updater of either variant can never
+          # pick up the other variant's APK through /releases/latest.
+          if [ "${GITHUB_REF_NAME}" = "beta" ]; then
+            TAG="v2.10-beta-${GITHUB_RUN_NUMBER}"
+            NAME="DiPlay-2.10-beta-${GITHUB_RUN_NUMBER}.apk"
+            TITLE="DiPlay 2.10（${GITHUB_RUN_NUMBER}）· beta 测试版（实验功能，未经长期验证）"
+          elif [ "${GITHUB_REF_NAME}" = "leapmotor" ]; then
+            TAG="v2.0-${GITHUB_RUN_NUMBER}"
+            NAME="DiPlay-2.0-${GITHUB_RUN_NUMBER}-leapmotor.apk"
+            TITLE="DiPlay 2.0（${GITHUB_RUN_NUMBER}）· leapmotor"
+          else
+            TAG="v2.0-${GITHUB_RUN_NUMBER}"
+            NAME="DiPlay-2.0-${GITHUB_RUN_NUMBER}-BYD.apk"
+            TITLE="DiPlay 2.0（${GITHUB_RUN_NUMBER}）· BYD"
+          fi
           cp "$APK" "$NAME"
           # The status page describes the current whole; the change log has to describe THIS
           # build, so the commit message is appended automatically (a hand-written page alone
@@ -195,10 +207,11 @@ jobs:
             echo
             echo "---"
             echo
-            echo "## 本次构建（2.0（${GITHUB_RUN_NUMBER}）· ${VARIANT}）"
+            echo "## 本次构建（${GITHUB_RUN_NUMBER}）"
             echo
             git log -1 --pretty='%B'
           } > "$RUNNER_TEMP/diplay-notes.md"
           gh release create "$TAG" "$NAME" \
-            --title "DiPlay 2.0（${GITHUB_RUN_NUMBER}）· ${VARIANT}" \
-            --notes-file "$RUNNER_TEMP/diplay-notes.md"
+            --title "$TITLE" \
+            --notes-file "$RUNNER_TEMP/diplay-notes.md" \
+            --prerelease

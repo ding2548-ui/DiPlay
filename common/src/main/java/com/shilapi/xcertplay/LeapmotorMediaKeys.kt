@@ -93,6 +93,7 @@ internal object LeapmotorMediaKeys {
         val application = context.applicationContext
         appContext = application
         controller = next
+        LearnedWheelKeys.attach(application, next)
         if (receiver != null) return
         val filter = IntentFilter().apply { LeapmotorMediaProtocol.ACTIONS.forEach(::addAction) }
         val created = object : BroadcastReceiver() {
@@ -113,6 +114,7 @@ internal object LeapmotorMediaKeys {
     fun detach(expected: CarPlayController?) {
         if (expected != null && controller !== expected) return
         controller = null
+        LearnedWheelKeys.detach(expected)
         receiver?.let { active ->
             runCatching { appContext?.unregisterReceiver(active) }
             receiver = null
@@ -122,9 +124,30 @@ internal object LeapmotorMediaKeys {
 
     /** Exposed for the in-app self test and unit tests. */
     fun dispatch(action: String?, source: String): Boolean {
-        val mapped = CarPlayButton.forLeapmotorAction(action)
         val active = controller
         if (action.isNullOrBlank()) return false
+        // The learning dialog consumes the next press as its capture input.
+        if (LearnedWheelKeys.isCapturing() &&
+            LearnedWheelKeys.onKey(WheelBinding.CAR_PREFIX + action.trim())
+        ) {
+            return true
+        }
+        // User-learned bindings win over the built-in per-car table.
+        val learned = LearnedWheelKeys.learnedCarButton(action)
+        if (learned != null) {
+            if (active == null) {
+                report("learned key ignored (no CarPlay session) action=$action")
+                return false
+            }
+            if (CarPlayVideo.onMediaKey(learned)) {
+                report("media key source=$source action=$action -> learned video player $learned")
+                return true
+            }
+            val learnedSent = active.sendMediaButton(learned)
+            report("media key source=$source action=$action -> learned $learned sent=$learnedSent")
+            return learnedSent
+        }
+        val mapped = CarPlayButton.forLeapmotorAction(action)
         if (!CarPlayButton.isWheelAction(action)) {
             // The car's own commands (its `pause` when another app takes focus, its echoes of what
             // we sent) share this bus. Forwarding them paused CarPlay itself; drop them and keep the

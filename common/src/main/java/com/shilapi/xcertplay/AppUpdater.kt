@@ -16,9 +16,9 @@ object AppUpdater {
     private const val REPO = "ding2548-ui/DiPlay"
     private const val PREFS = "diplay"
     private const val SOURCE_KEY = "update_source"
-    private const val ASSET_PREFIX = "DiPlay-2.0-"
-    private const val ASSET_SUFFIX = "-leapmotor.apk"
-    private const val TAG_PATTERN = "v2.0-"
+    private const val ASSET_PREFIX = "DiPlay-2.10-beta-"
+    private const val ASSET_SUFFIX = ".apk"
+    private const val TAG_PATTERN = "v2.10-beta-"
     private const val CONNECT_TIMEOUT = 10_000
     private const val READ_TIMEOUT = 20_000
 
@@ -98,7 +98,7 @@ object AppUpdater {
     fun assetName(build: Int) = "$ASSET_PREFIX$build$ASSET_SUFFIX"
 
     fun downloadApk(context: Context, build: Int, source: String, onProgress: (Int, Int) -> Unit): File {
-        val path = "github.com/$REPO/releases/download/v2.0-$build/${assetName(build)}"
+        val path = "github.com/$REPO/releases/download/v2.10-beta-$build/${assetName(build)}"
         val connection = open(source, path, redirectless = false)
         val directory = context.getExternalFilesDir(null) ?: context.filesDir
         val temporary = File(directory, "${assetName(build)}.part")

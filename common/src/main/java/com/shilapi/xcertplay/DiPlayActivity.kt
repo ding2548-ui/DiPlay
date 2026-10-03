@@ -210,6 +210,13 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button("选择 iPhone · ${DiPlayPreferences.phoneName(this)}", false) { choosePhone() }, matchButton(12, 60))
         }
         section(content, "无线连接") { card -> wirelessLinkControls(card) }
+        section(content, "方控学习 · beta 实验") { card -> wheelLearningControls(card) }
+        section(content, "蓝牙接管 · beta 实验") { card ->
+            toggle(card, "CarPlay 接管时断开车机蓝牙音频",
+                "CarPlay 出声时主动断开手机的 A2DP / 通话音频 profile（只断连接，不断配对），" +
+                    "避免画面在 CarPlay、声音还走车机蓝牙。关闭后沿用音频焦点压制。",
+                DiPlayPreferences.a2dpHandoff(this)) { DiPlayPreferences.saveA2dpHandoff(this, it) }
+        }
         section(content, "显示与性能") { card ->
             carPlaySizeControl(card)
             choice(card, "分辨率", listOf("Native", "80% · 负载更轻", "60% · 负载最轻"), listOf(10, 8, 6).indexOf(AirPlayPersistence.loadDisplayScaleTenths(this)).coerceAtLeast(0)) { AirPlayPersistence.saveDisplayScaleTenths(this, listOf(10, 8, 6)[it]) }
@@ -264,6 +271,45 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, "得益于开源") { card ->
             card.addView(label("接收端基于 xcertplay，遵循 GPL-3.0 许可。DiPlay 的界面沿用 DiAuto 的设计，遵循 AGPL-3.0 许可。\n\n包含 AndroidX、Bouncy Castle、JmDNS 与 SLF4J。随版本附有源码与许可声明。\n\nCarPlay 及 CarPlay 图标归 Apple Inc. 所有。DiPlay 是独立项目。", 16, MUTED))
+        }
+    }
+
+    /** Beta: per-action steering wheel learning, ported from EasyPlay. */
+    private fun wheelLearningControls(card: LinearLayout) {
+        card.addView(label(
+            "按一次车上的按键，把它绑定到下面的动作。只有学习过的键会被转发给 CarPlay，" +
+                "未学习的键一律忽略。学习按键支持媒体按键广播与零跑车机广播两种来源。",
+            14, MUTED,
+        ))
+        val bindings = WheelLearningStore.load(this)
+        var top = 16
+        for (action in WheelAction.entries) {
+            val binding = bindings.firstOrNull { it.action == action }
+            card.addView(button("${action.label} · ${binding?.label() ?: "未学习"}", false) {
+                startWheelLearning(action)
+            }, matchButton(top, 60))
+            top = 10
+        }
+        card.addView(button("清除全部方控学习", false) {
+            WheelLearningStore.clear(this)
+            toast("已清除全部方控学习")
+            render()
+        }, matchButton(10, 60))
+    }
+
+    private fun startWheelLearning(action: WheelAction) {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("${action.label} · 方控学习")
+            .setMessage("请按一次车上的按键。\n\n只记录按键，不改动任何配对；按“取消”放弃。")
+            .setNegativeButton("取消") { _, _ -> LearnedWheelKeys.cancelCapture() }
+            .show()
+        LearnedWheelKeys.beginCapture(this) { id ->
+            runCatching { dialog.dismiss() }
+            val bindings = WheelLearningStore.load(this)
+                .filter { it.action != action && it.id != id } + WheelBinding(id, action)
+            if (WheelLearningStore.save(this, bindings)) toast("已学习：${action.label} ← ${WheelBinding(id, action).label()}")
+            else toast("无法保存方控设置，请重试")
+            render()
         }
     }
 
