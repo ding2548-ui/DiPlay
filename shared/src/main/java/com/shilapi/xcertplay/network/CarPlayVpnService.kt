@@ -89,20 +89,26 @@ class CarPlayVpnService : VpnService() {
             }
             require(hostMac.size == 6) { "hostMac must be 6 bytes" }
 
-            val tunFd = Builder()
+            val builder = Builder()
                 .addAddress(linkLocal, LINK_PREFIX)
                 .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
                 // The VPN only carries the link-local IPv6 route, but Android's leak-prevention
-                // blocks every address family the VPN does not configure for all covered apps
-                // (everyone but us). Without this line the head unit's own IPv4 internet died the
-                // moment the wired VPN came up and returned only when the cable was unplugged.
-                // allowFamily(AF_INET) explicitly lets IPv4 traffic of other apps use the
-                // underlying network (API 21+, Android 7 included).
+                // blocks every address family the VPN does not configure for all covered apps.
+                // Without this line the head unit's own IPv4 internet died the moment the wired
+                // VPN came up and returned only when the cable was unplugged. allowFamily(AF_INET)
+                // explicitly lets IPv4 traffic use the underlying network (API 21+, Android 7
+                // included).
                 .allowFamily(AF_INET)
                 .setSession(SESSION_NAME)
                 .setMtu(TUN_MTU)
                 .setBlocking(true)
-                .establish()
+            // Only this app's own link-local traffic needs the TUN. Covering every app swallowed
+            // other apps' link-local IPv6 (the FeiNiu NAS app, com.trim.app, lost its network
+            // whenever the wired VPN was up). Whitelisting this package puts every other app
+            // completely outside the VPN.
+            runCatching { builder.addAllowedPackage(packageName) }
+                .onFailure { Log.w(TAG, "vpn self allowlist failed: ${it.message}") }
+            val tunFd = builder.establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
             Log.i(TAG, "vpn tun established address=$linkLocal mtu=$TUN_MTU")

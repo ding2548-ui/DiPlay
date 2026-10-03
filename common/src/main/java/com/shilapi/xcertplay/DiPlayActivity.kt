@@ -13,6 +13,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -411,11 +412,19 @@ class DiPlayActivity : ComponentActivity() {
                         1 -> WirelessHotspotMode.MANUAL
                         else -> WirelessHotspotMode.EXTERNAL_WIFI
                     }
+                    val liveSsid = currentStationSsid()
                     when {
                         target == mode -> Unit
                         selection == 0 -> applyWirelessLink(WirelessHotspotMode.WIFI_P2P)
                         hotspotError(storedSsid(), storedPassword()) == null ->
                             applyWirelessLink(target)
+                        // External Wi-Fi never needs a typed password (the car is already a
+                        // station member); fill the name from the live station connection so the
+                        // user is not forced through the credential dialog.
+                        target == WirelessHotspotMode.EXTERNAL_WIFI && liveSsid != null -> {
+                            saveHotspotCredentials(liveSsid, storedPassword())
+                            applyWirelessLink(target)
+                        }
                         else -> askHotspotCredentials { ssid, password ->
                             saveHotspotCredentials(ssid, password)
                             applyWirelessLink(target)
@@ -429,6 +438,23 @@ class DiPlayActivity : ComponentActivity() {
                 setPadding(0, 0, 0, dp(18))
             })
             return
+        }
+        // Auto-fill: in external Wi-Fi mode the joined network's live name is the only value
+        // that matters (the password field is unused for a network the car already joined).
+        // Keep the stored name in sync with reality so the user never has to type it.
+        var externalHint: String? = null
+        if (mode == WirelessHotspotMode.EXTERNAL_WIFI) {
+            val live = currentStationSsid()
+            val stored = storedSsid()
+            when {
+                live == null -> externalHint =
+                    "车机尚未连接 Wi-Fi：请先在车机设置中把车机连上外部 Wi-Fi，回到本页会自动填入 Wi-Fi 名称（密码可留空）。"
+                live != stored -> {
+                    saveHotspotCredentials(live, storedPassword())
+                    externalHint = "已自动填入当前 Wi-Fi：$live（密码可留空；iPhone 需与车机在同一 Wi-Fi）。"
+                }
+                else -> externalHint = "已自动填入当前 Wi-Fi：$stored（密码可留空；iPhone 需与车机在同一 Wi-Fi）。"
+            }
         }
         val ssid = storedSsid()
         val password = storedPassword()
@@ -452,9 +478,10 @@ class DiPlayActivity : ComponentActivity() {
             // BSSID and channel of the joined network are all readable (connectionInfo).
             // The manual channel field below only applies to 车机热点 mode where Android 7
             // cannot observe the AP channel — showing it here just misleads.
-            parent.addView(label("外部 Wi-Fi 模式：SSID、密码、信道均自动读取网络真实值，无需手动填写。", 14, MUTED).apply {
-                setPadding(0, dp(4), 0, dp(18))
-            })
+            parent.addView(label(
+                externalHint ?: "外部 Wi-Fi 模式：SSID、密码、信道均自动读取网络真实值，无需手动填写。",
+                14, MUTED,
+            ).apply { setPadding(0, dp(4), 0, dp(18)) })
             return
         }
         parent.addView(space(12))
@@ -491,6 +518,14 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun storedSsid() = AirPlayPersistence.loadManualHotspotSsid(this)
     private fun storedPassword() = AirPlayPersistence.loadManualHotspotPassphrase(this)
+
+    /** The SSID the car's station is joined to right now, or null when not on a network. */
+    private fun currentStationSsid(): String? {
+        val wifi = runCatching { getSystemService(WifiManager::class.java) }.getOrNull() ?: return null
+        val raw = runCatching { wifi.connectionInfo?.ssid }.getOrNull() ?: return null
+        val ssid = raw.removePrefix("\"").removeSuffix("\"").trim()
+        return ssid.takeUnless { it.isBlank() || it == "<unknown ssid>" }
+    }
     private fun hotspotError(ssid: String, password: String) =
         com.shilapi.xcertplay.orchestration.ManualHotspotValidation.validate(ssid, password)
 
