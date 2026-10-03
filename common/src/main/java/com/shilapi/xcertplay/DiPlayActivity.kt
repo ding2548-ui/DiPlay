@@ -49,6 +49,9 @@ class DiPlayActivity : ComponentActivity() {
     private var notificationTransport = true
     private var exportInProgress = false
     private var exportButton: Button? = null
+    private var updateBusy = false
+    private var updateMessage: TextView? = null
+    private var updateActionButton: Button? = null
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         connect(notificationTransport)
     }
@@ -108,6 +111,7 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun render() {
         status = null; connectButton = null; disconnectButton = null; lastRunning = null
+        updateMessage = null; updateActionButton = null
         val scroll = ScrollView(this).apply { setBackgroundColor(BG); isFillViewport = true; clipToPadding = false }
         val content = column().apply { setPadding(dp(32), dp(24), dp(32), dp(32)) }
         scroll.addView(content)
@@ -231,6 +235,14 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button("蓝牙设置", false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, matchButton(10, 60))
             card.addView(button("无线连接帮助", false) { wirelessHelp() }, matchButton(10, 60))
         }
+        section(content, "在线更新") { card ->
+            card.addView(label("检测 GitHub 上的新构建：自动下载、安装并重新打开 DiPlay，装好后会删除下载的 APK。", 14, MUTED))
+            updateMessage = label("当前版本 ${version()}", 16, TEXT).apply { setPadding(0, dp(12), 0, 0) }
+            card.addView(updateMessage)
+            updateActionButton = button("检查更新", false) { startUpdateCheck() }
+            card.addView(updateActionButton, matchButton(12, 60))
+            card.addView(updateSourceButton(), matchButton(10, 60))
+        }
         section(content, "关于与诊断") { card ->
             card.addView(button("关于 DiPlay", false) { page = "about"; render() }, matchButton(0, 60))
             exportButton = button(if (exportInProgress) "正在保存报告…" else "保存诊断报告", false) {
@@ -252,6 +264,99 @@ class DiPlayActivity : ComponentActivity() {
         section(content, "得益于开源") { card ->
             card.addView(label("接收端基于 xcertplay，遵循 GPL-3.0 许可。DiPlay 的界面沿用 DiAuto 的设计，遵循 AGPL-3.0 许可。\n\n包含 AndroidX、Bouncy Castle、JmDNS 与 SLF4J。随版本附有源码与许可声明。\n\nCarPlay 及 CarPlay 图标归 Apple Inc. 所有。DiPlay 是独立项目。", 16, MUTED))
         }
+    }
+
+    private fun updateSourceButton(): Button {
+        val sources = AppUpdater.sources()
+        val labels = sources.map { AppUpdater.sourceLabel(it) }
+        val picker = button("下载源 · ${AppUpdater.sourceLabel(AppUpdater.source(this))}", false) {}
+        picker.setOnClickListener {
+            var pending = sources.indexOf(AppUpdater.source(this))
+            AlertDialog.Builder(this).setTitle("下载源")
+                .setSingleChoiceItems(labels.toTypedArray(), pending) { _, index -> pending = index }
+                .setPositiveButton("保存") { _, _ ->
+                    if (pending != sources.indexOf(AppUpdater.source(this))) {
+                        AppUpdater.saveSource(this, sources[pending])
+                        picker.text = "下载源 · ${AppUpdater.sourceLabel(sources[pending])}"
+                    }
+                }
+                .setNegativeButton("取消", null).show()
+        }
+        return picker
+    }
+
+    private fun startUpdateCheck() {
+        if (updateBusy) return
+        updateBusy = true
+        updateActionButton?.isEnabled = false
+        updateMessage?.text = "正在检查更新…"
+        Thread {
+            val result = runCatching { AppUpdater.latestBuild(AppUpdater.source(this)) }
+            val current = AppUpdater.currentBuild(this)
+            handler.post {
+                updateBusy = false
+                updateActionButton?.isEnabled = true
+                val latest = result.getOrNull()
+                when {
+                    latest == null -> updateMessage?.text =
+                        "检查失败：${result.exceptionOrNull()?.message ?: "网络不可达"}。可尝试更换下载源。"
+                    current != null && latest > current -> {
+                        updateMessage?.text = "发现新构建 2.10（$latest），当前 2.10（$current）。"
+                        updateActionButton?.text = "下载并安装 2.10（$latest）"
+                        updateActionButton?.setOnClickListener { startUpdateDownload(latest) }
+                    }
+                    else -> updateMessage?.text = "已是最新构建 2.10（$latest）。"
+                }
+            }
+        }.start()
+    }
+
+    private fun startUpdateDownload(build: Int) {
+        if (updateBusy) return
+        updateBusy = true
+        updateActionButton?.isEnabled = false
+        updateMessage?.text = "正在下载 2.10（$build）…"
+        Thread {
+            val result = runCatching {
+                AppUpdater.downloadApk(this, build, AppUpdater.source(this)) { done, total ->
+                    if (total > 0) handler.post {
+                        updateMessage?.text = "正在下载 2.10（$build）… ${done * 100 / total}%"
+                    }
+                }
+            }
+            handler.post {
+                val apk = result.getOrNull()
+                if (apk == null) {
+                    updateMessage?.text = "下载失败：${result.exceptionOrNull()?.message ?: "网络不可达"}。可尝试更换下载源。"
+                    updateBusy = false
+                    updateActionButton?.isEnabled = true
+                    return@post
+                }
+                updateMessage?.text = "下载完成（${apk.length() / 1048576} MB）。"
+                AlertDialog.Builder(this).setTitle("安装更新")
+                    .setMessage("已下载 2.10（$build）。安装期间 DiPlay 会短暂关闭，装好后自动重新打开。")
+                    .setPositiveButton("立即安装") { _, _ ->
+                        updateMessage?.text = "正在安装…"
+                        Thread {
+                            val installed = runCatching { AppUpdater.installApk(this, apk) }
+                            handler.post {
+                                if (installed.isFailure) {
+                                    updateMessage?.text = "安装失败：${installed.exceptionOrNull()?.message}"
+                                    updateBusy = false
+                                    updateActionButton?.isEnabled = true
+                                }
+                            }
+                        }.start()
+                    }
+                    .setNegativeButton("取消") { _, _ ->
+                        apk.delete()
+                        updateMessage?.text = "已取消安装。"
+                        updateBusy = false
+                        updateActionButton?.isEnabled = true
+                    }
+                    .show()
+            }
+        }.start()
     }
 
     // The car hotspot link needs the hotspot on; DiPlay only checks it (turning it on needs ADB-only permission).

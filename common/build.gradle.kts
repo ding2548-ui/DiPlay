@@ -25,6 +25,12 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+
+    lint {
+        // INSTALL_PACKAGES is a signature-protected permission granted by the car's
+        // platform signature; lint cannot know the app is platform-signed.
+        disable += "ProtectedPermissions"
+    }
 }
 
 dependencies {
