@@ -38,12 +38,14 @@ data class WheelBinding(val id: String, val action: WheelAction, val longPress: 
     fun label(): String = when {
         id.startsWith(KEY_PREFIX) -> LearnedWheelKeys.keyLabel(id.removePrefix(KEY_PREFIX).toIntOrNull() ?: 0)
         id.startsWith(CAR_PREFIX) -> "车机键 ${id.removePrefix(CAR_PREFIX)}"
+        id.startsWith(BROADCAST_PREFIX) -> "广播 ${id.removePrefix(BROADCAST_PREFIX)}"
         else -> id
     }
 
     companion object {
         const val KEY_PREFIX = "KEY:"
         const val CAR_PREFIX = "CAR:"
+        const val BROADCAST_PREFIX = "BROADCAST:"
     }
 }
 
@@ -257,5 +259,124 @@ internal object LearnedWheelKeys {
         else -> "键码 $code"
     }
 
+    // ---- Broadcast monitoring: learn wheel keys by their broadcast ACTION ----
+    data class BroadcastLogEntry(val action: String, val detail: String, val timeMillis: Long)
+
+    private val broadcastLog = ArrayDeque<BroadcastLogEntry>()
+    private val broadcastLock = Any()
+    private val broadcastReceivers = mutableMapOf<String, BroadcastReceiver>()
+    private var carBusReceiver: BroadcastReceiver? = null
+
+    @Volatile
+    private var broadcastLogEnabled = false
+
+    fun isBroadcastLogEnabled(context: Context): Boolean =
+        context.getSharedPreferences(WheelLearningStore.PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean("broadcast-log", false)
+
+    fun setBroadcastLogEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(WheelLearningStore.PREFERENCES, Context.MODE_PRIVATE)
+            .edit().putBoolean("broadcast-log", enabled).apply()
+        broadcastLogEnabled = enabled
+        if (enabled) {
+            ensureCarBusReceiver(context)
+            report("broadcast log enabled on ${LeapmotorMediaProtocol.ACTIONS.size} car actions")
+        } else {
+            synchronized(broadcastLog) { broadcastLog.clear() }
+            report("broadcast log disabled")
+        }
+    }
+
+    fun broadcastLogEntries(): List<BroadcastLogEntry> = synchronized(broadcastLog) { broadcastLog.toList() }
+
+    /**
+     * Keeps receivers for every BROADCAST: binding alive so a learned broadcast action
+     * dispatches its bound CarPlay action even without the learning screen open.
+     */
+    @Synchronized
+    fun refreshBroadcastReceivers(context: Context, bindings: List<WheelBinding>) {
+        val application = context.applicationContext
+        val wanted = bindings
+            .filter { it.id.startsWith(WheelBinding.BROADCAST_PREFIX) }
+            .map { it.id.removePrefix(WheelBinding.BROADCAST_PREFIX) }
+            .toSet()
+        wanted.forEach { action -> ensureBroadcastReceiver(application, action) }
+        synchronized(broadcastReceivers) {
+            broadcastReceivers.keys.filter { it !in wanted }.forEach { action ->
+                broadcastReceivers.remove(action)?.let { receiver ->
+                    runCatching { application.unregisterReceiver(receiver) }
+                    report("broadcast binding receiver removed: $action")
+                }
+            }
+        }
+    }
+
+    /** True when the whole bus is bound by a BROADCAST: action; the payload dispatch then stays out. */
+    fun broadcastBindingConsumes(broadcastAction: String?): Boolean {
+        if (broadcastAction.isNullOrBlank()) return false
+        val context = appContext ?: return false
+        val id = WheelBinding.BROADCAST_PREFIX + broadcastAction
+        return WheelLearningStore.load(context).any { it.id == id }
+    }
+
+    @Synchronized
+    private fun ensureBroadcastReceiver(context: Context, action: String) {
+        if (broadcastReceivers.containsKey(action)) return
+        val created = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (broadcastLogEnabled) recordBroadcast(action, intent)
+                onLearnedBroadcast(action)
+            }
+        }
+        runCatching { context.registerReceiver(created, IntentFilter(action)) }
+            .onSuccess {
+                broadcastReceivers[action] = created
+                report("broadcast binding listening: $action")
+            }
+            .onFailure { report("broadcast receiver not registered: $action ${it.message}") }
+    }
+
+    @Synchronized
+    private fun ensureCarBusReceiver(context: Context) {
+        if (carBusReceiver != null) return
+        val application = context.applicationContext
+        val filter = IntentFilter().apply { LeapmotorMediaProtocol.ACTIONS.forEach(::addAction) }
+        val created = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val action = intent?.action ?: return
+                if (broadcastLogEnabled) recordBroadcast(action, intent)
+                onLearnedBroadcast(action)
+            }
+        }
+        runCatching { application.registerReceiver(created, filter) }
+            .onSuccess { carBusReceiver = created }
+            .onFailure { report("broadcast monitor not registered: ${it.message}") }
+    }
+
+    private fun recordBroadcast(action: String, intent: Intent?) {
+        val payload = runCatching {
+            @Suppress("DEPRECATION")
+            intent?.getByteArrayExtra("receiver")
+        }.getOrNull()
+        val parsed = LeapmotorMediaProtocol.actionFromPayload(payload)
+        val entry = BroadcastLogEntry(
+            action,
+            parsed?.let { "data.action=$it" } ?: "payload=${payload?.size ?: 0}B",
+            System.currentTimeMillis(),
+        )
+        synchronized(broadcastLog) {
+            broadcastLog.addLast(entry)
+            while (broadcastLog.size > MAX_LOG_ENTRIES) broadcastLog.removeFirst()
+        }
+    }
+
+    private fun onLearnedBroadcast(action: String) {
+        if (captureCallback != null) return
+        val binding = WheelLearningStore.load(appContext ?: return)
+            .firstOrNull { it.id == WheelBinding.BROADCAST_PREFIX + action } ?: return
+        perform(binding)
+    }
+
     private const val DUPLICATE_WINDOW_MILLIS = 250L
+    private const val MAX_LOG_ENTRIES = 12
 }

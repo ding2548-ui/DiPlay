@@ -217,6 +217,15 @@ class DiPlayActivity : ComponentActivity() {
                     "避免画面在 CarPlay、声音还走车机蓝牙。关闭后沿用音频焦点压制。",
                 DiPlayPreferences.a2dpHandoff(this)) { DiPlayPreferences.saveA2dpHandoff(this, it) }
         }
+        section(content, "有线 lwIP 传输 · beta 实验") { card ->
+            toggle(card, "有线走 lwIP 用户态网络栈",
+                "有线 CarPlay 不再建立 VPN/内核路由，NCM 帧直接进用户态 lwIP 栈，" +
+                    "经回环代理进入 AirPlay 服务（实验，需真机验证）。" +
+                    "需要 32 位构建：本构建 " +
+                    (if (com.shilapi.xcertplay.network.LwipNative.available) "已满足" else "不满足（当前进程无法加载 lwIP 库）") +
+                    "。更改在下次有线连接时生效。",
+                DiPlayPreferences.wiredLwip(this)) { DiPlayPreferences.saveWiredLwip(this, it) }
+        }
         section(content, "显示与性能") { card ->
             carPlaySizeControl(card)
             choice(card, "分辨率", listOf("Native", "80% · 负载更轻", "60% · 负载最轻"), listOf(10, 8, 6).indexOf(AirPlayPersistence.loadDisplayScaleTenths(this)).coerceAtLeast(0)) { AirPlayPersistence.saveDisplayScaleTenths(this, listOf(10, 8, 6)[it]) }
@@ -228,8 +237,29 @@ class DiPlayActivity : ComponentActivity() {
             choice(card, "帧率", listOf("30 fps · 负载更轻", "60 fps · 画面更流畅"), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
             toggle(card, "高效视频", "使用 HEVC。关闭可获得最广的车机兼容性。", AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
             toggle(card, "右舵", "让 CarPlay 控件更靠近驾驶员。", AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
-            toggle(card, "全屏", "CarPlay 打开时隐藏车机系统栏。", AirPlayPersistence.loadHideTopBar(this) && AirPlayPersistence.loadHideBottomBar(this)) {
-                AirPlayPersistence.saveHideTopBar(this, it); AirPlayPersistence.saveHideBottomBar(this, it)
+            toggle(card, "全屏", "CarPlay 打开时隐藏车机状态栏与导航栏（需先关闭下面两个开关）。", DiPlayPreferences.fullscreenMaster(this)) { value ->
+                if (value && (AirPlayPersistence.loadHideTopBar(this) || AirPlayPersistence.loadHideBottomBar(this))) {
+                    toast("请先关闭“隐藏状态栏”和“隐藏导航栏”")
+                    render()
+                    return@toggle
+                }
+                DiPlayPreferences.saveFullscreenMaster(this, value)
+                AirPlayPersistence.saveHideTopBar(this, value)
+                AirPlayPersistence.saveHideBottomBar(this, value)
+                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+                render()
+            }
+            toggle(card, "隐藏状态栏", "CarPlay 打开时隐藏车机状态栏。", AirPlayPersistence.loadHideTopBar(this)) {
+                AirPlayPersistence.saveHideTopBar(this, it)
+                if (it) DiPlayPreferences.saveFullscreenMaster(this, false)
+                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+                render()
+            }
+            toggle(card, "隐藏导航栏", "CarPlay 打开时隐藏车机导航栏。", AirPlayPersistence.loadHideBottomBar(this)) {
+                AirPlayPersistence.saveHideBottomBar(this, it)
+                if (it) DiPlayPreferences.saveFullscreenMaster(this, false)
+                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+                render()
             }
         }
         if (com.shilapi.xcertplay.hud.BydOutputSettings.available(this)) section(content, "比亚迪导航") { card ->
@@ -242,14 +272,6 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button("应用权限", false) { openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }, matchButton(16, 60))
             card.addView(button("蓝牙设置", false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, matchButton(10, 60))
             card.addView(button("无线连接帮助", false) { wirelessHelp() }, matchButton(10, 60))
-        }
-        section(content, "在线更新") { card ->
-            card.addView(label("检测 GitHub 上的新构建：自动下载、安装并重新打开 DiPlay，装好后会删除下载的 APK。", 14, MUTED))
-            updateMessage = label("当前版本 ${version()}", 16, TEXT).apply { setPadding(0, dp(12), 0, 0) }
-            card.addView(updateMessage)
-            updateActionButton = button("检查更新", false) { startUpdateCheck() }
-            card.addView(updateActionButton, matchButton(12, 60))
-            card.addView(updateSourceButton(), matchButton(10, 60))
         }
         section(content, "关于与诊断") { card ->
             card.addView(button("关于 DiPlay", false) { page = "about"; render() }, matchButton(0, 60))
@@ -292,9 +314,51 @@ class DiPlayActivity : ComponentActivity() {
         }
         card.addView(button("清除全部方控学习", false) {
             WheelLearningStore.clear(this)
+            LearnedWheelKeys.refreshBroadcastReceivers(this, emptyList())
             toast("已清除全部方控学习")
             render()
         }, matchButton(10, 60))
+        card.addView(space(12))
+        val logEnabled = LearnedWheelKeys.isBroadcastLogEnabled(this)
+        toggle(card, "监听方控广播日志",
+            "按 action 监听车机方控广播并记录最近 12 条；点任意一条可把它绑定为方控键。",
+            logEnabled) {
+            LearnedWheelKeys.setBroadcastLogEnabled(this, it)
+            render()
+        }
+        if (logEnabled) {
+            val entries = LearnedWheelKeys.broadcastLogEntries()
+            if (entries.isEmpty()) {
+                card.addView(label("暂未捕获到广播——按几下方向盘按键后回到本页查看。", 14, MUTED))
+            } else {
+                entries.reversed().forEachIndexed { index, entry ->
+                    card.addView(button("广播 ${entry.action} · ${entry.detail}", false) {
+                        chooseWheelActionForBroadcast(entry.action)
+                    }, matchButton(if (index == 0) 10 else 6, 56))
+                }
+            }
+        }
+    }
+
+    private fun chooseWheelActionForBroadcast(action: String) {
+        val options = WheelAction.entries.map { it.label }.toTypedArray()
+        var pending = 0
+        AlertDialog.Builder(this).setTitle("把广播绑定为方控动作")
+            .setSingleChoiceItems(options, 0) { _, index -> pending = index }
+            .setPositiveButton("保存") { _, _ ->
+                val target = WheelAction.entries[pending]
+                val id = WheelBinding.BROADCAST_PREFIX + action
+                val bindings = WheelLearningStore.load(this)
+                    .filter { it.action != target && it.id != id } + WheelBinding(id, target)
+                if (WheelLearningStore.save(this, bindings)) {
+                    LearnedWheelKeys.refreshBroadcastReceivers(this, bindings)
+                    toast("已学习：${target.label} ← 广播 $action")
+                } else {
+                    toast("无法保存方控设置，请重试")
+                }
+                render()
+            }
+            .setNegativeButton("取消", null).show()
     }
 
     private fun startWheelLearning(action: WheelAction) {
@@ -345,14 +409,15 @@ class DiPlayActivity : ComponentActivity() {
                 updateActionButton?.isEnabled = true
                 val latest = result.getOrNull()
                 when {
-                    latest == null -> updateMessage?.text =
+                    result.isFailure -> updateMessage?.text =
                         "检查失败：${result.exceptionOrNull()?.message ?: "网络不可达"}。可尝试更换下载源。"
+                    latest == null || (current != null && latest <= current) ->
+                        updateMessage?.text = "未发现更高构建（当前 ${version()}）。"
                     current != null && latest > current -> {
                         updateMessage?.text = "发现新构建 2.10（$latest），当前 2.10（$current）。"
                         updateActionButton?.text = "下载并安装 2.10（$latest）"
                         updateActionButton?.setOnClickListener { startUpdateDownload(latest) }
                     }
-                    else -> updateMessage?.text = "已是最新构建 2.10（$latest）。"
                 }
             }
         }.start()

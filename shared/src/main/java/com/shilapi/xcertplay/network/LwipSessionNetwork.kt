@@ -31,6 +31,7 @@ class LwipSessionNetwork(
     private var handle: Long = 0
     private var linkLocal: Inet6Address? = null
     private val pumpThreads = mutableListOf<Thread>()
+    private var proxyListener: TcpListener? = null
 
     /** Starts the stack and both frame pumps. Throws when the native library is unusable. */
     fun start() {
@@ -81,7 +82,7 @@ class LwipSessionNetwork(
     }
 
     /** Raw TCP listener inside lwIP; the future AirPlay server endpoint. */
-    inner class TcpListener internal constructor(private val fd: Int) : Closeable {
+    inner class TcpListener internal constructor(internal val fd: Int) : Closeable {
         fun accept(): TcpSocket {
             checkOpen()
             val client = LwipNative.accept(handle, fd)
@@ -174,6 +175,49 @@ class LwipSessionNetwork(
         }
     }
 
+    /**
+     * Beta wired path: accepts iPhone TCP connections inside lwIP on [LISTEN_PORT] and relays
+     * every stream into the JVM-side AirPlay server over loopback. UDP is not relayed yet;
+     *CarPlay's control/media streams over the wired NCM link are TCP.
+     */
+    fun startProxy(targetPort: Int) {
+        check(running.get()) { "USB IPv6 session is closed" }
+        val listener = tcpListener()
+        proxyListener = listener
+        LwipNative.setTimeout(handle, listener.fd, 1)
+        listener.bind(LISTEN_PORT)
+        thread(name = "lwip-proxy") {
+            while (running.get()) {
+                val client = try {
+                    listener.accept()
+                } catch (_: java.net.SocketTimeoutException) {
+                    continue
+                } catch (failure: Exception) {
+                    if (running.get()) fail(failure)
+                    return@thread
+                }
+                thread(name = "lwip-proxy-conn") { relay(client, targetPort) }
+            }
+        }
+        report("wired lwip proxy listening port=$LISTEN_PORT target=127.0.0.1:$targetPort")
+    }
+
+    private fun relay(client: TcpSocket, targetPort: Int) {
+        runCatching {
+            java.net.Socket("127.0.0.1", targetPort).use { local ->
+                client.use { remote ->
+                    val upstream = thread {
+                        runCatching { remote.input.copyTo(local.getOutputStream(), RELAY_CHUNK_BYTES) }
+                        runCatching { local.shutdownOutput() }
+                    }
+                    runCatching { local.getInputStream().copyTo(remote.output, RELAY_CHUNK_BYTES) }
+                    runCatching { remote.output.flush() }
+                    upstream.join(2000)
+                }
+            }
+        }.onFailure { if (running.get()) report("wired lwip relay ended: ${it.message}") }
+    }
+
     /** Opens a TCP listener socket inside lwIP. */
     fun tcpListener(): TcpListener {
         checkRunning()
@@ -200,8 +244,12 @@ class LwipSessionNetwork(
 
     override fun close() {
         if (!running.compareAndSet(true, false)) return
+        runCatching { proxyListener?.close() }
+        proxyListener = null
         LwipNative.stop(handle)
         handle = 0
+        // Own the bridge like Ipv6NcmBridge does: the wired USB session dies with the stack.
+        runCatching { ncm.close() }
         report("wired userspace NCM network stopped")
     }
 
@@ -221,9 +269,13 @@ class LwipSessionNetwork(
 
     private companion object {
         val ANY_IPV6 = ByteArray(16)
+
+        /** The port the iPhone dials inside the lwIP stack (the AirPlay default). */
+        const val LISTEN_PORT = 7000
         const val RECV_TIMEOUT_MILLIS = 250L
         const val SEND_TIMEOUT_MILLIS = 1000
         const val OUTPUT_CHUNK_BYTES = 16 * 1024
+        const val RELAY_CHUNK_BYTES = 16 * 1024
         const val DROP_REPORT_EVERY = 64
     }
 }

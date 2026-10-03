@@ -55,18 +55,52 @@ object AppUpdater {
      * stream the page themselves, so both a Location header and the page body are
      * accepted. Tries the selected source first, then every other source.
      */
-    fun latestBuild(preferred: String): Int {
-        val order = listOf(preferred) + sources().filter { it != preferred }
+    fun latestBuild(preferred: String): Int? {
         var lastError: Exception? = null
+        var reachable = false
+        // GitHub's /releases/latest ignores prereleases, which every beta build is, so the
+        // releases list API (tried directly; mirrors rarely forward api.github.com) is the
+        // primary source. The redirect probe stays as a fallback for the same variant tags.
+        runCatching { fetchLatestBuildViaApi() }.fold(
+            onSuccess = { reachable = true; if (it != null) return it },
+            onFailure = { lastError = it },
+        )
+        val order = listOf(preferred) + sources().filter { it != preferred }
         for (source in order) {
             try {
                 val build = fetchLatestBuild(source)
+                reachable = true
                 if (build != null) return build
             } catch (failure: Exception) {
                 lastError = failure
             }
         }
+        if (reachable) return null
         throw lastError ?: error("无法获取最新构建")
+    }
+
+    /** Newest CI build number among the beta-tagged releases, via the GitHub API. */
+    private fun fetchLatestBuildViaApi(): Int? {
+        val connection = java.net.URL("https://api.github.com/repos/$REPO/releases?per_page=20")
+            .openConnection() as HttpURLConnection
+        connection.connectTimeout = CONNECT_TIMEOUT
+        connection.readTimeout = READ_TIMEOUT
+        connection.setRequestProperty("User-Agent", "DiPlay-Update")
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        try {
+            if (connection.responseCode != 200) return null
+            val body = connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+            val array = org.json.JSONArray(body)
+            var best: Int? = null
+            for (index in 0 until array.length()) {
+                val tag = array.optJSONObject(index)?.optString("tag_name") ?: continue
+                val build = Regex("${TAG_PATTERN}(\\d+)").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+                if (best == null || build > best) best = build
+            }
+            return best
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun fetchLatestBuild(source: String): Int? {

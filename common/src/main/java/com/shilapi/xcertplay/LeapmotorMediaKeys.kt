@@ -94,6 +94,10 @@ internal object LeapmotorMediaKeys {
         appContext = application
         controller = next
         LearnedWheelKeys.attach(application, next)
+        LearnedWheelKeys.refreshBroadcastReceivers(application, WheelLearningStore.load(application))
+        if (LearnedWheelKeys.isBroadcastLogEnabled(application)) {
+            LearnedWheelKeys.setBroadcastLogEnabled(application, true)
+        }
         if (receiver != null) return
         val filter = IntentFilter().apply { LeapmotorMediaProtocol.ACTIONS.forEach(::addAction) }
         val created = object : BroadcastReceiver() {
@@ -130,6 +134,11 @@ internal object LeapmotorMediaKeys {
         if (LearnedWheelKeys.isCapturing() &&
             LearnedWheelKeys.onKey(WheelBinding.CAR_PREFIX + action.trim())
         ) {
+            return true
+        }
+        // A BROADCAST: binding owns the whole bus action; the per-key payload dispatch stays out.
+        if (LearnedWheelKeys.broadcastBindingConsumes(source)) {
+            report("media key ignored: bus bound by broadcast binding source=$source")
             return true
         }
         // User-learned bindings win over the built-in per-car table.

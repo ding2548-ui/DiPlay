@@ -91,4 +91,16 @@ internal object DiPlayPreferences {
     fun saveA2dpHandoff(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("a2dp_handoff", value).apply()
     }
+
+    /** Beta: run the wired AirPlay transport on the userspace lwIP stack (needs a 32-bit build). */
+    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", false)
+    fun saveWiredLwip(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean("wired_lwip", value).apply()
+    }
+
+    /** Beta: the fullscreen master switch; only usable while both per-bar switches are off. */
+    fun fullscreenMaster(context: Context) = prefs(context).getBoolean("fullscreen_master", false)
+    fun saveFullscreenMaster(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean("fullscreen_master", value).apply()
+    }
 }
