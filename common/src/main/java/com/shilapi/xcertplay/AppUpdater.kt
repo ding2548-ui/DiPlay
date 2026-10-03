@@ -56,7 +56,7 @@ object AppUpdater {
      * accepted. Tries the selected source first, then every other source.
      */
     fun latestBuild(preferred: String): Int? {
-        var lastError: Exception? = null
+        var lastError: Throwable? = null
         var reachable = false
         // GitHub's /releases/latest ignores prereleases, which every beta build is, so the
         // releases list API (tried directly; mirrors rarely forward api.github.com) is the
