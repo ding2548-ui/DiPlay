@@ -14,11 +14,11 @@ package com.shilapi.xcertplay.mfi
 
 import org.bouncycastle.asn1.ASN1Integer
 import org.bouncycastle.asn1.DERBitString
+import org.bouncycastle.asn1.DERSequence
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier
 import org.bouncycastle.asn1.x509.Certificate
 import org.bouncycastle.asn1.x509.Time
-import org.bouncycastle.asn1.x509.TBSCertificate
 import org.bouncycastle.asn1.x509.V3TBSCertificateGenerator
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import org.bouncycastle.asn1.x9.X9ObjectIdentifiers
@@ -71,10 +71,9 @@ internal object GeneratedMfiMaterial {
         signer.initSign(pair.private)
         signer.update(tbs.getEncoded("DER"))
 
-        val certificate = Certificate(
-            TBSCertificate.getInstance(tbs),
-            signatureIdentifier,
-            DERBitString(signer.sign()),
+        // bcprov 1.79 keeps the Certificate constructor private; go through the sequence factory.
+        val certificate = Certificate.getInstance(
+            DERSequence(tbs, signatureIdentifier, DERBitString(signer.sign())),
         )
         val encoded = certificate.getEncoded("DER")
 
