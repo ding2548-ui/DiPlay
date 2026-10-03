@@ -77,10 +77,11 @@ object NmeaLocationEncoder {
             ?.takeIf { it.isFinite() && it >= 0 }
             ?.let { format("%.2f", it * KNOTS_PER_METER_PER_SECOND) }
             ?: "0.00"
+        // Without a GPS direction (for example while parked) the course stays empty: 0.00 would say north.
         val course = fix.bearingDegrees
             ?.takeIf { it.isFinite() }
             ?.let { format("%.2f", it) }
-            ?: "0.00"
+            .orEmpty()
         val rmcBody = "GPRMC,$time,A,${latitude.value},${latitude.hemisphere}," +
             "${longitude.value},${longitude.hemisphere},$speedKnots,$course,$date,,"
 

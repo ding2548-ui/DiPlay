@@ -107,7 +107,8 @@ class CarPlayRuntimeConfig(
                 "manualHotspotPassphrase must not contain U+0000"
             }
         }
-        if (wirelessHotspotMode == WirelessHotspotMode.MANUAL) {
+        // Only a wireless session starts the hotspot; a USB session must not fail on unused settings.
+        if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.MANUAL) {
             val ssid = manualHotspotSsid
             require(!ssid.isNullOrBlank()) {
                 "manualHotspotSsid is required in manual hotspot mode"

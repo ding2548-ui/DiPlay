@@ -655,6 +655,15 @@ class WifiP2pGroupManager(
             WifiP2pGroup.SECURITY_TYPE_WPA3_COMPATIBILITY ->
                 Iap2WirelessSecurity.WPA3_TRANSITION
             WifiP2pGroup.SECURITY_TYPE_WPA3_SAE -> Iap2WirelessSecurity.WPA3_ONLY
+            // Several vendor supplicants report an authentication key management the framework
+            // cannot classify, which surfaces as UNKNOWN rather than as a concrete cipher suite.
+            // The group itself is still the plain WPA2-PSK group this device creates by default,
+            // so keep the assumption every older Android release relies on instead of aborting a
+            // bring-up that has already resolved its SSID, band, interface and host address.
+            WifiP2pGroup.SECURITY_TYPE_UNKNOWN -> {
+                diagnostic("Wi-Fi P2P security type not reported by the framework; assuming WPA2-PSK")
+                Iap2WirelessSecurity.WPA_WPA2
+            }
             else -> throw IOException(
                 "Unsupported Wi-Fi P2P security type: ${group.securityType}",
             )

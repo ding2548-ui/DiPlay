@@ -165,6 +165,9 @@ class CarPlayVpnService : VpnService() {
 
     fun isAttached(): Boolean = active.get() && attachment != null
 
+    /** Port the AirPlay listener actually bound, which may differ from the configured port. */
+    fun boundPort(): Int? = attachment?.config?.port
+
     override fun onDestroy() {
         detach()
         super.onDestroy()
@@ -180,14 +183,19 @@ class CarPlayVpnService : VpnService() {
         // The IPv6 wildcard. A socket bound to one link-local IPv6 address would refuse everything
         // else, so this stays the primary listener for both the wired NCM link and wireless IPv6.
         val wildcard = InetAddress.getByName("::")
-        Log.i(TAG, "airplay listener bind=$wildcard port=$port " +
+        val server = AirPlayPortSelector.bind(wildcard, port) { busy, bound ->
+            // A factory CarPlay daemon may hold 7000 permanently; Bonjour/iAP2 advertise the
+            // port that actually bound, so any free port is fine.
+            Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
+            replacement.listener.onDebugLog("airplay port $busy busy, listening on $bound instead")
+        }
+        val boundPort = server.localPort
+        Log.i(TAG, "airplay listener bind=$wildcard port=$boundPort " +
             "attachment=${replacement.address.hostAddress}")
         replacement.listener.onDebugLog(
-            "airplay listener bind=$wildcard port=$port " +
+            "airplay listener bind=$wildcard port=$boundPort " +
                 "attachment=${replacement.address.hostAddress}",
         )
-        val server = ServerSocket()
-        server.bind(InetSocketAddress(wildcard, port))
         servers.add(server)
 
         // `::` is NOT reliably dual-stack: whether it also accepts IPv4 is governed by
@@ -199,7 +207,7 @@ class CarPlayVpnService : VpnService() {
         // skipped, so the behaviour degrades safely.
         val ipv4 = runCatching {
             ServerSocket().apply {
-                bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port))
+                bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), boundPort))
             }
         }.onFailure {
             Log.i(TAG, "airplay IPv4 listener not bound (wildcard may already cover it): ${it.message}")
@@ -208,12 +216,12 @@ class CarPlayVpnService : VpnService() {
             )
         }.getOrNull()
         if (ipv4 != null) {
-            Log.i(TAG, "airplay IPv4 listener bound port=$port")
-            replacement.listener.onDebugLog("airplay IPv4 listener bound port=$port")
+            Log.i(TAG, "airplay IPv4 listener bound port=$boundPort")
+            replacement.listener.onDebugLog("airplay IPv4 listener bound port=$boundPort")
             servers.add(ipv4)
         }
 
-        attachment = replacement
+        attachment = replacement.copy(config = replacement.config.copy(port = boundPort))
         synchronized(this) { serverSockets.addAll(servers) }
         for ((index, bound) in servers.withIndex()) {
             Thread(

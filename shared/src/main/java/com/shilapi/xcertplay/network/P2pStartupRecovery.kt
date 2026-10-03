@@ -58,19 +58,29 @@ internal object P2pStartupRecovery {
         request: (P2pCreationRequest) -> Unit,
     ): P2pCreationRequest {
         val modes = planOverride ?: plan(stationFrequency, preferred)
-        var retriedBusy = false
+        var lastRejection: P2pCreateRejected? = null
         for ((index, mode) in modes.withIndex()) {
+            var retriedBusy = false
             while (true) {
                 try {
                     request(mode)
                     return mode
                 } catch (failure: P2pCreateRejected) {
+                    lastRejection = failure
                     when {
+                        // A rejection that is not tied to one channel cannot be fixed by asking
+                        // for a different channel, and retrying would only stall the bring-up.
+                        failure.reason == WifiP2pManager.NO_PERMISSION ||
+                            failure.reason == WifiP2pManager.P2P_UNSUPPORTED -> throw failure
                         failure.reason == WifiP2pManager.BUSY && !retriedBusy -> {
                             retriedBusy = true
                             beforeRetry()
                         }
-                        failure.reason == WifiP2pManager.ERROR && index < modes.lastIndex -> {
+                        // BUSY is a per-channel outcome, not a verdict on Wi-Fi Direct: several
+                        // firmwares reject every 5 GHz request while 2.4 GHz or the system
+                        // default configuration still succeeds. Keep walking the plan instead
+                        // of giving up on the first channel the driver refuses.
+                        index < modes.lastIndex -> {
                             beforeRetry()
                             break
                         }
@@ -79,6 +89,6 @@ internal object P2pStartupRecovery {
                 }
             }
         }
-        error("No Wi-Fi Direct creation mode attempted")
+        throw lastRejection ?: error("No Wi-Fi Direct creation mode attempted")
     }
 }

@@ -1,7 +1,9 @@
 package com.shilapi.xcertplay.media
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat as AndroidAudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.MediaCodec
 import android.media.MediaCodecList
@@ -31,6 +33,7 @@ import java.util.concurrent.TimeUnit
  * played through AudioTrack. Call [close] when the session tears down.
  */
 class AndroidMediaSink(
+    context: Context? = null,
     surface: Surface? = null,
     private val videoWidth: Int = 1280,
     private val videoHeight: Int = 720,
@@ -42,6 +45,8 @@ class AndroidMediaSink(
     /** True while any music ("media") audio stream is running; called from media threads. */
     private val onMediaAudioChanged: (Boolean) -> Unit = {},
 ) : MediaSink {
+    private val appContext = context?.applicationContext
+    private val audioManager = appContext?.getSystemService(AudioManager::class.java)
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
@@ -50,6 +55,9 @@ class AndroidMediaSink(
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRenderer>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneUplink>()
+    private val audioModeLock = Any()
+    private var communicationModeStream: Int? = null
+    private var savedAudioMode = AudioManager.MODE_NORMAL
     private val mediaAudioTypes = mutableSetOf<Int>()
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
@@ -146,12 +154,55 @@ class AndroidMediaSink(
     }
 
     override fun onMicrophoneStarted(type: Int, config: MicrophoneConfig) {
-        val uplink = microphoneUplinks.computeIfAbsent(type) { MicrophoneUplink(config) }
-        if (!uplink.start()) microphoneUplinks.remove(type, uplink)
+        // This callback runs on the downlink thread; microphone failures must not stop playback.
+        try {
+            if (config.audioType == "telephony") enterCommunicationMode(type)
+            val uplink = microphoneUplinks.computeIfAbsent(type) { MicrophoneUplink(config, onAudioDiagnostic) }
+            if (!uplink.start()) {
+                microphoneUplinks.remove(type, uplink)
+                restoreAudioMode(type)
+            }
+        } catch (error: Exception) {
+            Log.e("xcertplay-usb", "microphone start failed stream=$type", error)
+            MicrophoneCaptureStats.reportStartFailure(config, error, onAudioDiagnostic)
+            onMicrophoneStopped(type)
+        }
     }
 
     override fun onMicrophoneStopped(type: Int) {
-        microphoneUplinks.remove(type)?.close()
+        try {
+            microphoneUplinks.remove(type)?.close()
+        } finally {
+            restoreAudioMode(type)
+        }
+    }
+
+    private fun enterCommunicationMode(id: Int) {
+        val manager = audioManager ?: return
+        synchronized(audioModeLock) {
+            if (communicationModeStream != null) return
+            // Select the HAL communication path before AudioRecord is created: this is what
+            // enables the platform's echo cancellation / noise suppression on the uplink.
+            savedAudioMode = manager.mode
+            manager.mode = AudioManager.MODE_IN_COMMUNICATION
+            communicationModeStream = id
+            Log.i("xcertplay-usb", "audio mode $savedAudioMode -> ${manager.mode} for telephony stream=$id")
+        }
+    }
+
+    private fun restoreAudioMode(id: Int?) {
+        val manager = audioManager ?: return
+        synchronized(audioModeLock) {
+            val active = communicationModeStream ?: return
+            if (id != null && id != active) return
+            communicationModeStream = null
+            try {
+                manager.mode = savedAudioMode
+                Log.i("xcertplay-usb", "audio mode restored to ${manager.mode}")
+            } catch (error: RuntimeException) {
+                Log.w("xcertplay-usb", "could not restore audio mode $savedAudioMode", error)
+            }
+        }
     }
 
     fun close() {
@@ -171,8 +222,12 @@ class AndroidMediaSink(
             mediaAudioTypes.isNotEmpty().also { mediaAudioTypes.clear() }
         }
         if (hadMedia) onMediaAudioChanged(false)
-        microphoneUplinks.values.forEach(MicrophoneUplink::close)
-        microphoneUplinks.clear()
+        try {
+            microphoneUplinks.values.forEach(MicrophoneUplink::close)
+        } finally {
+            microphoneUplinks.clear()
+            restoreAudioMode(null)
+        }
     }
 
     private fun videoDecoder(type: Int): VideoDecoder =

@@ -12,21 +12,24 @@ import kotlin.math.min
  * for readiness, queue complete session-10 payloads, receive session-10 payloads, or close this
  * channel.  This class owns and closes [underlying].
  *
- * It deliberately does not parse CSM control messages or implement EA, file transfer, media, UI,
- * or any Lockdown setup.
+ * It deliberately does not parse CSM control messages, EA, media, UI, or Lockdown setup. The link
+ * worker does handle the bounded request/reply flow for Now Playing artwork file transfers so those
+ * replies cannot be delayed behind a blocking control-session consumer.
  */
 class Iap2LinkChannel private constructor(
     private val underlying: BlockingDuplexByteStream,
     private val linkConfig: Iap2LinkConfig,
     private val initiateNegotiation: Boolean,
+    private val onArtwork: (Iap2ArtworkTransfer) -> Unit,
 ) : AutoCloseable {
-    private data class Command(val control: ByteArray)
+    private data class Command(val sessionId: Int, val payload: ByteArray)
 
     private val lock = Object()
     private val commands = ArrayDeque<Command>()
     private var commandBytes = 0
     private val controls = ArrayDeque<ByteArray>()
     private var controlBytes = 0
+    private val fileTransfers = Iap2FileTransferReceiver()
 
     private var ready = false
     private var peerMaxControlPayloadBytes: Int? = null
@@ -67,7 +70,7 @@ class Iap2LinkChannel private constructor(
         val copy = bytes.copyOf()
         synchronized(lock) {
             if (terminated || closing) return false
-            return enqueueCommandLocked(copy)
+            return enqueueCommandLocked(Iap2LinkEngine.CONTROL_SESSION_ID, copy)
         }
     }
 
@@ -87,7 +90,7 @@ class Iap2LinkChannel private constructor(
             }
             throwTerminalFailureLocked()
             if (terminated || closing) return false
-            return enqueueCommandLocked(copy)
+            return enqueueCommandLocked(Iap2LinkEngine.CONTROL_SESSION_ID, copy)
         }
     }
 
@@ -180,12 +183,12 @@ class Iap2LinkChannel private constructor(
                     null
                 } else {
                     commands.removeFirst().also {
-                        commandBytes -= it.control.size
+                        commandBytes -= it.payload.size
                         lock.notifyAll()
                     }
                 }
             } ?: return
-            engine.sendControl(command.control, nowMillis())
+            engine.sendSession(command.sessionId, command.payload, nowMillis())
             if (isClosing()) return
         }
     }
@@ -227,6 +230,21 @@ class Iap2LinkChannel private constructor(
                     }
                 }
 
+                is Iap2LinkEngine.Event.Session -> {
+                    if (event.sessionId != Iap2LinkEngine.FILE_TRANSFER_SESSION_ID) continue
+                    val outcome = fileTransfers.accept(event.bytes)
+                    outcome.replies.forEach { reply ->
+                        engine.sendSession(Iap2LinkEngine.FILE_TRANSFER_SESSION_ID, reply, nowMillis())
+                    }
+                    outcome.completed?.let { completed ->
+                        try {
+                            onArtwork(completed)
+                        } catch (_: Exception) {
+                            // A UI/consumer callback cannot terminate the control link.
+                        }
+                    }
+                }
+
                 is Iap2LinkEngine.Event.Dead -> {
                     finish(IOException(event.reason ?: "iAP2 link ended"))
                     return false
@@ -261,6 +279,7 @@ class Iap2LinkChannel private constructor(
         commandBytes = 0
         controls.clear()
         controlBytes = 0
+        fileTransfers.clear()
         terminalFailure = combineFailures(terminalFailure, failure)
         lock.notifyAll()
     }
@@ -290,9 +309,9 @@ class Iap2LinkChannel private constructor(
         commands.size < MAX_PENDING_COMMANDS && bytes <= MAX_PENDING_COMMAND_BYTES - commandBytes
 
     /** lock must already be held. */
-    private fun enqueueCommandLocked(bytes: ByteArray): Boolean {
+    private fun enqueueCommandLocked(sessionId: Int, bytes: ByteArray): Boolean {
         if (!hasCommandCapacityLocked(bytes.size)) return false
-        commands += Command(bytes)
+        commands += Command(sessionId, bytes)
         commandBytes += bytes.size
         lock.notifyAll()
         return true
@@ -350,24 +369,33 @@ class Iap2LinkChannel private constructor(
         )
 
         /** Opens and immediately starts a wired iAP2 link, taking ownership of the supplied stream. */
-        fun open(underlying: BlockingDuplexByteStream): Iap2LinkChannel =
-            Iap2LinkChannel(underlying, WIRED_LINK_CONFIG, initiateNegotiation = true)
+        fun open(
+            underlying: BlockingDuplexByteStream,
+            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+        ): Iap2LinkChannel =
+            Iap2LinkChannel(underlying, WIRED_LINK_CONFIG, initiateNegotiation = true, onArtwork)
                 .also { it.worker.start() }
 
         /**
          * Opens a wireless RFCOMM link. LIVI sends the iAP2 marker but lets the phone initiate
          * synchronization, and keeps acknowledgements enabled for Bluetooth.
          */
-        fun openWireless(underlying: BlockingDuplexByteStream): Iap2LinkChannel =
-            Iap2LinkChannel(underlying, WIRELESS_LINK_CONFIG, initiateNegotiation = false)
+        fun openWireless(
+            underlying: BlockingDuplexByteStream,
+            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+        ): Iap2LinkChannel =
+            Iap2LinkChannel(underlying, WIRELESS_LINK_CONFIG, initiateNegotiation = false, onArtwork)
                 .also { it.worker.start() }
 
         /**
          * Opens the iAP2 link carried by an AirPlay type-130 tunnel. The accessory initiates
          * synchronization and zero-acknowledgement mode matches the Wi-Fi transport.
          */
-        fun openTunnel(underlying: BlockingDuplexByteStream): Iap2LinkChannel =
-            Iap2LinkChannel(underlying, WIRED_LINK_CONFIG, initiateNegotiation = true)
+        fun openTunnel(
+            underlying: BlockingDuplexByteStream,
+            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+        ): Iap2LinkChannel =
+            Iap2LinkChannel(underlying, WIRED_LINK_CONFIG, initiateNegotiation = true, onArtwork)
                 .also { it.worker.start() }
 
         private fun nowMillis(): Long = System.nanoTime() / NANOS_PER_MILLISECOND

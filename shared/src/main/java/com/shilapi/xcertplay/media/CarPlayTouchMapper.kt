@@ -7,9 +7,12 @@ import com.shilapi.xcertplay.airplay.AirPlayContact
 object CarPlayTouchMapper {
     private const val MAX_CONTACTS = 2
 
-    fun contacts(event: MotionEvent, viewWidth: Int, viewHeight: Int): List<AirPlayContact> {
-        val width = viewWidth.coerceAtLeast(1)
-        val height = viewHeight.coerceAtLeast(1)
+    fun contacts(event: MotionEvent, viewWidth: Int, viewHeight: Int): List<AirPlayContact> =
+        contacts(event, CarPlayVideoLayout(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat()))
+
+    fun contacts(event: MotionEvent, content: CarPlayVideoLayout): List<AirPlayContact> {
+        val width = content.width.coerceAtLeast(1f)
+        val height = content.height.coerceAtLeast(1f)
         val action = event.actionMasked
         val liftedIndex = if (action == MotionEvent.ACTION_POINTER_UP) event.actionIndex else -1
         val allUp = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL
@@ -19,8 +22,8 @@ object CarPlayTouchMapper {
             contacts.add(
                 AirPlayContact(
                     id = index,
-                    x = (event.getX(index).toDouble() / width).coerceIn(0.0, 1.0),
-                    y = (event.getY(index).toDouble() / height).coerceIn(0.0, 1.0),
+                    x = ((event.getX(index) - content.left).toDouble() / width).coerceIn(0.0, 1.0),
+                    y = ((event.getY(index) - content.top).toDouble() / height).coerceIn(0.0, 1.0),
                     down = !allUp && index != liftedIndex,
                 ),
             )

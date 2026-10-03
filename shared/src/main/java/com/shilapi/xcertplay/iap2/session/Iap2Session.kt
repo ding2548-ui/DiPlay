@@ -9,6 +9,7 @@ import com.shilapi.xcertplay.iap2.trace.Iap2TraceDirection
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import com.shilapi.xcertplay.transport.Iap2CsmChannel
+import com.shilapi.xcertplay.transport.Iap2ArtworkTransfer
 
 /**
  * One immediately readable and writable iAP2 CSM session.
@@ -119,22 +120,25 @@ class Iap2Session private constructor(
             underlying: BlockingDuplexByteStream,
             traceContext: String = "wired",
             onTrace: (String) -> Unit = {},
+            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
         ): Iap2Session =
-            Iap2Session(Iap2CsmChannel.open(underlying), traceContext, onTrace)
+            Iap2Session(Iap2CsmChannel.open(underlying, onArtwork), traceContext, onTrace)
 
         fun openWireless(
             underlying: BlockingDuplexByteStream,
             traceContext: String = "wireless",
             onTrace: (String) -> Unit = {},
+            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
         ): Iap2Session =
-            Iap2Session(Iap2CsmChannel.openWireless(underlying), traceContext, onTrace)
+            Iap2Session(Iap2CsmChannel.openWireless(underlying, onArtwork), traceContext, onTrace)
 
         fun openTunnel(
             underlying: BlockingDuplexByteStream,
             traceContext: String = "wireless-tunnel",
             onTrace: (String) -> Unit = {},
+            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
         ): Iap2Session =
-            Iap2Session(Iap2CsmChannel.openTunnel(underlying), traceContext, onTrace)
+            Iap2Session(Iap2CsmChannel.openTunnel(underlying, onArtwork), traceContext, onTrace)
 
         fun wrap(
             channel: Iap2CsmChannel,

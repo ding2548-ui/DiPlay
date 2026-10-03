@@ -22,7 +22,7 @@ android {
         minSdk = 24
         targetSdk = 37
         versionCode = 20
-        versionName = buildNumber?.let { "2.0（$it）" } ?: "2.0"
+        versionName = buildNumber?.let { "2.10（$it）" } ?: "2.10"
 
     }
 
