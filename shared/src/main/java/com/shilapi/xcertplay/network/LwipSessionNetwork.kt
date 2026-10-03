@@ -22,6 +22,9 @@ import kotlin.concurrent.thread
  * @param ncm the wired USB bridge; its [NcmUsbBridge.recv]/[NcmUsbBridge.send] carry the
  *   raw NCM ethernet frames in both directions.
  */
+/** The port the iPhone dials inside the lwIP stack (the AirPlay default). */
+internal const val LWIP_LISTEN_PORT = 7000
+
 class LwipSessionNetwork(
     private val ncm: com.shilapi.xcertplay.transport.NcmUsbBridge,
     private val onDiagnostic: (String) -> Unit = {},
@@ -176,7 +179,7 @@ class LwipSessionNetwork(
     }
 
     /**
-     * Beta wired path: accepts iPhone TCP connections inside lwIP on [LISTEN_PORT] and relays
+     * Beta wired path: accepts iPhone TCP connections inside lwIP on [LWIP_LISTEN_PORT] and relays
      * every stream into the JVM-side AirPlay server over loopback. UDP is not relayed yet;
      *CarPlay's control/media streams over the wired NCM link are TCP.
      */
@@ -185,7 +188,7 @@ class LwipSessionNetwork(
         val listener = tcpListener()
         proxyListener = listener
         LwipNative.setTimeout(handle, listener.fd, 1)
-        listener.bind(LISTEN_PORT)
+        listener.bind(LWIP_LISTEN_PORT)
         thread(name = "lwip-proxy") {
             while (running.get()) {
                 val client = try {
@@ -199,7 +202,7 @@ class LwipSessionNetwork(
                 thread(name = "lwip-proxy-conn") { relay(client, targetPort) }
             }
         }
-        report("wired lwip proxy listening port=$LISTEN_PORT target=127.0.0.1:$targetPort")
+        report("wired lwip proxy listening port=$LWIP_LISTEN_PORT target=127.0.0.1:$targetPort")
     }
 
     private fun relay(client: TcpSocket, targetPort: Int) {
@@ -269,9 +272,6 @@ class LwipSessionNetwork(
 
     private companion object {
         val ANY_IPV6 = ByteArray(16)
-
-        /** The port the iPhone dials inside the lwIP stack (the AirPlay default). */
-        const val LISTEN_PORT = 7000
         const val RECV_TIMEOUT_MILLIS = 250L
         const val SEND_TIMEOUT_MILLIS = 1000
         const val OUTPUT_CHUNK_BYTES = 16 * 1024

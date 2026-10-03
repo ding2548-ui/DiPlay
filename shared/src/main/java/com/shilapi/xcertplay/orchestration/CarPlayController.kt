@@ -43,6 +43,7 @@ import com.shilapi.xcertplay.network.CarPlayBonjourEvent
 import com.shilapi.xcertplay.network.diagnosticSummary
 import com.shilapi.xcertplay.network.countsAsPhoneDiscovery
 import com.shilapi.xcertplay.network.CarPlayVpnService
+import com.shilapi.xcertplay.network.LWIP_LISTEN_PORT
 import com.shilapi.xcertplay.network.LwipNative
 import com.shilapi.xcertplay.network.LwipSessionNetwork
 import com.shilapi.xcertplay.network.ExternalWifiManager
@@ -1956,7 +1957,7 @@ class CarPlayController(
             val advertisedLinkLocal = lwip?.localAddress()?.hostAddress?.substringBefore('%') ?: config.linkLocal
             val endpoint = Iap2WiredCarPlayEndpoint(
                 ipv6Addresses = listOf(advertisedLinkLocal),
-                airPlayPort = (if (config.wiredLwip) LwipSessionNetwork.LISTEN_PORT else vpnService?.boundPort())
+                airPlayPort = (if (config.wiredLwip) LWIP_LISTEN_PORT else vpnService?.boundPort())
                     ?: airPlayConfig.port,
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
