@@ -105,9 +105,20 @@ class CarPlayVpnService : VpnService() {
             // Only this app's own link-local traffic needs the TUN. Covering every app swallowed
             // other apps' link-local IPv6 (the FeiNiu NAS app, com.trim.app, lost its network
             // whenever the wired VPN was up). Whitelisting this package puts every other app
-            // completely outside the VPN.
-            runCatching { builder.addAllowedPackage(packageName) }
-                .onFailure { Log.w(TAG, "vpn self allowlist failed: ${it.message}") }
+            // completely outside the VPN. The allowlist API was renamed between SDK levels
+            // (addAllowedPackage on the Android 7 car, addAllowedApplication on newer stacks)
+            // and this module compiles against a SDK that only carries the new name, so call
+            // whichever exists at runtime through reflection.
+            val allowlisted = runCatching {
+                Builder::class.java.getMethod("addAllowedPackage", String::class.java)
+                    .invoke(builder, packageName)
+            }.recoverCatching {
+                Builder::class.java.getMethod("addAllowedApplication", String::class.java)
+                    .invoke(builder, packageName)
+            }
+            if (allowlisted.isFailure) {
+                Log.w(TAG, "vpn self allowlist failed: ${allowlisted.exceptionOrNull()?.message}")
+            }
             val tunFd = builder.establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
