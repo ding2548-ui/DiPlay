@@ -34,7 +34,7 @@ import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
 import java.util.Date
 
-internal object GeneratedMfiMaterial {
+object GeneratedMfiMaterial {
     private const val CERTIFICATE_LIFETIME_MILLIS = 10L * 365 * 24 * 60 * 60 * 1000
 
     /**

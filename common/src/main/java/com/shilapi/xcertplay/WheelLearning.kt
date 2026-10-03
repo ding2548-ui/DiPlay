@@ -36,7 +36,7 @@ enum class WheelAction(val label: String) {
 data class WheelBinding(val id: String, val action: WheelAction, val longPress: Boolean = false) {
     /** Human readable key name, e.g. "KEY:24" or "CAR:nextOne". */
     fun label(): String = when {
-        id.startsWith(KEY_PREFIX) -> keyLabel(id.removePrefix(KEY_PREFIX).toIntOrNull() ?: 0)
+        id.startsWith(KEY_PREFIX) -> LearnedWheelKeys.keyLabel(id.removePrefix(KEY_PREFIX).toIntOrNull() ?: 0)
         id.startsWith(CAR_PREFIX) -> "车机键 ${id.removePrefix(CAR_PREFIX)}"
         else -> id
     }
