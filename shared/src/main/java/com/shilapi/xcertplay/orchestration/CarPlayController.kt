@@ -2577,7 +2577,10 @@ class CarPlayController(
         if (!LwipNative.available) {
             // The v7a library cannot load in a 64-bit process: fall back to the kernel path
             // instead of losing the wired transport entirely.
-            debugLog("wired lwip unavailable (ABI), falling back to the VPN transport")
+            debugLog(
+                "wired lwip unavailable, falling back to the VPN transport " +
+                    "is64Bit=${android.os.Process.is64Bit()} error=${LwipNative.loadError}",
+            )
             return attachVpn(ncm, hostMac)
         }
         return try {
@@ -2588,7 +2591,10 @@ class CarPlayController(
             )
             session.start()
             lwip = session
-            debugLog("wired lwip transport started linkLocal=${session.localAddress().hostAddress}")
+            debugLog(
+                "wired lwip transport started availability=${LwipNative.available} " +
+                    "is64Bit=${android.os.Process.is64Bit()} linkLocal=${session.localAddress().hostAddress}",
+            )
             val service = awaitVpnService() ?: run {
                 debugLog("wired VPN service bind failed (lwip mode)")
                 ncm.close()

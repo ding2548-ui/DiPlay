@@ -15,10 +15,18 @@ object LwipNative {
     var available: Boolean = false
         private set
 
+    /** The reason the library could not load, or null when it is usable. */
+    @Volatile
+    var loadError: String? = null
+        private set
+
     init {
         runCatching { System.loadLibrary("diplay_lwip") }
             .onSuccess { available = true }
-            .onFailure { android.util.Log.w("DiPlay-Lwip", "lwIP native library unavailable: ${it.message}") }
+            .onFailure {
+                loadError = "${it.javaClass.simpleName}: ${it.message}"
+                android.util.Log.w("DiPlay-Lwip", "lwIP native library unavailable: $loadError")
+            }
     }
 
     external fun start(hostMac: ByteArray): Long

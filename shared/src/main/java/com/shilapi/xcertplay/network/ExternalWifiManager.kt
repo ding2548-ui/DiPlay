@@ -114,11 +114,14 @@ class ExternalWifiManager(
         if (linkLocal == null) {
             return null
         }
-        val security = if (passphrase.isEmpty()) {
-            Iap2WirelessSecurity.NONE
-        } else {
-            Iap2WirelessSecurity.WPA_WPA2
-        }
+        // The security flag advertised through iAP2 0x5703 must describe the REAL access
+        // point: with the auto-filled SSID the stored passphrase is empty, and deriving
+        // "open" from that made every WPA2 network unreachable (run-101 report:
+        // security=0 pskLength=0, the iPhone never even reached discovery). Read how the
+        // joined network actually authenticates; assume WPA2 when it cannot be read,
+        // which matches the overwhelmingly common case (an open AP advertised as WPA2
+        // fails the same way as the reverse).
+        val security = liveNetworkSecurity(rawSsid)
         onDiagnostic(
             "External Wi-Fi ssid='$rawSsid' channel=$channel " +
                 "frequency=${frequencyMHz ?: -1}MHz iface=${iface.name} " +
@@ -142,6 +145,20 @@ class ExternalWifiManager(
             bandLabel = if ((frequencyMHz ?: 0) > 5000) "5 GHz" else "2.4 GHz",
             backend = WirelessHotspotBackend.EXTERNAL_WIFI,
         )
+    }
+
+    /** Reads the joined network's authentication from the saved Wi-Fi configurations. */
+    private fun liveNetworkSecurity(ssid: String): Iap2WirelessSecurity {
+        val networks = runCatching { wifiManager.configuredNetworks }.getOrNull().orEmpty()
+        val match = networks.firstOrNull { network ->
+            network.SSID?.removePrefix("\"")?.removeSuffix("\"") == ssid
+        }
+        val open = match != null &&
+            (match.allowedKeyManagement?.get(android.net.wifi.WifiConfiguration.KeyMgmt.NONE) == true)
+        onDiagnostic(
+            "External Wi-Fi security source=${if (match != null) "live-config" else "default-wpa2"} open=$open",
+        )
+        return if (open) Iap2WirelessSecurity.NONE else Iap2WirelessSecurity.WPA_WPA2
     }
 
     /** Maps the int-form DHCP address from connectionInfo back to its interface. */

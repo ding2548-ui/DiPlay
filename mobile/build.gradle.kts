@@ -63,6 +63,12 @@ android {
         // Supplies java.time and java.util.Base64 on Android 7/7.1 (API 24/25).
         isCoreLibraryDesugaringEnabled = true
     }
+    // Android 7 cannot reliably dlopen libs that stay uncompressed inside the APK
+    // (extractNativeLibs=false, the AGP default): extract at install time instead.
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
+
     buildFeatures {
         compose = true
     }
