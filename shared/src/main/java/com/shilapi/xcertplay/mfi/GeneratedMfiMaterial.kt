@@ -12,6 +12,7 @@
 // bundled credential assets so asset-free builds stay usable (beta material fallback).
 package com.shilapi.xcertplay.mfi
 
+import org.bouncycastle.asn1.ASN1EncodableVector
 import org.bouncycastle.asn1.ASN1Integer
 import org.bouncycastle.asn1.DERBitString
 import org.bouncycastle.asn1.DERSequence
@@ -63,7 +64,7 @@ internal object GeneratedMfiMaterial {
             setSubject(subject)
             setStartDate(Time(Date(now - 60L * 60 * 1000)))
             setEndDate(Time(Date(now + CERTIFICATE_LIFETIME_MILLIS)))
-            setSignatureAlgorithmIdentifier(signatureIdentifier)
+            setSignature(signatureIdentifier)
             setSubjectPublicKeyInfo(SubjectPublicKeyInfo.getInstance(pair.public.encoded))
         }.generateTBSCertificate()
 
@@ -72,9 +73,11 @@ internal object GeneratedMfiMaterial {
         signer.update(tbs.getEncoded("DER"))
 
         // bcprov 1.79 keeps the Certificate constructor private; go through the sequence factory.
-        val certificate = Certificate.getInstance(
-            DERSequence(tbs, signatureIdentifier, DERBitString(signer.sign())),
-        )
+        val sequence = ASN1EncodableVector()
+        sequence.add(tbs)
+        sequence.add(signatureIdentifier)
+        sequence.add(DERBitString(signer.sign()))
+        val certificate = Certificate.getInstance(DERSequence(sequence))
         val encoded = certificate.getEncoded("DER")
 
         val parsed = CertificateFactory.getInstance("X.509")
