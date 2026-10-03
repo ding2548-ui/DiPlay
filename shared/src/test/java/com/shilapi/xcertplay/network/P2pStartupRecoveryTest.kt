@@ -50,7 +50,7 @@ class P2pStartupRecoveryTest {
         assertEquals(5, retries)
     }
 
-    @Test fun unconnectedStationStartsWithFiveGhzAndBusyRetriesOnlyOnce() {
+    @Test fun unconnectedStationStartsWithFiveGhzAndBusyRetriesEachChannelOnce() {
         val attempts = mutableListOf<P2pCreationRequest>()
         try {
             P2pStartupRecovery.create(null, {}) {
@@ -59,7 +59,18 @@ class P2pStartupRecoveryTest {
             }
             fail("Expected busy")
         } catch (failure: P2pCreateRejected) { assertEquals(WifiP2pManager.BUSY, failure.reason) }
-        assertEquals(List(2) { P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5180) }, attempts)
+        assertEquals(P2pStartupRecovery.plan(null).flatMap { mode -> List(2) { mode } }, attempts)
+    }
+
+    @Test fun firmwareThatBusiesEveryFiveGhzRequestStillReachesTwoGhz() {
+        val attempts = mutableListOf<Int?>()
+        val result = P2pStartupRecovery.create(5200, {}) {
+            attempts += it.frequencyMHz
+            if ((it.frequencyMHz ?: 0) >= 5000) throw P2pCreateRejected(WifiP2pManager.BUSY, "busy")
+        }
+        assertEquals(P2pCreationMode.FIXED_2_GHZ, result.mode)
+        assertEquals(2437, result.frequencyMHz)
+        assertEquals(listOf(5200, 5200, 5180, 5180, 5745, 5745, 2437), attempts)
     }
 
     @Test fun everyConfigurationRejectedStopsAfterBoundedAttempts() {
