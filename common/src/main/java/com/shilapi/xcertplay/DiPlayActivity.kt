@@ -228,15 +228,25 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, "显示与性能") { card ->
             carPlaySizeControl(card)
-            // 16-step ladder, matching AutoKit's resolution option count.
+            // 16-step ladder, matching AutoKit's resolution option count; each label shows the
+            // resulting pixel size on this head unit so 720P/360P is readable at a glance.
             val resolutionPercents = listOf(100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25)
+            val nativeW = maxOf(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+            val nativeH = minOf(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+            fun scaledPixels(pixels: Int, percent: Int): Int {
+                val value = ((pixels.toLong() * percent + 50L) / 100L).toInt().coerceAtLeast(1)
+                return if (value % 2 == 0) value else value + 1
+            }
             val resolutionLabels = resolutionPercents.map { percent ->
-                when (percent) {
-                    100 -> "100% · 原生"
-                    50 -> "50% · 半分辨率"
-                    25 -> "25% · 负载最轻"
-                    else -> "$percent%"
+                val outW = scaledPixels(nativeW, percent)
+                val outH = scaledPixels(nativeH, percent)
+                val tag = when (percent) {
+                    100 -> "原生"
+                    50 -> "半分辨率"
+                    25 -> "负载最轻"
+                    else -> "${outH}P"
                 }
+                "$percent% · 约${outW}x$outH（$tag）"
             }
             choice(card, "分辨率", resolutionLabels,
                 resolutionPercents.indexOf(AirPlayPersistence.loadDisplayScalePercent(this)).coerceAtLeast(0)) {
