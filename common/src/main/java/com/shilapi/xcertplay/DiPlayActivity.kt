@@ -228,7 +228,20 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, "显示与性能") { card ->
             carPlaySizeControl(card)
-            choice(card, "分辨率", listOf("Native", "80% · 负载更轻", "60% · 负载最轻"), listOf(10, 8, 6).indexOf(AirPlayPersistence.loadDisplayScaleTenths(this)).coerceAtLeast(0)) { AirPlayPersistence.saveDisplayScaleTenths(this, listOf(10, 8, 6)[it]) }
+            // 16-step ladder, matching AutoKit's resolution option count.
+            val resolutionPercents = listOf(100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25)
+            val resolutionLabels = resolutionPercents.map { percent ->
+                when (percent) {
+                    100 -> "100% · 原生"
+                    50 -> "50% · 半分辨率"
+                    25 -> "25% · 负载最轻"
+                    else -> "$percent%"
+                }
+            }
+            choice(card, "分辨率", resolutionLabels,
+                resolutionPercents.indexOf(AirPlayPersistence.loadDisplayScalePercent(this)).coerceAtLeast(0)) {
+                AirPlayPersistence.saveDisplayScalePercent(this, resolutionPercents[it])
+            }
             val bufferPresets = com.shilapi.xcertplay.media.MediaAudioBuffer.presets
             choice(card, "音乐缓冲", listOf("300 毫秒 · 默认", "500 毫秒", "1000 毫秒 · 最稳定"),
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
@@ -844,7 +857,7 @@ class DiPlayActivity : ComponentActivity() {
                     appendLine("认证：本地实验性测试身份；无远程回退")
                     appendLine("已保存的视频偏好（可能与当前会话不同）：${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
                     appendLine("CarPlay 尺寸：${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
-                    appendLine("已保存的分辨率偏好（可能与当前会话不同）：${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
+                    appendLine("已保存的分辨率偏好（可能与当前会话不同）：${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
                     appendLine("会话：${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
                     appendLine("车机主板：${Build.BOARD}；硬件：${Build.HARDWARE}；版本：${Build.DISPLAY}")
                     appendLine()

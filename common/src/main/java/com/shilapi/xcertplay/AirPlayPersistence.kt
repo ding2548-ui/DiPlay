@@ -73,16 +73,23 @@ object AirPlayPersistence {
     const val DEFAULT_OEM_LABEL = "零跑"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
-    fun loadDisplayScaleTenths(context: Context): Int {
+    fun loadDisplayScalePercent(context: Context): Int {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return CarPlayDisplayScale.sanitize(
-            prefs.getInt(KEY_DISPLAY_SCALE_TENTHS, CarPlayDisplayScale.DEFAULT_TENTHS),
-        )
+        if (prefs.contains(KEY_DISPLAY_SCALE_PERCENT)) {
+            return CarPlayDisplayScale.sanitize(prefs.getInt(KEY_DISPLAY_SCALE_PERCENT, CarPlayDisplayScale.DEFAULT_PERCENT))
+        }
+        // One-time migration from the old 0.1x units (3..10 -> 30%..100%).
+        if (prefs.contains(KEY_DISPLAY_SCALE_TENTHS)) {
+            val percent = CarPlayDisplayScale.sanitize(prefs.getInt(KEY_DISPLAY_SCALE_TENTHS, 10) * 10)
+            saveDisplayScalePercent(context, percent)
+            return percent
+        }
+        return CarPlayDisplayScale.DEFAULT_PERCENT
     }
 
-    fun saveDisplayScaleTenths(context: Context, tenths: Int) {
+    fun saveDisplayScalePercent(context: Context, percent: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt(KEY_DISPLAY_SCALE_TENTHS, CarPlayDisplayScale.sanitize(tenths))
+            .putInt(KEY_DISPLAY_SCALE_PERCENT, CarPlayDisplayScale.sanitize(percent))
             .apply()
     }
 
