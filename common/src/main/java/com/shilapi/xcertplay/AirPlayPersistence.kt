@@ -34,6 +34,7 @@ object AirPlayPersistence {
     private const val KEY_LOCKDOWN_ROOT_PRIVATE = "lockdown_root_private"
     private const val KEY_LOCKDOWN_ROOT_CERT = "lockdown_root_cert"
     private const val KEY_DISPLAY_SCALE_TENTHS = "display_scale_tenths"
+    private const val KEY_DISPLAY_SCALE_PERCENT = "display_scale_percent"
     private const val KEY_UI_SCALE_PERCENT = "ui_scale_percent"
     private const val KEY_HEVC_ENABLED = "hevc_enabled"
     private const val KEY_HEVC_SOFTWARE_DECODER = "hevc_software_decoder"

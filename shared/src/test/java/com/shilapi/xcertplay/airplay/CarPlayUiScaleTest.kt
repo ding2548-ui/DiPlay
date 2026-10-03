@@ -30,7 +30,7 @@ class CarPlayUiScaleTest {
     }
 
     @Test fun reducedResolutionRemainsASeparateBaseForTheCanvas() {
-        val reduced = CarPlayDisplayScale.apply(display, 6)
+        val reduced = CarPlayDisplayScale.apply(display, 60)
         val smaller = CarPlayUiScale.apply(reduced, 75)
         assertEquals(1536, smaller.widthPixels)
         assertEquals(864, smaller.heightPixels)
