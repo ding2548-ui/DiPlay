@@ -1,8 +1,9 @@
 # DiPlay Android 7 构建版 · beta 测试分支
 
 > ⚠️ **这是 beta 测试分支的构建**：包含实验性功能（方控学习、A2DP 主动断开、车厂集成探测、
-> MFi 材料兜底、lwIP 有线实验路径），**未经长期稳定性验证**。包名与正式版不同
+> MFi 材料兜底、lwIP 有线路径默认开启），**未经长期稳定性验证**。包名与正式版不同
 > （`com.shihab.diplay.betatest`），可与正式版并存安装，请勿在生产车辆上依赖此版本。
+> **本构建为 armeabi-v7a（32 位）单 ABI**，用于 lwIP 用户态网络栈实测。
 > 正式版请使用 leapmotor / main 分支的 Release。
 
 > 版本号 = 构建号，见 APK 版本名 `2.10（NN）` 与诊断报告第一行。
@@ -22,11 +23,13 @@
 4. **MFi 材料兜底规范化**：APK 内未打包实验身份资产时，改为**设备内生成**
    EC P-256 密钥 + 自签 X.509 证书（本地生成身份依然不被 iPhone 信任，
    但资产缺失的构建不再直接不可用）。
-5. **有线 lwIP 去 VPN 化（已接线，beta 实验）**：设置 → 有线 lwIP 传输开关打开后，
-   有线 CarPlay 不再建立 VPN/内核路由——NCM 帧直接进用户态 lwIP 栈
-   （`LwipSessionNetwork`），经回环代理进入 AirPlay 服务；iAP2 通告 lwIP 的链路本地地址。
-   **UDP 未转发**（有线 CarPlay 的控制/媒体流为 TCP）；native 库仅 armeabi-v7a，
-   64 位进程开关显示"不满足"，需出 32 位变体实测，评估见 `docs/EasyPlay-lwIP-移植评估.md`。
+5. **有线 lwIP 去 VPN 化（已接线，beta 实验，默认开启）**：本构建为 **armeabi-v7a 单 ABI
+   （32 位）**，lwIP 开关默认打开——有线 CarPlay 不再建立 VPN/内核路由，NCM 帧直接进
+   用户态 lwIP 栈（`LwipSessionNetwork`），经回环代理进入 AirPlay 服务；iAP2 通告 lwIP 的
+   链路本地地址。lwIP 库不可用时自动回退 VPN 路径。**UDP 未转发**（有线 CarPlay 的
+   控制/媒体流为 TCP），实测中若发现依赖 UDP 的功能缺失（如音频时序同步）请反馈日志。
+   评估见 `docs/EasyPlay-lwIP-移植评估.md`。**⚠️ 该路径完全实验性：有线连不上时请先到
+   设置关闭"有线走 lwIP 用户态网络栈"再重试。**
 6. **方控广播日志学习**：方控学习页可开启"监听方控广播日志"（按 action 监听车机方控广播，
    记录最近 12 条），点任意一条即可把它绑定为方控键；广播级绑定生效时整条总线不再走
    内置方控映射。

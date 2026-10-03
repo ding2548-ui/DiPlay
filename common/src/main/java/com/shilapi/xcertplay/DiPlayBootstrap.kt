@@ -92,8 +92,8 @@ internal object DiPlayPreferences {
         prefs(context).edit().putBoolean("a2dp_handoff", value).apply()
     }
 
-    /** Beta: run the wired AirPlay transport on the userspace lwIP stack (needs a 32-bit build). */
-    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", false)
+    /** Beta: the userspace lwIP wired transport is the default on this v7a-only test line. */
+    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", true)
     fun saveWiredLwip(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("wired_lwip", value).apply()
     }

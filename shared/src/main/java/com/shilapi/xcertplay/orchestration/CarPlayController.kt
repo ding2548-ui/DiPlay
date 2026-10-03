@@ -2574,8 +2574,13 @@ class CarPlayController(
      */
     private fun attachLwip(ncm: NcmUsbBridge, hostMac: ByteArray): Boolean {
         onStatus(CarPlayStatus.AttachingNetwork)
+        if (!LwipNative.available) {
+            // The v7a library cannot load in a 64-bit process: fall back to the kernel path
+            // instead of losing the wired transport entirely.
+            debugLog("wired lwip unavailable (ABI), falling back to the VPN transport")
+            return attachVpn(ncm, hostMac)
+        }
         return try {
-            check(LwipNative.available) { "lwIP native library unavailable（需 32 位构建）" }
             val session = LwipSessionNetwork(
                 ncm,
                 { message -> debugLog(message) },
