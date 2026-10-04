@@ -716,6 +716,18 @@ class DiPlayActivity : ComponentActivity() {
     private fun connect(wireless: Boolean) {
         if (setupError != null) { toast(setupError!!); return }
         if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
+        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) != com.shilapi.xcertplay.network.WirelessHotspotMode.WIFI_P2P) {
+            // Encrypted external Wi-Fi requires a password before connecting: without it the
+            // iPhone is told the wrong security and every attempt stalls in discovery retries.
+            val probe = com.shilapi.xcertplay.network.ExternalWifiSecurityProbe.probe(this)
+            if (probe != null) {
+                if (storedSsid() != probe.ssid) saveHotspotCredentials(probe.ssid, storedPassword())
+                if (probe.open == false && storedPassword().isEmpty()) {
+                    promptForWifiPassword(probe.ssid)
+                    return
+                }
+            }
+        }
         if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
             pendingWireless = true; choosePhone(); return
         }
@@ -733,6 +745,29 @@ class DiPlayActivity : ComponentActivity() {
         if (CarPlayBackgroundSession.hasSession()) CarPlayBackgroundSession.stop { runOnUiThread { open() } }
         else open()
     }
+    private fun promptForWifiPassword(ssid: String) {
+        val input = EditText(this).apply {
+            setSingleLine()
+            transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
+            hint = "此 Wi-Fi 的连接密码"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Wi-Fi「$ssid」已加密")
+            .setMessage("车机当前连接的 Wi-Fi 是加密网络，必须填写该网络的密码才能开始无线 CarPlay。\n\n密码只用于向 iPhone 描述这个网络，不会发送给其他设备。")
+            .setView(input)
+            .setPositiveButton("保存并连接") { _, _ ->
+                val password = input.text.toString().trim()
+                if (password.isEmpty()) {
+                    toast("密码不能为空，无法连接加密网络")
+                    return@setPositiveButton
+                }
+                saveHotspotCredentials(ssid, password)
+                connect(true)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun openProjection() {
         startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
