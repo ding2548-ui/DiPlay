@@ -37,7 +37,11 @@
   TCP 永远发不出来（EasyPlay 的处理：MAC 全零时现场生成随机本地管理 MAC）。已对齐。
   2.11（123）：**lwIP 开关默认改为关闭**（有线默认走 VPN 路径，lwIP 仅手动启用测试）；
   同时 lwIP 帧增加协议分类诊断（逐帧标注 ICMPv6 NS/NA/TCP-SYN 等类型与地址）与
-  代理 accept 心跳，下一次实测日志可直接定位 iPhone 卡在哪一步。）
+  代理 accept 心跳，下一次实测日志可直接定位 iPhone 卡在哪一步。
+  2.11（125）：帧分类诊断定位到 lwIP 连不上的最终真因——iPhone 的 TCP 已经能进入
+  lwIP 并被代理转发到 AirPlay 服务（SYN/SYN-ACK/ACK 全通、数据到达），但 AirPlay 服务把
+  来源 127.0.0.1 的转发连接误判成"自检连接"直接关闭（isLocalSource 判定包含回环接口）。
+  现已为 lwIP 代理模式加 loopbackRelay 标记放行转发连接，iPhone 的会话可正常建立。）
 - **包名恢复说明**：2.10（116）的包名被误改为 `.betatest`，本版恢复 `com.shihab.diplay.hudtest`。
   **装过 116 的设备无法在线更新到本版**（包名不同会被安装器拒绝），请手动下载本版 APK 安装一次，
   之后在线更新恢复正常；旧的 116 可在装好后卸载（数据不共享）。

@@ -384,26 +384,26 @@ class DiPlayActivity : ComponentActivity() {
             } else {
                 entries.reversed().forEachIndexed { index, entry ->
                     card.addView(button("广播 ${entry.action} · ${entry.detail}", false) {
-                        chooseWheelActionForBroadcast(entry.action)
+                        chooseWheelActionForBroadcast(entry)
                     }, matchButton(if (index == 0) 10 else 6, 56))
                 }
             }
         }
     }
 
-    private fun chooseWheelActionForBroadcast(action: String) {
+    private fun chooseWheelActionForBroadcast(entry: LearnedWheelKeys.BroadcastLogEntry) {
         val options = WheelAction.entries.map { it.label }.toTypedArray()
         var pending = 0
         AlertDialog.Builder(this).setTitle("把广播绑定为方控动作")
             .setSingleChoiceItems(options, 0) { _, index -> pending = index }
             .setPositiveButton("保存") { _, _ ->
                 val target = WheelAction.entries[pending]
-                val id = WheelBinding.BROADCAST_PREFIX + action
+                val id = entry.bindingId
                 val bindings = WheelLearningStore.load(this)
                     .filter { it.action != target && it.id != id } + WheelBinding(id, target)
                 if (WheelLearningStore.save(this, bindings)) {
                     LearnedWheelKeys.refreshBroadcastReceivers(this, bindings)
-                    toast("已学习：${target.label} ← 广播 $action")
+                    toast("已学习：${target.label} ← 广播 ${entry.action} · ${entry.detail}")
                 } else {
                     toast("无法保存方控设置，请重试")
                 }

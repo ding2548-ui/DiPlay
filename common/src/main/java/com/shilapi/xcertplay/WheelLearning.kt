@@ -260,7 +260,78 @@ internal object LearnedWheelKeys {
     }
 
     // ---- Broadcast monitoring: learn wheel keys by their broadcast ACTION ----
-    data class BroadcastLogEntry(val action: String, val detail: String, val timeMillis: Long)
+    data class BroadcastLogEntry(
+        val action: String,
+        val detail: String,
+        val timeMillis: Long,
+        /** The WheelBinding id this entry binds to (extras-signature level for ICU2MMI). */
+        val bindingId: String,
+    )
+
+    /**
+     * Leapmotor T03 steering-wheel bus: one action for every key, the key identity rides in
+     * integer extras (volumeCtrl / muteCtrl / voiceAssistant / customKey / mediaKey /
+     * mediaSwitch). Real-device captures: mediaSwitch=1 -> previous, mediaSwitch=2 -> next,
+     * mediaKey=1 -> play/pause. Because one action carries many keys, bindings are stored at
+     * extras-signature level (`BROADCAST:<action>|mediaSwitch=1`), not action level.
+     */
+    const val ICU2MMI_ACTION = "com.leapmotor.ICU2MMICtrl"
+    private val ICU2MMI_FIELDS = listOf(
+        "volumeCtrl", "muteCtrl", "voiceAssistant", "customKey", "mediaKey", "mediaSwitch",
+    )
+
+    /** Non-zero extras as a stable `key=value` signature, or null when nothing is pressed. */
+    private fun icu2MmiSignature(intent: Intent?): String? {
+        val extras = intent ?: return null
+        val parts = ICU2MMI_FIELDS.mapNotNull { field ->
+            val value = runCatching { extras.getInt(field, 0) }.getOrDefault(0)
+            if (value != 0) "$field=$value" else null
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(",")
+    }
+
+    /** Built-in media-key mapping; null for keys CarPlay has no media action for. */
+    private fun icu2MmiBuiltinAction(signature: String): String? = when (signature) {
+        "mediaSwitch=1" -> "previous"
+        "mediaSwitch=2" -> "next"
+        "mediaKey=1" -> "play_pause"
+        else -> null
+    }
+
+    private fun handleIcu2Mmi(intent: Intent?) {
+        val signature = icu2MmiSignature(intent) ?: return
+        val bindingId = "${WheelBinding.BROADCAST_PREFIX}$ICU2MMI_ACTION|$signature"
+        if (broadcastLogEnabled) {
+            synchronized(broadcastLog) {
+                broadcastLog.addLast(
+                    BroadcastLogEntry(ICU2MMI_ACTION, signature, System.currentTimeMillis(), bindingId),
+                )
+                while (broadcastLog.size > MAX_LOG_ENTRIES) broadcastLog.removeFirst()
+            }
+        }
+        if (captureCallback != null) return
+        val binding = WheelLearningStore.load(appContext ?: return)
+            .firstOrNull { it.id == bindingId }
+        if (binding != null) {
+            perform(binding)
+            return
+        }
+        // No learned binding for this exact key: fall back to the built-in media-key table
+        // (mediaSwitch=1/2, mediaKey=1), which rides the same CarPlay send path as the
+        // hard-coded steering-wheel mapping.
+        val builtin = icu2MmiBuiltinAction(signature) ?: return
+        LeapmotorMediaKeys.dispatch(builtin, ICU2MMI_ACTION)
+    }
+
+    private fun handleBusBroadcast(intent: Intent?) {
+        val action = intent?.action ?: return
+        val bindingId = WheelBinding.BROADCAST_PREFIX + action
+        if (broadcastLogEnabled) recordBroadcast(action, intent, bindingId)
+        if (captureCallback != null) return
+        val binding = WheelLearningStore.load(appContext ?: return)
+            .firstOrNull { it.id == bindingId } ?: return
+        perform(binding)
+    }
 
     private val broadcastLog = ArrayDeque<BroadcastLogEntry>()
     private val broadcastLock = Any()
@@ -298,7 +369,11 @@ internal object LearnedWheelKeys {
         val application = context.applicationContext
         val wanted = bindings
             .filter { it.id.startsWith(WheelBinding.BROADCAST_PREFIX) }
-            .map { it.id.removePrefix(WheelBinding.BROADCAST_PREFIX) }
+            // ICU2MMI signature bindings carry `action|signature` ids; only the action part
+            // is registrable, and that action is already covered by the always-on car-bus
+            // receiver — registering it again would deliver every press twice.
+            .map { it.id.removePrefix(WheelBinding.BROADCAST_PREFIX).substringBefore('|') }
+            .filter { it != ICU2MMI_ACTION }
             .toSet()
         wanted.forEach { action -> ensureBroadcastReceiver(application, action) }
         synchronized(broadcastReceivers) {
@@ -340,12 +415,17 @@ internal object LearnedWheelKeys {
     private fun ensureCarBusReceiver(context: Context) {
         if (carBusReceiver != null) return
         val application = context.applicationContext
-        val filter = IntentFilter().apply { LeapmotorMediaProtocol.ACTIONS.forEach(::addAction) }
+        val filter = IntentFilter().apply {
+            LeapmotorMediaProtocol.ACTIONS.forEach(::addAction)
+            addAction(ICU2MMI_ACTION)
+        }
         val created = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                val action = intent?.action ?: return
-                if (broadcastLogEnabled) recordBroadcast(action, intent)
-                onLearnedBroadcast(action)
+                if (intent?.action == ICU2MMI_ACTION) {
+                    handleIcu2Mmi(intent)
+                } else {
+                    handleBusBroadcast(intent)
+                }
             }
         }
         runCatching { application.registerReceiver(created, filter) }
@@ -353,7 +433,7 @@ internal object LearnedWheelKeys {
             .onFailure { report("broadcast monitor not registered: ${it.message}") }
     }
 
-    private fun recordBroadcast(action: String, intent: Intent?) {
+    private fun recordBroadcast(action: String, intent: Intent?, bindingId: String) {
         val payload = runCatching {
             @Suppress("DEPRECATION")
             intent?.getByteArrayExtra("receiver")
@@ -363,18 +443,12 @@ internal object LearnedWheelKeys {
             action,
             parsed?.let { "data.action=$it" } ?: "payload=${payload?.size ?: 0}B",
             System.currentTimeMillis(),
+            bindingId,
         )
         synchronized(broadcastLog) {
             broadcastLog.addLast(entry)
             while (broadcastLog.size > MAX_LOG_ENTRIES) broadcastLog.removeFirst()
         }
-    }
-
-    private fun onLearnedBroadcast(action: String) {
-        if (captureCallback != null) return
-        val binding = WheelLearningStore.load(appContext ?: return)
-            .firstOrNull { it.id == WheelBinding.BROADCAST_PREFIX + action } ?: return
-        perform(binding)
     }
 
     private const val DUPLICATE_WINDOW_MILLIS = 250L
