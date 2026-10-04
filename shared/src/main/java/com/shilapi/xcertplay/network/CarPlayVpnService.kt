@@ -49,6 +49,8 @@ class CarPlayVpnService : VpnService() {
         val mfi: MfiAuthenticator?,
         val listener: AirPlaySessionListener,
         val media: AirPlayMediaHandler,
+        val loopbackRelay: Boolean = false,
+        val portNotifier: ((Int) -> Unit)? = null,
     )
 
     private val binder = LocalBinder()
@@ -137,7 +139,11 @@ class CarPlayVpnService : VpnService() {
 
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(address, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(
+                    address, config, identity, pairings, mfi, listener, media,
+                    loopbackRelay = loopbackRelay,
+                    portNotifier = portNotifier,
+                ),
             )
             AttachResult.Started
         } catch (error: Exception) {
