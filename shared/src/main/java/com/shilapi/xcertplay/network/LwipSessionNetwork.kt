@@ -84,9 +84,10 @@ class LwipSessionNetwork(
             val frame = runCatching { ncm.recv(RECV_TIMEOUT_MILLIS) }.getOrElse {
                 fail(it); return
             } ?: continue
-            if (LwipNative.input(handle, frame)) {
-                report("wired userspace frame direction=in bytes=${frame.size} ${describeFrame(frame)}")
-            } else if (++dropped % DROP_REPORT_EVERY == 1) {
+            // Per-frame logging lived here during the run-123..139 diagnosis; it grew the saved
+            // reports by thousands of lines per session, so only anomalies remain.
+            val accepted = LwipNative.input(handle, frame)
+            if (!accepted && ++dropped % DROP_REPORT_EVERY == 1) {
                 report("wired userspace input queue full dropped=$dropped ${describeFrame(frame)}")
             }
         }
@@ -96,7 +97,6 @@ class LwipSessionNetwork(
         while (running.get()) {
             val frame = LwipNative.pollOutput(handle, OUTPUT_CHUNK_BYTES) ?: continue
             if (frame.isEmpty()) continue
-            report("wired userspace frame direction=out bytes=${frame.size} ${describeFrame(frame)}")
             runCatching { ncm.send(frame, SEND_TIMEOUT_MILLIS) }.getOrElse { fail(it); return }
         }
     }
