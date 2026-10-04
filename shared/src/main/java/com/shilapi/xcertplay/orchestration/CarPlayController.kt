@@ -2639,6 +2639,9 @@ class CarPlayController(
                 // The session announces extra TCP ports as it progresses (eventPort,
                 // mirror stream data port): each one gets its lwIP relay listener here.
                 portNotifier = { port -> lwip?.startProxyPort(port) },
+                // Announced UDP ports (timing/NTP, keepalive) get a datagram relay — the
+                // phone polls our timing port and waits for valid answers before streaming.
+                udpPortNotifier = { port -> lwip?.startUdpProxy(port) },
             )) {
                 CarPlayVpnService.AttachResult.Started -> {
                     val targetPort = service.boundPort() ?: airPlayConfig.port

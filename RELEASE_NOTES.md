@@ -24,9 +24,10 @@
   且设置页就地刷新开关状态、不再跳回顶部。
 - **在线更新**：设置 → 检查 GitHub 新构建 → 自动下载（支持直连/代理）→ 确认后静默安装
   → 自动重启 → 清理 APK。
-- **有线 lwIP 传输（实验，默认开）**：**本构建为 armeabi-v7a 单 ABI（32 位）**，lwIP 默认开启——
-  NCM 帧直灌用户态 lwIP 栈（无 VPN/内核路由），经回环代理进入 AirPlay 服务；UDP 未转发。
-  lwIP 库不可用时自动回退 VPN 路径；有线连不上时可到设置关闭"有线走 lwIP 用户态网络栈"再重试。
+- **有线 lwIP 传输（实验，默认关）**：**本构建为 armeabi-v7a 单 ABI（32 位）**，lwIP 默认关闭、
+  有线默认走 VPN 路径，可在设置手动打开"有线走 lwIP 用户态网络栈"来测试。
+  NCM 帧直灌用户态 lwIP 栈（无 VPN/内核路由），经回环代理进入 AirPlay 服务。
+  lwIP 库不可用时自动回退 VPN 路径；有线连不上时可到设置关闭再重试。
   实测观察：诊断报告应出现 `wired lwip transport started`（成功）或
   `falling back to the VPN transport ... error=`（失败原因）。
   （2.11（120）修复 lwIP 加载失败的真正原因：依赖库 androidx.graphics 自带了 arm64-v8a 的
@@ -35,13 +36,20 @@
   2.11（122）继续修复：栈启动后 iPhone 仍不发起连接的原因——车机 NCM 侧 MAC 全零时
   lwIP 网卡的 IPv6 链路本地地址随之无效，iPhone 的邻居发现（NDP）得不到有效回应，
   TCP 永远发不出来（EasyPlay 的处理：MAC 全零时现场生成随机本地管理 MAC）。已对齐。
-  2.11（123）：**lwIP 开关默认改为关闭**（有线默认走 VPN 路径，lwIP 仅手动启用测试）；
-  同时 lwIP 帧增加协议分类诊断（逐帧标注 ICMPv6 NS/NA/TCP-SYN 等类型与地址）与
-  代理 accept 心跳，下一次实测日志可直接定位 iPhone 卡在哪一步。
+  2.11（123）：lwIP 帧增加协议分类诊断（逐帧标注 ICMPv6 NS/NA/TCP-SYN 等类型与地址）与
+  代理 accept 心跳。
   2.11（125）：帧分类诊断定位到 lwIP 连不上的最终真因——iPhone 的 TCP 已经能进入
   lwIP 并被代理转发到 AirPlay 服务（SYN/SYN-ACK/ACK 全通、数据到达），但 AirPlay 服务把
   来源 127.0.0.1 的转发连接误判成"自检连接"直接关闭（isLocalSource 判定包含回环接口）。
   现已为 lwIP 代理模式加 loopbackRelay 标记放行转发连接，iPhone 的会话可正常建立。
+  2.11（136）修复"卡在正在打开 CarPlay"（135 报告定位）：
+  **①** attachWireless 构造 AirPlayAttachment 时漏传 loopbackRelay/portNotifier——控制链路
+  （7000）能通但会话内 portNotifier 为空，SETUP 应答里的 eventPort（41880）永远没有 lwIP
+  中继，iPhone 每两秒重试连接全被 RST，事件通道建不起来，30 秒后手机放弃（peer EOF）。
+  **②** 同批补上 UDP 桥（第二层）：SETUP 应答里的 timingPort（NTP 对时）/keepAlivePort 现在也有
+  双向数据报中继（lwIP ↔ 127.0.0.1，"最近手机源"地址映射）——此前 UDP 全部丢弃，
+  对时失败手机不会开始推流。诊断报告应新增
+  `wired lwip proxy listening port=<eventPort>` 与 `wired lwip udp proxy listening port=<timingPort>`。
 - **零跑 T03 方控支持（本版新增）**：T03 方控的真实通路是**系统 media key 分发**——ICU 把
   按键交给当前活跃的 MediaSession（模拟器实测：`MediaSessionService: Sending KeyEvent
   KEYCODE_MEDIA_NEXT to com.leapmotor.multimedia`，D/loger 即 T03 多媒体的日志）。

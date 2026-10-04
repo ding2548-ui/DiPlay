@@ -71,6 +71,8 @@ class AirPlaySession(
     // addresses are reachable.
     private val loopbackBind: Boolean = false,
     private val portNotifier: ((Int) -> Unit)? = null,
+    /** lwIP mode: announced UDP ports (timing, keepalive) open their relay here. */
+    private val udpPortNotifier: ((Int) -> Unit)? = null,
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
@@ -601,6 +603,7 @@ class AirPlaySession(
     private fun openTiming(peerPort: Int): Int {
         val port = ntp.listen()
         if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
+        udpPortNotifier?.invoke(port)
         return port
     }
 
@@ -613,6 +616,7 @@ class AirPlaySession(
             isDaemon = true
             start()
         }
+        udpPortNotifier?.invoke(socket.localPort)
         return socket.localPort
     }
 

@@ -51,6 +51,7 @@ class CarPlayVpnService : VpnService() {
         val media: AirPlayMediaHandler,
         val loopbackRelay: Boolean = false,
         val portNotifier: ((Int) -> Unit)? = null,
+        val udpPortNotifier: ((Int) -> Unit)? = null,
     )
 
     private val binder = LocalBinder()
@@ -62,6 +63,7 @@ class CarPlayVpnService : VpnService() {
     /** True when this attachment is fed by the lwIP loopback relay (see [attachWireless]). */
     @Volatile private var loopbackRelay = false
     @Volatile private var portNotifier: ((Int) -> Unit)? = null
+    @Volatile private var udpPortNotifier: ((Int) -> Unit)? = null
     /** All bound listeners: the IPv6 wildcard plus an explicit IPv4 socket when needed. */
     private val serverSockets = mutableListOf<ServerSocket>()
     private var bridge: Ipv6NcmBridge? = null
@@ -143,6 +145,7 @@ class CarPlayVpnService : VpnService() {
                     address, config, identity, pairings, mfi, listener, media,
                     loopbackRelay = loopbackRelay,
                     portNotifier = portNotifier,
+                    udpPortNotifier = udpPortNotifier,
                 ),
             )
             AttachResult.Started
@@ -173,9 +176,12 @@ class CarPlayVpnService : VpnService() {
         // lwIP mode: the session announces extra ports as it progresses (eventPort, timing,
         // stream data ports). Each announcement opens its lwIP relay listener here.
         portNotifier: ((Int) -> Unit)? = null,
+        /** lwIP mode: announced UDP ports (timing, keepalive) open their datagram relay here. */
+        udpPortNotifier: ((Int) -> Unit)? = null,
     ): AttachResult {
         this.loopbackRelay = loopbackRelay
         this.portNotifier = portNotifier
+        this.udpPortNotifier = udpPortNotifier
         if (active.get()) {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
             releaseLocked()
@@ -185,7 +191,12 @@ class CarPlayVpnService : VpnService() {
         return try {
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(
+                    bindAddress, config, identity, pairings, mfi, listener, media,
+                    loopbackRelay = loopbackRelay,
+                    portNotifier = portNotifier,
+                    udpPortNotifier = udpPortNotifier,
+                ),
             )
             AttachResult.Started
         } catch (error: Exception) {
@@ -325,6 +336,7 @@ class CarPlayVpnService : VpnService() {
                         media = current.media,
                         loopbackBind = current.loopbackRelay,
                         portNotifier = current.portNotifier,
+                        udpPortNotifier = current.udpPortNotifier,
                     ).also(::addSession)
                 }
                 session.start()

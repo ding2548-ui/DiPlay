@@ -35,6 +35,7 @@ class LwipSessionNetwork(
     private var linkLocal: Inet6Address? = null
     private val pumpThreads = mutableListOf<Thread>()
     private val proxyListeners = mutableMapOf<Int, TcpListener>()
+    private val udpProxies = mutableMapOf<Int, UdpSocket>()
 
     /** Starts the stack and both frame pumps. Throws when the native library is unusable. */
     /**
@@ -303,6 +304,78 @@ class LwipSessionNetwork(
         }.onFailure { if (running.get()) report("wired lwip relay ended: ${it.message}") }
     }
 
+    /**
+     * Relays one UDP port both ways: iPhone -> lwIP :[listenPort] -> 127.0.0.1:[targetPort]
+     * and back. Used for AirPlay timing (NTP) and keepalive — datagram protocols the TCP
+     * proxy cannot carry. The phone's address is learned from the first datagram it sends
+     * ("last peer"); JVM-side replies follow it, because the relayed JVM socket only ever
+     * sees 127.0.0.1 as its peer.
+     */
+    @Synchronized
+    fun startUdpProxy(listenPort: Int, targetPort: Int = listenPort) {
+        check(running.get()) { "USB IPv6 session is closed" }
+        if (udpProxies.containsKey(listenPort)) return
+        val socket = udpSocket()
+        socket.bind(listenPort)
+        socket.setTimeout(1)
+        udpProxies[listenPort] = socket
+        val local = java.net.DatagramSocket(null).apply {
+            reuseAddress = true
+            bind(java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0))
+            soTimeout = RECV_TIMEOUT_MILLIS
+        }
+        var lastPeer: Pair<ByteArray, Int>? = null
+        thread(name = "lwip-udp-rx-$listenPort", isDaemon = true) {
+            val buffer = ByteArray(65536)
+            val sender = ByteArray(16)
+            val aux = IntArray(2)
+            while (running.get()) {
+                val length = try {
+                    socket.recvfrom(buffer, sender, aux)
+                } catch (_: SocketTimeoutException) {
+                    continue
+                } catch (_: Exception) {
+                    if (running.get()) fail(java.io.IOException("lwIP udp recvfrom failed"))
+                    return@thread
+                }
+                if (length <= 0) continue
+                lastPeer = sender.copyOf() to aux[0]
+                try {
+                    local.send(java.net.DatagramPacket(buffer, length, java.net.InetSocketAddress(IPV4_LOOPBACK, targetPort)))
+                } catch (_: Exception) {
+                    if (running.get()) report("wired lwip udp relay rx drop port=$listenPort")
+                }
+            }
+        }
+        thread(name = "lwip-udp-tx-$listenPort", isDaemon = true) {
+            val buffer = ByteArray(65536)
+            while (running.get()) {
+                val packet = java.net.DatagramPacket(buffer, buffer.size)
+                try {
+                    local.receive(packet)
+                } catch (_: java.net.SocketTimeoutException) {
+                    continue
+                } catch (_: Exception) {
+                    return@thread
+                }
+                val peer = lastPeer
+                if (peer == null) {
+                    report("wired lwip udp relay tx drop port=$listenPort (no phone peer yet)")
+                    continue
+                }
+                try {
+                    val payload = buffer.copyOf(packet.length)
+                    @Suppress("UNCHECKED_CAST")
+                    val address = InetAddress.getByAddress(peer.first) as Inet6Address
+                    socket.sendto(payload, address, peer.second)
+                } catch (_: Exception) {
+                    if (running.get()) report("wired lwip udp relay tx drop port=$listenPort")
+                }
+            }
+        }
+        report("wired lwip udp proxy listening port=$listenPort target=127.0.0.1:$targetPort")
+    }
+
     /** Opens a TCP listener socket inside lwIP. */
     fun tcpListener(): TcpListener {
         checkRunning()
@@ -333,6 +406,10 @@ class LwipSessionNetwork(
             proxyListeners.values.forEach { runCatching { it.close() } }
             proxyListeners.clear()
         }
+        synchronized(udpProxies) {
+            udpProxies.values.forEach { runCatching { it.close() } }
+            udpProxies.clear()
+        }
         LwipNative.stop(handle)
         handle = 0
         // Own the bridge like Ipv6NcmBridge does: the wired USB session dies with the stack.
@@ -356,6 +433,7 @@ class LwipSessionNetwork(
 
     private companion object {
         val ANY_IPV6 = ByteArray(16)
+        val IPV4_LOOPBACK = java.net.Inet4Address.getByAddress(byteArrayOf(127, 0, 0, 1))
         const val RECV_TIMEOUT_MILLIS = 250L
         const val SEND_TIMEOUT_MILLIS = 1000
         const val OUTPUT_CHUNK_BYTES = 16 * 1024
