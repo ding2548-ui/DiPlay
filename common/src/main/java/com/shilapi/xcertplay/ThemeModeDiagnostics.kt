@@ -33,7 +33,7 @@ internal class ThemeModeDiagnostics {
         val state = State(uiMode, appliedNight, sessionActive)
         if (!source.force && state == lastLoggedState && elapsedMillis - lastLoggedAt < 60_000L) return null
 
-        val reported = when (nightModeOrNull(uiMode)) {
+        val reported = when (nightModeOf(uiMode)) {
             true -> "dark"
             false -> "light"
             null -> "undefined"
@@ -49,4 +49,13 @@ internal class ThemeModeDiagnostics {
         callbacks = 0
         return message
     }
+}
+
+    /** Resolves the night mode bits of a uiMode; null when the system reports "undefined". */
+    private fun nightModeOf(uiMode: Int): Boolean? =
+        when (uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) {
+            android.content.res.Configuration.UI_MODE_NIGHT_NO -> false
+            android.content.res.Configuration.UI_MODE_NIGHT_YES -> true
+            else -> null
+        }
 }
