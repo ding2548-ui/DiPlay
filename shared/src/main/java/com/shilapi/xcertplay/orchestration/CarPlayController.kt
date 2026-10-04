@@ -418,11 +418,14 @@ class CarPlayController(
         }
         connectionDiagnostic("start transport=${config.transport}")
         videoListener?.let { listener ->
-            videoGate = VideoInCarGate(listener::readVideoAllowed) { allowed ->
-                val sent = activeSession?.setVideoPlaybackAllowed(allowed)
-                debugLog("video in car allowed=$allowed sent=${sent ?: "no session"}")
-                listener.onVideoAllowedChanged(allowed)
-            }.also { it.start() }
+            videoGate = VideoInCarGate(
+                readVideoAllowed = listener::readVideoAllowed,
+                onChanged = { allowed ->
+                    val sent = activeSession?.setVideoPlaybackAllowed(allowed)
+                    debugLog("video in car allowed=$allowed sent=${sent ?: "no session"}")
+                    listener.onVideoAllowedChanged(allowed)
+                },
+            ).also { it.start() }
         }
         if (config.transport == CarPlayTransport.WIRED) {
             permissionCloseable = iphoneHost.registerPermissionReceiver(::onIphonePermission)
