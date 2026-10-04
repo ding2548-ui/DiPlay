@@ -50,6 +50,12 @@ class DiPlayActivity : ComponentActivity() {
     private var notificationTransport = true
     private var exportInProgress = false
     private var exportButton: Button? = null
+    // Display switches are updated in place (never a full render()) so the settings page
+    // keeps its scroll position when one of them drives the other two.
+    private var fullscreenSwitch: Switch? = null
+    private var hideTopBarSwitch: Switch? = null
+    private var hideBottomBarSwitch: Switch? = null
+    private var syncingDisplaySwitches = false
     private var updateBusy = false
     private var updateMessage: TextView? = null
     private var updateActionButton: Button? = null
@@ -260,29 +266,43 @@ class DiPlayActivity : ComponentActivity() {
             choice(card, "帧率", listOf("30 fps · 负载更轻", "60 fps · 画面更流畅"), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
             toggle(card, "高效视频", "使用 HEVC。关闭可获得最广的车机兼容性。", AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
             toggle(card, "右舵", "让 CarPlay 控件更靠近驾驶员。", AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
-            toggle(card, "全屏", "CarPlay 打开时隐藏车机状态栏与导航栏（需先关闭下面两个开关）。", DiPlayPreferences.fullscreenMaster(this)) { value ->
-                if (value && (AirPlayPersistence.loadHideTopBar(this) || AirPlayPersistence.loadHideBottomBar(this))) {
-                    toast("请先关闭“隐藏状态栏”和“隐藏导航栏”")
-                    render()
-                    return@toggle
-                }
-                DiPlayPreferences.saveFullscreenMaster(this, value)
+            // Three interlocked display switches. 全屏 = both bars hidden; either bar switch
+            // works standalone and closes 全屏. The master state is derived from the two bar
+            // switches, so the UI can never disagree with what CarPlay will actually do.
+            // Updates happen in place — no render(), so the page keeps its scroll position.
+            fun refreshDisplaySwitches() {
+                syncingDisplaySwitches = true
+                val hideTop = AirPlayPersistence.loadHideTopBar(this)
+                val hideBottom = AirPlayPersistence.loadHideBottomBar(this)
+                hideTopBarSwitch?.isChecked = hideTop
+                hideBottomBarSwitch?.isChecked = hideBottom
+                fullscreenSwitch?.isChecked = hideTop && hideBottom
+                syncingDisplaySwitches = false
+            }
+            fun reconnectToApply() {
+                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+            }
+            fullscreenSwitch = switchRow(card, "全屏",
+                "CarPlay 打开时隐藏车机状态栏与导航栏（两者都隐藏）。打开会自动关闭下面两个单独开关。",
+                AirPlayPersistence.loadHideTopBar(this) && AirPlayPersistence.loadHideBottomBar(this)) { value ->
                 AirPlayPersistence.saveHideTopBar(this, value)
                 AirPlayPersistence.saveHideBottomBar(this, value)
-                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
-                render()
+                refreshDisplaySwitches()
+                reconnectToApply()
             }
-            toggle(card, "隐藏状态栏", "CarPlay 打开时隐藏车机状态栏。", AirPlayPersistence.loadHideTopBar(this)) {
-                AirPlayPersistence.saveHideTopBar(this, it)
-                if (it) DiPlayPreferences.saveFullscreenMaster(this, false)
-                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
-                render()
+            hideTopBarSwitch = switchRow(card, "隐藏状态栏",
+                "CarPlay 打开时隐藏车机状态栏。打开会自动关闭“全屏”。",
+                AirPlayPersistence.loadHideTopBar(this)) { value ->
+                AirPlayPersistence.saveHideTopBar(this, value)
+                refreshDisplaySwitches()
+                reconnectToApply()
             }
-            toggle(card, "隐藏导航栏", "CarPlay 打开时隐藏车机导航栏。", AirPlayPersistence.loadHideBottomBar(this)) {
-                AirPlayPersistence.saveHideBottomBar(this, it)
-                if (it) DiPlayPreferences.saveFullscreenMaster(this, false)
-                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
-                render()
+            hideBottomBarSwitch = switchRow(card, "隐藏导航栏",
+                "CarPlay 打开时隐藏车机导航栏。打开会自动关闭“全屏”。",
+                AirPlayPersistence.loadHideBottomBar(this)) { value ->
+                AirPlayPersistence.saveHideBottomBar(this, value)
+                refreshDisplaySwitches()
+                reconnectToApply()
             }
         }
         if (com.shilapi.xcertplay.hud.BydOutputSettings.available(this)) section(content, "比亚迪导航") { card ->
@@ -965,6 +985,20 @@ class DiPlayActivity : ComponentActivity() {
         line.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
         line.addView(Switch(this).apply { contentDescription = title; isChecked = value; minHeight = dp(56); buttonTintList = ColorStateList.valueOf(ACCENT); setOnCheckedChangeListener { _, checked -> save(checked) } })
         parent.addView(line)
+    }
+
+    /** Like [toggle] but hands the Switch back so callers can update it without a full render(). */
+    private fun switchRow(parent: LinearLayout, title: String, description: String, value: Boolean, save: (Boolean) -> Unit): Switch {
+        val line = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, dp(12)) }
+        val text = column(); text.addView(label(title, 18, TEXT, true)); text.addView(label(description, 14, MUTED).apply { setPadding(0, dp(6), dp(16), 0) })
+        line.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
+        val switch = Switch(this).apply {
+            contentDescription = title; isChecked = value; minHeight = dp(56); buttonTintList = ColorStateList.valueOf(ACCENT)
+            setOnCheckedChangeListener { _, checked -> if (!syncingDisplaySwitches) save(checked) }
+        }
+        line.addView(switch)
+        parent.addView(line)
+        return switch
     }
     private fun choice(parent: LinearLayout, title: String, options: List<String>, current: Int, save: (Int) -> Unit) {
         var selection = current
