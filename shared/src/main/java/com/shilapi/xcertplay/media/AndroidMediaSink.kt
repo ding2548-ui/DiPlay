@@ -655,15 +655,13 @@ private class AudioRenderer(
         try {
             runCatching { report("Audio: starting api=${Build.VERSION.SDK_INT} " +
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
-                "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"} focus=$audioFocusEnabled") }
+                "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"}") }
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
                 AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
                 AudioCodecKind.LPCM -> Unit
             }
             createTrack()
-            diagnosticStage = "focus"
-            requestAudioFocus()
             while (running) {
                 diagnosticStage = "packet"
                 queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)

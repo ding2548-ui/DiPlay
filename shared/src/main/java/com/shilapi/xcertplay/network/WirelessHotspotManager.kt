@@ -7,7 +7,8 @@ import java.net.InetAddress
 enum class WirelessHotspotBackend(val label: String) {
     WIFI_P2P("Wi-Fi P2P"),
     LOCAL_ONLY_HOTSPOT("LocalOnlyHotspot"),
-    MANUAL_HOTSPOT("Manual hotspot"),
+    MANUAL_HOTSPOT("手动热点"),
+    EXTERNAL_WIFI("外部 Wi-Fi"),
 }
 
 /** The live Wi-Fi credentials and interface details for one wireless CarPlay hotspot. */
@@ -38,11 +39,19 @@ interface WirelessHotspotManager : Closeable {
      */
     fun start(timeoutMillis: Long): WirelessHotspotInfo
 
+    /**
+     * How many devices have joined the group, or null when that cannot be determined.
+     *
+     * This separates two failures that are otherwise indistinguishable in the log: "the phone
+     * never joined our Wi-Fi network" (count stays 0 — the credentials, band or channel we sent in
+     * `0x5703` were not usable) and "the phone joined but never opened the AirPlay connection"
+     * (count >= 1 — the network is fine, so the fault is in Bonjour/AirPlay). Without this the two
+     * look identical, because in both cases `airplay connection accepted from` never appears.
+     */
+    fun joinedClientCount(): Int? = null
+
     /** The authenticated wireless session has rendered CarPlay; AP creation alone is insufficient. */
     fun onCarPlayConfirmed() {}
-
-    /** Counts reported by the framework, when available; never contains station identities. */
-    fun connectionDiagnosticSnapshot(): String = "association=not_exposed"
 }
 
 /**
@@ -98,10 +107,15 @@ internal fun observedManualHotspotChannel(
     connectionFrequencyMHz: Int?,
     scanFrequencyMHz: Int?,
     apFrequencyMHz: Int?,
+    configuredChannel: Int = 0,
 ): Int {
     if (apChannel > 0) return apChannel
     connectionFrequencyMHz?.let(::wifiFrequencyMhzToChannel)?.let { return it }
     scanFrequencyMHz?.let(::wifiFrequencyMhzToChannel)?.let { return it }
     apFrequencyMHz?.let(::wifiFrequencyMhzToChannel)?.let { return it }
+    // Android 7 through 9 cannot observe an "auto" hotspot channel through public APIs. The
+    // channel the deployment configured in the car settings is the only remaining answer, and it
+    // is correct whenever the AP honours it.
+    if (configuredChannel > 0) return configuredChannel
     return 0
 }

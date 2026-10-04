@@ -1406,7 +1406,6 @@ class CarPlayController(
                         endpoint = endpoint,
                         timeoutMillis = Iap2WirelessControlClient.NO_TIMEOUT_MILLIS,
                         locationProvider = locationProvider,
-                                continueLocationRequest = true,
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
