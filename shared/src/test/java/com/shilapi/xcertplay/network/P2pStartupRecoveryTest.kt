@@ -6,6 +6,72 @@ import org.junit.Test
 import java.io.IOException
 
 class P2pStartupRecoveryTest {
+    @Test fun manualChannelOverridesStationAndRememberedConfiguration() {
+        val remembered = P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)
+        for ((channel, frequency) in listOf(1 to 2412, 6 to 2437, 11 to 2462,
+            36 to 5180, 40 to 5200, 44 to 5220, 48 to 5240, 149 to 5745,
+            153 to 5765, 157 to 5785, 161 to 5805, 165 to 5825)) {
+            assertEquals(listOf(P2pCreationRequest(P2pCreationMode.PREFERRED_CHANNEL, frequency)),
+                P2pStartupRecovery.plan(5180, remembered, preferredChannel = channel))
+        }
+        assertEquals(P2pStartupRecovery.plan(5200, remembered),
+            P2pStartupRecovery.plan(5200, remembered, preferredChannel = WifiP2pChannels.AUTO))
+    }
+
+    @Test fun rejectedManualChannelNeverFallsBackToAnotherChannel() {
+        val attempts = mutableListOf<Int?>()
+        val rejection = P2pCreateRejected(WifiP2pManager.ERROR, "rejected")
+        val failure = assertThrows(P2pChannelUnavailableException::class.java) {
+            P2pStartupRecovery.create(5180, { fail("Unexpected fallback") }, preferredChannel = 149) {
+                attempts += it.frequencyMHz
+                throw rejection
+            }
+        }
+        assertEquals(listOf(5745), attempts)
+        assertSame(rejection, failure.cause)
+        assertTrue(failure.message!!.contains("channel 149"))
+        assertTrue(failure.message!!.contains("Choose Auto"))
+    }
+
+    @Test fun busyManualChannelRetriesTheSameChannelOnlyOnce() {
+        val attempts = mutableListOf<Int?>()
+        var retries = 0
+        assertThrows(P2pChannelUnavailableException::class.java) {
+            P2pStartupRecovery.create(5180, { retries++ }, preferredChannel = 149) {
+                attempts += it.frequencyMHz
+                throw P2pCreateRejected(WifiP2pManager.BUSY, "busy")
+            }
+        }
+        assertEquals(listOf(5745, 5745), attempts)
+        assertEquals(1, retries)
+    }
+
+    @Test fun manualChannelDoesNotUseSystemFallbackWhenBuilderIsUnavailable() {
+        var calls = 0
+        assertThrows(P2pChannelUnavailableException::class.java) {
+            P2pStartupRecovery.create(null, { fail("Unexpected fallback") }, preferredChannel = 149) {
+                calls++
+                throw P2pConfigBuildCompatibilityFailure(NoSuchMethodError("vendor framework"))
+            }
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun manualChannelDoesNotRetryUncertainTimeoutOrMissingPermission() {
+        for (failure in listOf(IOException("timeout"),
+            P2pCreateRejected(WifiP2pManager.NO_PERMISSION, "permission"),
+            P2pCreateRejected(WifiP2pManager.P2P_UNSUPPORTED, "unsupported"))) {
+            var calls = 0
+            assertSame(failure, assertThrows(IOException::class.java) {
+                P2pStartupRecovery.create(null, { fail("Unsafe retry") }, preferredChannel = 149) {
+                    calls++
+                    throw failure
+                }
+            })
+            assertEquals(1, calls)
+        }
+    }
+
     @Test fun confirmedFrequencyGoesFirstWithoutBeingRetriedLater() {
         val preferred = P2pCreationRequest(P2pCreationMode.FIXED_2_GHZ, 2437)
         val plan = P2pStartupRecovery.plan(5180, preferred)
@@ -146,5 +212,118 @@ class P2pStartupRecoveryTest {
             }
             fail("Expected occupied group")
         } catch (_: P2pResetRequiredException) { assertEquals(1, calls) }
+    }
+
+    @Test fun knownPreCreateBuilderFailureUsesSystemDefaultOnceAndReturnsItsEffectiveMode() {
+        val attempts = mutableListOf<P2pCreationRequest>()
+        var guards = 0
+        val effective = P2pStartupRecovery.create(5180, { guards++ }) {
+            attempts += it
+            if (it.mode != P2pCreationMode.SYSTEM_DEFAULT) {
+                throw P2pConfigBuildCompatibilityFailure(NoSuchMethodError())
+            }
+        }
+        assertEquals(listOf(5180, null), attempts.map { it.frequencyMHz })
+        assertEquals(1, guards)
+        assertEquals(P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT), effective)
+    }
+
+    @Test fun failedCompatibilityDefaultStopsWithoutTryingAnotherChannelOrDefault() {
+        val terminalFailures = listOf(
+            P2pCreateRejected(WifiP2pManager.ERROR, "default rejected"),
+            P2pCreateRejected(WifiP2pManager.NO_PERMISSION, "permission"),
+            P2pCreateRejected(WifiP2pManager.P2P_UNSUPPORTED, "unsupported"),
+            IOException("default timeout"),
+        )
+        for (terminal in terminalFailures) {
+            val attempts = mutableListOf<P2pCreationRequest>()
+            var guards = 0
+            try {
+                P2pStartupRecovery.create(5180, { guards++ }) {
+                    attempts += it
+                    if (it.mode == P2pCreationMode.SYSTEM_DEFAULT) throw terminal
+                    throw P2pConfigBuildCompatibilityFailure(NoSuchMethodError())
+                }
+                fail("Expected original default failure")
+            } catch (actual: IOException) { assertSame(terminal, actual) }
+            assertEquals(listOf(5180, null), attempts.map { it.frequencyMHz })
+            assertEquals(1, guards)
+        }
+    }
+
+    @Test fun aForeignGroupOrChangedPrerequisiteBlocksTheCompatibilityDefault() {
+        val guards = listOf(P2pResetRequiredException(), SecurityException("permission revoked"))
+        for (blocked in guards) {
+            var calls = 0
+            try {
+                P2pStartupRecovery.create(5180, { throw blocked }) {
+                    calls++
+                    throw P2pConfigBuildCompatibilityFailure(NoSuchMethodError())
+                }
+                fail("Expected guard failure")
+            } catch (actual: Exception) { assertSame(blocked, actual) }
+            assertEquals(1, calls)
+        }
+    }
+
+    @Test fun compatibilityFailureAtAnAlreadyDefaultRequestDoesNotRepeatIt() {
+        var calls = 0
+        val original = P2pConfigBuildCompatibilityFailure(NoSuchMethodError())
+        try {
+            P2pStartupRecovery.create(5180, { fail("Unexpected guard") }, P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)) {
+                calls++
+                throw original
+            }
+            fail("Expected original failure")
+        } catch (actual: P2pConfigBuildCompatibilityFailure) { assertSame(original, actual) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun aReportedBuilderFailureRunsTheGuardBeforeOneNullConfigCreation() {
+        val events = mutableListOf<String>()
+        val createdConfigs = mutableListOf<Any?>()
+        val failure = reportedBuilderFailure()
+        val effective = P2pStartupRecovery.create(5180, { events += "guard" }) { selection ->
+            val config: Any? = if (selection.mode == P2pCreationMode.SYSTEM_DEFAULT) null else {
+                P2pConfigBuildDiagnostics.build(29, selection, {}) {
+                    events += "builder"
+                    throw failure
+                }
+            }
+            events += "createGroup"
+            createdConfigs += config
+        }
+        assertEquals(listOf("builder", "guard", "createGroup"), events)
+        assertEquals(listOf<Any?>(null), createdConfigs)
+        assertEquals(P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT), effective)
+    }
+
+    @Test fun anUnmatchedOrAndroidElevenBuilderErrorCannotReachAnyCreationOrRetry() {
+        val cases = listOf(
+            29 to reportedBuilderFailure("I"),
+            30 to reportedBuilderFailure(),
+        )
+        for ((sdk, original) in cases) {
+            var requests = 0
+            var creations = 0
+            try {
+                P2pStartupRecovery.create(5180, { fail("Unexpected retry") }) { selection ->
+                    requests++
+                    if (selection.mode != P2pCreationMode.SYSTEM_DEFAULT) {
+                        P2pConfigBuildDiagnostics.build(sdk, selection, {}) { throw original }
+                    }
+                    creations++
+                }
+                fail("Expected original linkage failure")
+            } catch (actual: NoSuchMethodError) { assertSame(original, actual) }
+            assertEquals(1, requests)
+            assertEquals(0, creations)
+        }
+    }
+
+    private fun reportedBuilderFailure(returnDescriptor: String = "Ljava/lang/String;") = NoSuchMethodError(
+        "No virtual method getNetworkName()$returnDescriptor in class Landroid/net/wifi/p2p/WifiP2pConfig;",
+    ).apply {
+        stackTrace = arrayOf(StackTraceElement("android.net.wifi.p2p.WifiP2pConfig\$Builder", "build", null, 1))
     }
 }

@@ -19,11 +19,6 @@ class CarPlayBonjourTest {
             .diagnosticSummary()
         assertEquals("control probe attempts=3 status=none error=IOException", failed)
         assertFalse(failed.contains("Private phone"))
-        assertEquals("control probe stage=TCP_CONNECTED attempt=2 family=IPv6",
-            CarPlayBonjourEvent.ProbeProgress(CarPlayBonjourEvent.ProbeProgress.Stage.TCP_CONNECTED, 2, true).diagnosticSummary())
-        assertEquals("control probe failed after=REQUEST_SENT attempt=1 failureClass=SocketTimeoutException",
-            CarPlayBonjourEvent.ProbeFailed(CarPlayBonjourEvent.ProbeProgress.Stage.REQUEST_SENT, 1,
-                java.net.SocketTimeoutException("Private phone secret")).diagnosticSummary())
     }
 
     /**

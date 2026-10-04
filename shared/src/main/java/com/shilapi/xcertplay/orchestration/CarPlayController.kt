@@ -64,7 +64,6 @@ import com.shilapi.xcertplay.transport.Ch341UsbHost
 import com.shilapi.xcertplay.transport.Ch341UsbSession
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.Iap2LocationProvider
-import com.shilapi.xcertplay.transport.Iap2LocationRequest
 import com.shilapi.xcertplay.transport.Iap2UsbMuxHost
 import com.shilapi.xcertplay.transport.Iap2UsbSession
 import com.shilapi.xcertplay.transport.Iap2WiredCarPlayEndpoint
@@ -257,7 +256,6 @@ class CarPlayController(
     @Volatile private var wirelessTunnelChannel: Iap2Session? = null
     @Volatile private var wirelessIdentification: Iap2IdentificationConfig? = null
     @Volatile private var wirelessAirPlayEndpoint: Iap2WirelessCarPlayEndpoint? = null
-    @Volatile private var wirelessLocationRequest = Iap2LocationRequest()
     @Volatile private var vpnService: CarPlayVpnService? = null
     @Volatile private var lwip: LwipSessionNetwork? = null
     @Volatile private var vpnBound = false
@@ -1183,7 +1181,6 @@ class CarPlayController(
             )
             wirelessIdentification = identification
             wirelessAirPlayEndpoint = endpoint
-            wirelessLocationRequest = Iap2LocationRequest()
             media.setIapTunnelHandler(::startWirelessTunnelControl)
 
             onStatus(CarPlayStatus.RunningWireless)
@@ -1196,7 +1193,6 @@ class CarPlayController(
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
-                locationRequest = wirelessLocationRequest,
                 onIncoming = ::onRouteFrame,
                 onProgress = ::debugLog,
             )
@@ -1410,9 +1406,7 @@ class CarPlayController(
                         endpoint = endpoint,
                         timeoutMillis = Iap2WirelessControlClient.NO_TIMEOUT_MILLIS,
                         locationProvider = locationProvider,
-                        // The iPhone asks for location only on the Bluetooth link (see Iap2LocationRequest).
-                        locationRequest = wirelessLocationRequest,
-                        continueLocationRequest = true,
+                                continueLocationRequest = true,
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },

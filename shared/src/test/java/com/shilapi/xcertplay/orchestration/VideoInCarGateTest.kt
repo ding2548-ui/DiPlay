@@ -15,7 +15,7 @@ class VideoInCarGateTest {
     @Test
     fun videoIsAllowedOnlyWhileTheGearReadsPark() {
         val changes = mutableListOf<Boolean>()
-        val gate = VideoInCarGate({ null }) { changes += it }
+        val gate = VideoInCarGate({ null }, onChanged = { changes += it })
 
         gate.update(null) // no ADB: stays off
         gate.update(false)
@@ -30,11 +30,24 @@ class VideoInCarGateTest {
 
     @Test
     fun closingTheGateTurnsVideoOff() {
-        val gate = VideoInCarGate({ true }) {}
+        val gate = VideoInCarGate({ true }, onChanged = {})
         gate.update(true)
         gate.close()
         gate.update(true)
 
         assertFalse(VideoInCar.allowed)
+    }
+
+    @Test
+    fun observationsDistinguishUnknownParkAndNotPark() {
+        val observations = mutableListOf<Boolean?>()
+        val gate = VideoInCarGate({ null }, {}, observations::add)
+
+        gate.update(null)
+        gate.update(null)
+        gate.update(false)
+        gate.update(true)
+
+        assertEquals(listOf(null, false, true), observations)
     }
 }

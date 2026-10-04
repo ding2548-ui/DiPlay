@@ -4,7 +4,6 @@ import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -12,10 +11,9 @@ class Iap2LocationReporterTest {
     private val provider = FakeProvider()
     private val sent = mutableListOf<Iap2Frame>()
     private val progress = mutableListOf<String>()
-    private val request = Iap2LocationRequest()
     private var nowMillis = 0L
 
-    // What the iPhone sent on the Bluetooth link in the car: GGA, RMC, PASCD and their intervals.
+    // What the iPhone requested in the car: GGA, RMC, PASCD and their intervals.
     private val start = Iap2Messages.buildRaw(Iap2LocationMessages.START_LOCATION_INFORMATION) {
         u16(0, 0)
         void(1)
@@ -25,16 +23,15 @@ class Iap2LocationReporterTest {
     }
     private val stop = Iap2Messages.buildRaw(Iap2LocationMessages.STOP_LOCATION_INFORMATION) {}
 
-    private fun bluetooth() = Iap2LocationReporter(provider, { progress += it }, request, nanoTime = { nowMillis * 1_000_000 })
-    private fun wifi() =
-        Iap2LocationReporter(provider, { progress += it }, request, continueRequest = true, nanoTime = { nowMillis * 1_000_000 })
+    private fun link(source: FakeProvider = provider) =
+        Iap2LocationReporter(source, { progress += it }, nanoTime = { nowMillis * 1_000_000 })
 
     @Test
-    fun theBluetoothLinkSendsAndRecordsTheRequest() {
-        val link = bluetooth()
+    fun aLinkSendsOnlyBetweenItsOwnStartAndStop() {
+        val link = link()
 
         assertTrue(link.handle(start) { sent += it })
-        assertEquals(setOf(0, 1, 2, 4, 0x8001), request.components)
+        assertEquals(setOf(0, 1, 2, 4, 0x8001), provider.requested)
         assertTrue(provider.started)
         nowMillis += 1_000
         link.tick { sent += it }
@@ -42,60 +39,44 @@ class Iap2LocationReporterTest {
         assertTrue(sent.all { it.messageId == Iap2LocationMessages.LOCATION_INFORMATION })
 
         assertTrue(link.handle(stop) { sent += it })
-        assertNull(request.components)
         assertFalse(provider.started)
         link.tick { sent += it }
         assertEquals(2, sent.size)
+        assertEquals(60_000L, link.pollTimeout(60_000L))
     }
 
     @Test
-    fun theWifiLinkContinuesTheBluetoothRequest() {
-        bluetooth().handle(start) { }
-        provider.stop() // the Bluetooth link closed without 0xFFFC
+    fun aSeparateLinkDoesNotInheritAnotherLinksRequest() {
+        val bluetoothProvider = FakeProvider()
+        link(bluetoothProvider).handle(start) { }
+        bluetoothProvider.stop() // Bluetooth closed without 0xFFFC.
 
-        val link = wifi()
-        link.tick { sent += it }
+        val wifiProvider = FakeProvider()
+        val wifi = link(wifiProvider)
+        wifi.tick { sent += it }
         nowMillis += 1_000
-        link.tick { sent += it }
+        wifi.tick { sent += it }
 
-        assertTrue(provider.started)
-        // The provider learns what was asked for, so vehicle speed follows the request onto Wi-Fi.
-        assertEquals(setOf(0, 1, 2, 4, 0x8001), provider.requested)
-        assertEquals(2, sent.size)
-        assertTrue(progress.any { it.startsWith("iap2 location request continues from the Bluetooth link") })
-        assertEquals(1_000L, link.pollTimeout(60_000L))
+        assertFalse(wifiProvider.started)
+        assertTrue(sent.isEmpty())
+        assertEquals(60_000L, wifi.pollTimeout(60_000L))
     }
 
     @Test
-    fun theWifiLinkSendsNothingWithoutARequest() {
-        val link = wifi()
+    fun anInactiveLinkSendsNothingAndDoesNotPoll() {
+        val link = link()
         link.tick { sent += it }
 
         assertFalse(provider.started)
         assertTrue(sent.isEmpty())
-        // It still wakes every second, in case the Bluetooth request comes after the Wi-Fi link starts.
-        assertEquals(1_000L, link.pollTimeout(60_000L))
-        assertEquals(60_000L, Iap2LocationReporter(null, {}, request, continueRequest = true).pollTimeout(60_000L))
-    }
-
-    @Test
-    fun aStopOnTheWifiLinkIsNotUndone() {
-        bluetooth().handle(start) { }
-        val link = wifi()
-        link.tick { sent += it }
-
-        link.handle(stop) { sent += it }
-        link.tick { sent += it }
-
-        assertFalse(provider.started)
-        assertEquals(1, sent.size)
         assertEquals(60_000L, link.pollTimeout(60_000L))
+        assertEquals(60_000L, Iap2LocationReporter(null, {}).pollTimeout(60_000L))
     }
 
     @Test
     fun aBurstOfIncomingMessagesStillSendsOneFixASecond() {
         // The loop ticks after every incoming message; at session start the iPhone sends dozens at once.
-        val link = bluetooth()
+        val link = link()
         link.handle(start) { sent += it }
         repeat(12) { link.tick { sent += it } }
         assertEquals(1, sent.size)
@@ -114,7 +95,7 @@ class Iap2LocationReporterTest {
     @Test
     fun noFixMeansNothingIsSent() {
         provider.nmea = null
-        val link = bluetooth()
+        val link = link()
         link.handle(start) { sent += it }
         link.tick { sent += it }
 

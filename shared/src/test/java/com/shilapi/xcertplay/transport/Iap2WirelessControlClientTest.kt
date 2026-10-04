@@ -12,6 +12,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Iap2WirelessControlClientTest {
+    @Test fun availabilityFlagsDoNotExportTransportIdentifiers() {
+        val wireless = Iap2ParameterList.of(
+            Iap2Parameter(0, byteArrayOf(1)),
+            Iap2Parameter(1, "Jane's iPhone\u0000".encodeToByteArray()),
+        ).encode()
+        val frame = Iap2Frame(0x4300, Iap2ParameterList.of(Iap2Parameter(1, wireless)).encode())
+        assertEquals("iap2 availability wired=unknown wireless=true themeAssets=unknown",
+            Iap2WirelessControlClient.carPlayAvailabilityDiagnostic(frame))
+        val malformed = Iap2Frame(0x4300, byteArrayOf(0))
+        val diagnostic = Iap2WirelessControlClient.carPlayAvailabilityDiagnostic(malformed)
+        assertTrue(diagnostic.contains("decode=failed"))
+        assertFalse(diagnostic.contains("Jane"))
+    }
+
     @Test
     fun accessoryWiFiConfigurationMatchesLiviVector() {
         val frame = Iap2WirelessControlClient.accessoryWiFiConfiguration(endpoint())
