@@ -108,6 +108,9 @@ class IphoneUsbHost(
         return PermissionRequest.Requested(device)
     }
 
+    /** Whether the system has already granted this device (default-app auto-grant included). */
+    fun hasPermission(device: UsbDevice): Boolean = usbManager.hasPermission(device)
+
     /** Returns null for unrelated broadcasts, malformed results, or non-configured devices. */
     fun parsePermissionResult(intent: Intent): PermissionResult? {
         if (intent.action != permissionAction) return null

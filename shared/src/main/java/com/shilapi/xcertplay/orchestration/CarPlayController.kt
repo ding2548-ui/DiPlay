@@ -1615,11 +1615,23 @@ class CarPlayController(
     }
 
     private fun requestIphonePermission(device: UsbDevice) {
-        mainHandler.post { doRequestIphonePermission(device) }
+        mainHandler.post { doRequestIphonePermission(device, 0) }
     }
 
-    private fun doRequestIphonePermission(device: UsbDevice) {
+    private fun doRequestIphonePermission(device: UsbDevice, attempt: Int) {
         if (closed) return
+        // The ROM's "default app" grant (USB_DEVICE_ATTACHED filter + 始终) lands asynchronously
+        // after the attach/re-enumeration uevent. Requesting immediately pops the dialog while
+        // the system is about to auto-grant; poll briefly first (run-143 report: double prompts).
+        if (attempt < AUTO_GRANT_POLL_ATTEMPTS) {
+            val granted = runCatching { iphoneHost.hasPermission(device) }.getOrDefault(false)
+            if (granted) {
+                debugLog("wired iPhone USB permission auto-granted by system default (poll=$attempt)")
+            } else {
+                mainHandler.postDelayed({ doRequestIphonePermission(device, attempt + 1) }, AUTO_GRANT_POLL_MILLIS)
+                return
+            }
+        }
         try {
             when (val request = iphoneHost.requestPermission(device)) {
                 is IphoneUsbHost.PermissionRequest.AlreadyGranted -> {
@@ -1922,8 +1934,8 @@ class CarPlayController(
                     val started = System.nanoTime()
                     var result = ConnectionIoDiagnostics.Result.FAILED
                     try {
-                        debugLog("wired link TX begin ${wireSummary(data)}")
-                        // Bound each TLS write while diagnosing the stalled certificate transfer.
+                        // The per-frame "TX begin" line was trimmed: "TX completed" carries the
+                        // same event with less noise (run-143 report triage).
                         for (offset in data.indices step 256) {
                             carkit.send(data.copyOfRange(offset, minOf(offset + 256, data.size)))
                         }
@@ -2872,6 +2884,8 @@ class CarPlayController(
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
+        private const val AUTO_GRANT_POLL_ATTEMPTS = 6
+        private const val AUTO_GRANT_POLL_MILLIS = 400L
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
         private val BLUETOOTH_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
