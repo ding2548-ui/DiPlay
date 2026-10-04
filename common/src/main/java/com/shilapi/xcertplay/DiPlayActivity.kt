@@ -445,8 +445,8 @@ class DiPlayActivity : ComponentActivity() {
                     latest == null || (current != null && latest <= current) ->
                         updateMessage?.text = "未发现更高构建（当前 ${version()}）。"
                     current != null && latest > current -> {
-                        updateMessage?.text = "发现新构建 2.10（$latest），当前 2.10（$current）。"
-                        updateActionButton?.text = "下载并安装 2.10（$latest）"
+                        updateMessage?.text = "发现新构建 2.11（$latest），当前 2.11（$current）。"
+                        updateActionButton?.text = "下载并安装 2.11（$latest）"
                         updateActionButton?.setOnClickListener { startUpdateDownload(latest) }
                     }
                 }
@@ -458,12 +458,12 @@ class DiPlayActivity : ComponentActivity() {
         if (updateBusy) return
         updateBusy = true
         updateActionButton?.isEnabled = false
-        updateMessage?.text = "正在下载 2.10（$build）…"
+        updateMessage?.text = "正在下载 2.11（$build）…"
         Thread {
             val result = runCatching {
                 AppUpdater.downloadApk(this, build, AppUpdater.source(this)) { done, total ->
                     if (total > 0) handler.post {
-                        updateMessage?.text = "正在下载 2.10（$build）… ${done * 100 / total}%"
+                        updateMessage?.text = "正在下载 2.11（$build）… ${done * 100 / total}%"
                     }
                 }
             }
@@ -477,7 +477,7 @@ class DiPlayActivity : ComponentActivity() {
                 }
                 updateMessage?.text = "下载完成（${apk.length() / 1048576} MB）。"
                 AlertDialog.Builder(this).setTitle("安装更新")
-                    .setMessage("已下载 2.10（$build）。安装期间 DiPlay 会短暂关闭，装好后自动重新打开。")
+                    .setMessage("已下载 2.11（$build）。安装期间 DiPlay 会短暂关闭，装好后自动重新打开。")
                     .setPositiveButton("立即安装") { _, _ ->
                         updateMessage?.text = "正在安装…"
                         Thread {
@@ -590,12 +590,12 @@ class DiPlayActivity : ComponentActivity() {
             val stored = storedSsid()
             when {
                 live == null -> externalHint =
-                    "车机尚未连接 Wi-Fi：请先在车机设置中把车机连上外部 Wi-Fi，回到本页会自动填入 Wi-Fi 名称（密码可留空）。"
+                    "车机尚未连接 Wi-Fi：请先在车机设置中把车机连上外部 Wi-Fi，回到本页会自动填入 Wi-Fi 名称（开放网络可不填密码，加密网络必须填写密码）。"
                 live != stored -> {
                     saveHotspotCredentials(live, storedPassword())
-                    externalHint = "已自动填入当前 Wi-Fi：$live（密码可留空；iPhone 需与车机在同一 Wi-Fi）。"
+                    externalHint = "已自动填入当前 Wi-Fi：$live（开放网络可不填密码，加密网络必须填写密码；iPhone 需与车机在同一 Wi-Fi）。"
                 }
-                else -> externalHint = "已自动填入当前 Wi-Fi：$stored（密码可留空；iPhone 需与车机在同一 Wi-Fi）。"
+                else -> externalHint = "已自动填入当前 Wi-Fi：$stored（开放网络可不填密码，加密网络必须填写密码；iPhone 需与车机在同一 Wi-Fi）。"
             }
         }
         val ssid = storedSsid()
@@ -621,7 +621,7 @@ class DiPlayActivity : ComponentActivity() {
             // The manual channel field below only applies to 车机热点 mode where Android 7
             // cannot observe the AP channel — showing it here just misleads.
             parent.addView(label(
-                externalHint ?: "外部 Wi-Fi 模式：SSID、密码、信道均自动读取网络真实值，无需手动填写。",
+                externalHint ?: "外部 Wi-Fi 模式：SSID 自动读取；开放网络可不填密码直接连，加密网络必须填写密码后才能连接。",
                 14, MUTED,
             ).apply { setPadding(0, dp(4), 0, dp(18)) })
             return

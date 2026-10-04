@@ -42,7 +42,7 @@ object AppUpdater {
         else -> "代理 $source"
     }
 
-    /** The CI stamps the build number into the version name, e.g. 2.10（90）. */
+    /** The CI stamps the build number into the version name, e.g. 2.11（90）. */
     fun currentBuild(context: Context): Int? {
         val name = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: return null
         return Regex("（(\\d+)）").find(name)?.groupValues?.get(1)?.toIntOrNull()
