@@ -299,28 +299,61 @@ internal object LearnedWheelKeys {
     }
 
     private fun handleIcu2Mmi(intent: Intent?) {
-        val signature = icu2MmiSignature(intent) ?: return
-        val bindingId = "${WheelBinding.BROADCAST_PREFIX}$ICU2MMI_ACTION|$signature"
+        val signature = icu2MmiSignature(intent)
+        // The T03 radio may either use the six integer extras or the C-series `receiver`
+        // byte payload (the stock FangKongReceiver checks for that extra first). Cover both.
+        val payload = runCatching { intent?.getByteArrayExtra("receiver") }.getOrNull()
+        val payloadAction = LeapmotorMediaProtocol.actionFromPayload(payload)
+        val bindingId: String
+        val detail: String
+        if (signature != null) {
+            bindingId = "${WheelBinding.BROADCAST_PREFIX}$ICU2MMI_ACTION|$signature"
+            detail = signature
+        } else if (payloadAction != null) {
+            bindingId = "${WheelBinding.BROADCAST_PREFIX}$ICU2MMI_ACTION"
+            detail = "data.action=$payloadAction"
+        } else {
+            // Probe build: dump every extra so the report shows what the head unit actually
+            // sends — byte arrays print their size, everything else its value.
+            val dump = intent?.extras?.keySet()?.sorted()?.joinToString(",") { key ->
+                val value = runCatching { intent.extras?.get(key) }.getOrNull()
+                when (value) {
+                    null -> "$key=null"
+                    is ByteArray -> "$key=byte[${value.size}]"
+                    else -> "$key=${value.javaClass.simpleName}=$value"
+                }
+            } ?: "none"
+            bindingId = "${WheelBinding.BROADCAST_PREFIX}$ICU2MMI_ACTION"
+            detail = "extras($dump)"
+        }
         if (broadcastLogEnabled) {
             synchronized(broadcastLog) {
                 broadcastLog.addLast(
-                    BroadcastLogEntry(ICU2MMI_ACTION, signature, System.currentTimeMillis(), bindingId),
+                    BroadcastLogEntry(ICU2MMI_ACTION, detail, System.currentTimeMillis(), bindingId),
                 )
                 while (broadcastLog.size > MAX_LOG_ENTRIES) broadcastLog.removeFirst()
             }
         }
         if (captureCallback != null) return
-        val binding = WheelLearningStore.load(appContext ?: return)
-            .firstOrNull { it.id == bindingId }
-        if (binding != null) {
-            perform(binding)
+        val context = appContext
+        if (context != null && signature != null) {
+            val binding = WheelLearningStore.load(context)
+                .firstOrNull { it.id == "${WheelBinding.BROADCAST_PREFIX}$ICU2MMI_ACTION|$signature" }
+            if (binding != null) {
+                perform(binding)
+                return
+            }
+        }
+        // No learned binding for this key: fall back to the built-ins — the integer extras
+        // table (mediaSwitch=1/2, mediaKey=1) or the C-series JSON payload action.
+        val builtin = icu2MmiBuiltinAction(signature ?: "")
+        if (builtin != null) {
+            LeapmotorMediaKeys.dispatch(builtin, ICU2MMI_ACTION)
             return
         }
-        // No learned binding for this exact key: fall back to the built-in media-key table
-        // (mediaSwitch=1/2, mediaKey=1), which rides the same CarPlay send path as the
-        // hard-coded steering-wheel mapping.
-        val builtin = icu2MmiBuiltinAction(signature) ?: return
-        LeapmotorMediaKeys.dispatch(builtin, ICU2MMI_ACTION)
+        if (payloadAction != null) {
+            LeapmotorMediaKeys.dispatch(payloadAction, ICU2MMI_ACTION)
+        }
     }
 
     private fun handleBusBroadcast(intent: Intent?) {
