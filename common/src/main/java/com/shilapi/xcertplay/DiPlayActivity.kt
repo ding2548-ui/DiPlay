@@ -502,11 +502,20 @@ class DiPlayActivity : ComponentActivity() {
                     .setMessage("已下载 2.11（$build）。安装期间 DiPlay 会短暂关闭，装好后自动重新打开。")
                     .setPositiveButton("立即安装") { _, _ ->
                         updateMessage?.text = "正在安装…"
+                        // Registered before the session so the receiver can fall back to the
+                        // manual installer if the silent path is rejected on this ROM.
+                        AppUpdater.rememberManualApk(this, apk)
                         Thread {
                             val installed = runCatching { AppUpdater.installApk(this, apk) }
                             handler.post {
                                 if (installed.isFailure) {
-                                    updateMessage?.text = "安装失败：${installed.exceptionOrNull()?.message}"
+                                    // Silent sessions need the platform signature; on other
+                                    // ROMs they fail outright — hand the APK to the installer UI.
+                                    runCatching { AppUpdater.installManually(this, apk) }.onSuccess {
+                                        updateMessage?.text = "静默安装失败，已转手动安装：请在安装界面确认。"
+                                    }.onFailure { manual ->
+                                        updateMessage?.text = "安装失败：${installed.exceptionOrNull()?.message}；手动安装也无法启动：${manual.message}"
+                                    }
                                     updateBusy = false
                                     updateActionButton?.isEnabled = true
                                 }
@@ -514,6 +523,7 @@ class DiPlayActivity : ComponentActivity() {
                         }.start()
                     }
                     .setNegativeButton("取消") { _, _ ->
+                        AppUpdater.clearManualApk(this)
                         apk.delete()
                         updateMessage?.text = "已取消安装。"
                         updateBusy = false

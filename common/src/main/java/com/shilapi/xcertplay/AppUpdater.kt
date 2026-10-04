@@ -176,6 +176,41 @@ object AppUpdater {
         }
     }
 
+    private const val MANUAL_APK_KEY = "manual_install_apk"
+
+    /** Remembers which APK the manual installer should fall back to. */
+    fun rememberManualApk(context: Context, apk: File) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(MANUAL_APK_KEY, apk.absolutePath).apply()
+    }
+
+    fun pendingManualApk(context: Context): File? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(MANUAL_APK_KEY, null)?.let(::File)?.takeIf { it.exists() }
+
+    fun clearManualApk(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(MANUAL_APK_KEY).apply()
+    }
+
+    /**
+     * Opens the downloaded APK in the system installer UI. The fallback for ROMs whose
+     * PackageInstaller refuses silent sessions (non-platform-signed builds report an
+     * opaque failure there); the user confirms with two taps instead.
+     */
+    fun installManually(context: Context, apk: File) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            apk,
+        )
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        rememberManualApk(context, apk)
+        context.startActivity(intent)
+    }
+
     private fun open(source: String, path: String, redirectless: Boolean): HttpURLConnection {
         val url = if (source.isEmpty()) "https://$path" else "https://$source/$path"
         val connection = URL(url).openConnection() as HttpURLConnection
