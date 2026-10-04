@@ -441,7 +441,11 @@ class LwipSessionNetwork(
         val IPV4_LOOPBACK = java.net.Inet4Address.getByAddress(byteArrayOf(127, 0, 0, 1))
         const val RECV_TIMEOUT_MILLIS = 250L
         const val SEND_TIMEOUT_MILLIS = 1000
-        const val OUTPUT_CHUNK_BYTES = 16 * 1024
+        // EasyPlay parity (0xc8): pollOutput waits for up to maxBytes of pending output before
+        // returning, so a large cap held tiny but urgent frames (pure ACKs, zero-window / window
+        // updates) in lwIP for up to ~1 s — the phone stalled in exact ~1 s bursts (run-139
+        // report: readMaxMs constant at ~1000). 200 bytes flushes every frame immediately.
+        const val OUTPUT_CHUNK_BYTES = 200
         const val RELAY_CHUNK_BYTES = 16 * 1024
         const val DROP_REPORT_EVERY = 64
     }
