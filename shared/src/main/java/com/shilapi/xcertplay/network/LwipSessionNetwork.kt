@@ -161,7 +161,12 @@ class LwipSessionNetwork(
             checkOpen()
             val client = LwipNative.accept(handle, fd)
             if (client < 0) throw SocketTimeoutException("lwIP accept timed out")
-            return TcpSocket(client)
+            return TcpSocket(client).apply {
+                // Without this the relayed streams stutter: lwIP's delayed ACK and the phone's
+                // Nagle interact into ~1 s bursts (readMaxMs≈1000, touch2frame 80-200 ms —
+                // the run-138 report). CarPlay traffic is latency-sensitive, not bulk-bound.
+                setTcpNoDelay(true)
+            }
         }
 
         fun bind(port: Int, backlog: Int = 8) {
@@ -290,7 +295,7 @@ class LwipSessionNetwork(
 
     private fun relay(client: TcpSocket, targetPort: Int) {
         runCatching {
-            java.net.Socket("127.0.0.1", targetPort).use { local ->
+            java.net.Socket("127.0.0.1", targetPort).apply { tcpNoDelay = true }.use { local ->
                 client.use { remote ->
                     val upstream = thread {
                         runCatching { remote.input.copyTo(local.getOutputStream(), RELAY_CHUNK_BYTES) }
@@ -389,7 +394,7 @@ class LwipSessionNetwork(
         checkRunning()
         val fd = LwipNative.socket(handle, LwipNative.STREAM)
         check(fd >= 0) { "lwIP returned an invalid socket" }
-        return TcpSocket(fd)
+        return TcpSocket(fd).apply { setTcpNoDelay(true) }
     }
 
     /** Opens a UDP endpoint inside lwIP. */

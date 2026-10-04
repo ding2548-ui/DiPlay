@@ -50,6 +50,18 @@
   双向数据报中继（lwIP ↔ 127.0.0.1，"最近手机源"地址映射）——此前 UDP 全部丢弃，
   对时失败手机不会开始推流。诊断报告应新增
   `wired lwip proxy listening port=<eventPort>` 与 `wired lwip udp proxy listening port=<timingPort>`。
+  2.11（138）修复灰屏（137 报告定位）：事件/NTP 监听改绑 127.0.0.1 字面量——此前绑
+  `getLoopbackAddress()`（该值在本车机不是 127.0.0.1），IPv4 中继永远 Connection refused →
+  事件通道死 → forceKeyFrame 发不出 → 解码器等不到关键帧（shown=0.0fps）→ 灰屏。
+  **138 实测：lwIP 已出画面。**
+  2.11（139）修卡顿（138 报告定位）：中继链路 TCP 全程关闭 Nagle——
+  138 日志显示视频流以 ~1 秒为粒度断续到达（readMaxMs 恒 ≈1000、touch2frame 83-207ms，
+  VPN 路径约 30ms），是 lwIP 侧与回环中继两侧的 Nagle/延迟 ACK 相互作用所致。
+  现 lwIP accept 的连接、出站连接、回环中继 socket、屏幕流 accepted socket 全部
+  TCP_NODELAY；触控延迟应回到 ~30-40ms，视频 maxGap 应从 1.5s 降到 ~100ms 级。
+- **CarPlay 尺寸新增 HiDPI 2x / 3x（本版新增）**：设置 → CarPlay 尺寸在大/中/小之外新增两档——
+  向 iPhone 申报更小的物理屏宽（150mm/100mm），控件相对排布放大、像素密度翻倍/三倍，
+  图标与文字更大更锐利（等效 2x/3x HiDPI 面板）。应用后重连 CarPlay 生效。
 - **零跑 T03 方控支持（本版新增）**：T03 方控的真实通路是**系统 media key 分发**——ICU 把
   按键交给当前活跃的 MediaSession（模拟器实测：`MediaSessionService: Sending KeyEvent
   KEYCODE_MEDIA_NEXT to com.leapmotor.multimedia`，D/loger 即 T03 多媒体的日志）。
