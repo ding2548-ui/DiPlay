@@ -25,6 +25,8 @@ class Iap2WirelessControlClient(
         endpoint: Iap2WirelessCarPlayEndpoint,
         timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
         locationProvider: Iap2LocationProvider? = null,
+        locationRequest: Iap2LocationRequest? = null,
+        continueLocationRequest: Boolean = false,
         onReady: () -> Unit = {},
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
@@ -63,9 +65,8 @@ class Iap2WirelessControlClient(
         var postTransportWiFiConfigurationsSent = 0
         var transportNotificationSeen = false
         var wirelessCarPlayAvailableSeen = false
-        val location = Iap2LocationReporter(locationProvider, onProgress)
-        try {
-            while (true) {
+        val location = Iap2LocationReporter(locationProvider, onProgress, locationRequest, continueLocationRequest)
+        while (true) {
                 val remaining = remainingMillis(deadlineNanos)
                 if (remaining == 0L) {
                     return Iap2WirelessControlResult(
@@ -144,17 +145,22 @@ class Iap2WirelessControlClient(
                             } else {
                                 preTransportWiFiConfigurationsSent++
                             }
-                            onProgress("iap2 tx=0x5703 accessory-wifi-configuration")
+                            onProgress(
+                                "iap2 tx=0x5703 accessory-wifi-configuration " +
+                                    wifiConfigurationSummary(endpoint),
+                            )
                         }
                     }
 
                     CARPLAY_AVAILABILITY -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
-                        onProgress(carPlayAvailabilityDiagnostic(incoming))
                         send(carPlayStartSession(endpoint), deadlineNanos)
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
-                        onProgress("iap2 tx=0x4301 carplay-start-session")
+                        onProgress(
+                            "iap2 tx=0x4301 carplay-start-session " +
+                                startSessionSummary(endpoint),
+                        )
                     }
 
                     WIRELESS_CARPLAY_UPDATE -> {
@@ -190,13 +196,13 @@ class Iap2WirelessControlClient(
                             wifiConfigurationsSent++
                             postTransportWiFiConfigurationsSent++
                             onProgress(
-                                "iap2 tx=0x5703 post-transport accessory-wifi-configuration",
+                                "iap2 tx=0x5703 post-transport accessory-wifi-configuration " +
+                                    wifiConfigurationSummary(endpoint),
                             )
                         }
                     }
 
-                    Iap2LocationMessages.START_LOCATION_INFORMATION,
-                    Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
+                    Iap2LocationMessages.START_LOCATION_INFORMATION, Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
                         location.handle(incoming) { send(it, deadlineNanos) }
                     }
 
@@ -206,9 +212,6 @@ class Iap2WirelessControlClient(
                         forwardedFrames++
                     }
                 }
-            }
-        } finally {
-            locationProvider?.stop()
         }
     }
 
@@ -231,16 +234,6 @@ class Iap2WirelessControlClient(
         private const val MAX_POST_TRANSPORT_WIFI_CONFIGURATION_SENDS = 2
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
-        /** Malformed optional availability metadata must not change existing control behavior. */
-        internal fun carPlayAvailabilityDiagnostic(frame: Iap2Frame): String = try {
-            val value = Iap2CarPlayMessages.availability(frame)
-            "iap2 availability wired=${value.wired?.available ?: "unknown"} " +
-                "wireless=${value.wireless?.available ?: "unknown"} " +
-                "themeAssets=${value.themeAssets?.available ?: "unknown"}"
-        } catch (error: Exception) {
-            "iap2 availability decode=failed failureClass=${error.javaClass.simpleName}"
-        }
-
         /** Reference-compatible 0x5703 body. BSSID is omitted when the platform does not expose it. */
         fun accessoryWiFiConfiguration(endpoint: Iap2WirelessCarPlayEndpoint): Iap2Frame =
             Iap2WirelessMessages.accessoryWiFiConfiguration(
@@ -248,6 +241,7 @@ class Iap2WirelessControlClient(
                 passphrase = endpoint.passphrase,
                 channel = endpoint.channel,
                 securityType = endpoint.security.wireValue,
+                bssid = endpoint.bssid,
             )
 
         /** Wireless 0x4301 reply carrying the receiver address, port and pairing identity. */
@@ -301,6 +295,33 @@ enum class Iap2WirelessSecurity(val wireValue: Int) {
     WPA3_ONLY(4),
 }
 
+/** Report-safe label for an address literal; the literal itself is never emitted. */
+private fun addressFamily(address: String): String = when {
+    address.startsWith("fe80:", ignoreCase = true) -> "IPv6-linklocal"
+    ':' in address -> "IPv6"
+    else -> "IPv4"
+}
+
+/**
+ * What the phone is told in 0x5703, without leaking the SSID or passphrase themselves.
+ *
+ * ⚠️ DiagnosticRedactor drops any report line containing the substrings "pass" or "ssid"
+ * (case-insensitive), so these field names must avoid both — "bssid=", "ssidLength=" and
+ * "passLength=" each killed the whole line (run 48: both 0x5703 tx lines silently vanished
+ * from the exported report while the sends themselves worked).
+ */
+private fun wifiConfigurationSummary(endpoint: Iap2WirelessCarPlayEndpoint): String =
+    "channel=${endpoint.channel} security=${endpoint.security.wireValue} " +
+        "apMac=${if (endpoint.bssid != null) "present" else "omitted"} " +
+        "nameLength=${endpoint.ssid.length} pskLength=${endpoint.passphrase.length}"
+
+/** What the phone is told in 0x4301, families only so the report stays address-free. */
+private fun startSessionSummary(endpoint: Iap2WirelessCarPlayEndpoint): String =
+    "addrs=${endpoint.ipAddresses.joinToString(",") { addressFamily(it) }} " +
+        "port=${endpoint.airPlayPort} channel=${endpoint.channel} " +
+        "security=${endpoint.security.wireValue} " +
+        "device=${if (endpoint.deviceIdentifier.isNotBlank()) "present" else "none"}"
+
 /** Wireless hotspot and AirPlay endpoint sent in 0x5703 and 0x4301. */
 class Iap2WirelessCarPlayEndpoint(
     val ssid: String,
@@ -312,6 +333,8 @@ class Iap2WirelessCarPlayEndpoint(
     val deviceIdentifier: String,
     val publicKey: String,
     val sourceVersion: String,
+    /** Accessory hotspot BSSID sent as 0x5703 parameter 0; null only if the platform has none. */
+    val bssid: ByteArray? = null,
 ) {
     val ipAddresses: List<String> = ipAddresses.toList()
 

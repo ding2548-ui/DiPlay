@@ -98,35 +98,6 @@ data class Iap2IdentificationConfig(
     }
 }
 
-/** The two iAP2 links used during one wireless CarPlay connection have different responsibilities. */
-internal enum class Iap2WirelessLinkRole {
-    /** Short-lived RFCOMM link used only to authenticate and hand the iPhone the Wi-Fi endpoint. */
-    BLUETOOTH_BOOTSTRAP,
-
-    /** Long-lived iAP2 DataStream inside the active Wi-Fi AirPlay session. */
-    RUNTIME_TUNNEL,
-}
-
-/**
- * Builds identification for one wireless link. Long-lived accessory data must not be advertised on
- * Bluetooth: iOS can bind Location or Vehicle to that endpoint and reject the same data on Wi-Fi
- * after RFCOMM closes.
- */
-internal fun Iap2IdentificationConfig.forWirelessLink(
-    role: Iap2WirelessLinkRole,
-    wirelessIdentification: Iap2WirelessIdentification,
-): Iap2IdentificationConfig {
-    val wirelessConfig = copy(wireless = wirelessIdentification)
-    return when (role) {
-        Iap2WirelessLinkRole.BLUETOOTH_BOOTSTRAP -> wirelessConfig.copy(
-            locationInformationEnabled = false,
-            vehicleStatusEnabled = false,
-            vehicleSpeedEnabled = false,
-        )
-        Iap2WirelessLinkRole.RUNTIME_TUNNEL -> wirelessConfig
-    }
-}
-
 /** Identification failures distinguished from the underlying iAP2 transport failure. */
 sealed class Iap2IdentificationException(message: String) : IOException(message) {
     class Rejected(parameterIds: Set<Int>) : Iap2IdentificationException(
