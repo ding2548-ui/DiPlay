@@ -552,6 +552,9 @@ class CarPlayController(
                         closeBestEffort("VPN/NCM") { service?.detach() }
                         closeBestEffort("lwIP") { lwip?.close() }
                         lwip = null
+                        // Teardown ran to completion: every endpoint is released, so the next
+                        // attach may skip the forced re-enumeration (and its permission prompt).
+                        lastWiredTeardownClean = true
                     }
                     closeBestEffort("MFi") { mfiSession?.close() }
                     mfiSession = null
@@ -1661,14 +1664,17 @@ class CarPlayController(
                 when (phase) {
                     Phase.REENUMERATION, Phase.IPHONE -> {
                         val configuration = IphoneCarPlayConfiguration.find(result.device)
+                        val teardownClean = lastWiredTeardownClean
                         connectionDiagnostic(
                             "USB configuration ready=${configuration != null} " +
                                 "configurationId=${configuration?.id ?: "none"} " +
                                 "reenumerationAttempts=$reenumerationAttempts " +
                                 "reenumerationPerformed=$reenumerationPerformed " +
+                                "lastTeardownClean=$teardownClean " +
                                 "action=${when {
                                     configuration != null && !reenumerationPerformed &&
-                                        reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS -> "request-transition"
+                                        reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS &&
+                                        !teardownClean -> "request-transition"
                                     configuration != null -> "reuse-descriptors"
                                     reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS -> "request-transition"
                                     else -> "reject-missing-configuration"
@@ -1677,12 +1683,15 @@ class CarPlayController(
                         val configured = configuration != null
                         val attemptsLeft = reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS
                         when {
-                            // A leftover configuration cannot be trusted (see reenumerationPerformed),
-                            // so drive the phone through the vendor request to get a clean device.
-                            configured && !reenumerationPerformed && attemptsLeft -> {
+                            // A leftover configuration cannot be trusted when the previous
+                            // session did NOT close cleanly (the original USBMUX hang). A clean
+                            // teardown released every endpoint, so — AutoKit parity — the
+                            // descriptors are reused and the grant stays valid: one authorization
+                            // per cable, no second dialog.
+                            configured && !reenumerationPerformed && attemptsLeft && !teardownClean -> {
                                 debugLog(
                                     "wired USB already exposes a CarPlay configuration from an " +
-                                        "earlier session; re-enumerating for a clean state",
+                                        "unclean previous session; re-enumerating for a clean state",
                                 )
                                 beginReenumeration(result.device)
                             }
@@ -2754,6 +2763,11 @@ class CarPlayController(
 
     private fun fail(error: Throwable) {
         if (closed) return
+        if (config.transport == CarPlayTransport.WIRED) {
+            // A failed session may leave the USB endpoints stale — restore the safe path so the
+            // next attach falls back to the forced re-enumeration (the original USBMUX hang fix).
+            lastWiredTeardownClean = false
+        }
         onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName,
             generateSequence(error) { it.cause }.any { it is P2pResetRequiredException }))
     }
@@ -2857,6 +2871,16 @@ class CarPlayController(
     companion object {
         const val CONNECTION_DIAGNOSTIC_PREFIX = "CONNECTION_DIAGNOSTIC"
         private val diagnosticAttempts = AtomicInteger()
+
+        /**
+         * AutoKit-parity authorization memory: a wired session whose teardown ran to completion
+         * releases every endpoint, so the next attach can reuse the descriptors WITHOUT the
+         * forced re-enumeration — which was the reason one cable plug cost two permission
+         * dialogs (the re-enumeration invalidates the grant). Any failure or an unknown
+         * process start clears this, restoring the safe re-enumeration.
+         */
+        @Volatile
+        internal var lastWiredTeardownClean = false
         private const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacafe"
         private const val HOTSPOT_START_TIMEOUT_MILLIS = 60_000L
         private const val WIFI_P2P_START_TIMEOUT_MILLIS = 20_000L
