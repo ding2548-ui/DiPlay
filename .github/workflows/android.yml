@@ -165,6 +165,10 @@ jobs:
           "$TOOLS/aapt2" dump badging "$APK" | grep -E "^package:|^minSdkVersion:|^targetSdkVersion:|^application-label:|^application: "
           echo "--- build stamp ---"
           "$TOOLS/aapt2" dump badging "$APK" | grep -o "versionName='[^']*'"
+          # ABI audit: every bundled .so must stay armeabi-v7a, or the 64-bit-capable head
+          # unit installs the app as arm64 and lwIP becomes unloadable (run-119 lesson).
+          echo "--- native libs ---"
+          unzip -l "$APK" | grep "lib/" || echo "no bundled libs"
           unzip -l "$APK" | grep -E "offline-mfi" || echo "offline-mfi assets: absent"
           echo "--- signature ---"
           "$TOOLS/apksigner" verify --print-certs "$APK" | head -8
