@@ -92,8 +92,8 @@ internal object DiPlayPreferences {
         prefs(context).edit().putBoolean("a2dp_handoff", value).apply()
     }
 
-    /** Beta: the userspace lwIP wired transport is the default on this v7a-only test line. */
-    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", true)
+    /** lwIP stays off unless the tester turns it on: the wired VPN path is the default. */
+    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", false)
     fun saveWiredLwip(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("wired_lwip", value).apply()
     }

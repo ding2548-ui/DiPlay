@@ -84,9 +84,9 @@ class LwipSessionNetwork(
                 fail(it); return
             } ?: continue
             if (LwipNative.input(handle, frame)) {
-                report("wired userspace frame direction=in bytes=${frame.size}")
+                report("wired userspace frame direction=in bytes=${frame.size} ${describeFrame(frame)}")
             } else if (++dropped % DROP_REPORT_EVERY == 1) {
-                report("wired userspace input queue full dropped=$dropped")
+                report("wired userspace input queue full dropped=$dropped ${describeFrame(frame)}")
             }
         }
     }
@@ -95,8 +95,62 @@ class LwipSessionNetwork(
         while (running.get()) {
             val frame = LwipNative.pollOutput(handle, OUTPUT_CHUNK_BYTES) ?: continue
             if (frame.isEmpty()) continue
-            report("wired userspace frame direction=out bytes=${frame.size}")
+            report("wired userspace frame direction=out bytes=${frame.size} ${describeFrame(frame)}")
             runCatching { ncm.send(frame, SEND_TIMEOUT_MILLIS) }.getOrElse { fail(it); return }
+        }
+    }
+
+    /**
+     * One-line protocol classification of a raw ethernet frame, so a dead lwIP session can
+     * be diagnosed from the report alone: which neighbor-discovery packets arrived, whether
+     * the stack answered, and whether the iPhone's TCP SYN ever reached the listener
+     * (run-120/122 reports: frames flowed but nothing was ever classified).
+     */
+    private fun describeFrame(frame: ByteArray): String {
+        if (frame.size < 14) return "short"
+        val ethertype = ((frame[12].toInt() and 0xff) shl 8) or (frame[13].toInt() and 0xff)
+        when (ethertype) {
+            0x0806 -> return "arp"
+            0x86dd -> Unit
+            else -> return "ethertype=0x${ethertype.toString(16)}"
+        }
+        if (frame.size < 14 + 40) return "ipv6 short"
+        val nextHeader = frame[14 + 6].toInt() and 0xff
+        fun addressAt(offset: Int): String = runCatching {
+            java.net.InetAddress.getByAddress(frame.copyOfRange(offset, offset + 16)).hostAddress ?: "?"
+        }.getOrDefault("?")
+        val source = addressAt(14 + 8)
+        return when (nextHeader) {
+            58 -> {
+                if (frame.size < 14 + 40 + 1) return "ipv6 icmpv6 short"
+                val type = frame[14 + 40].toInt() and 0xff
+                val name = when (type) {
+                    133 -> "icmpv6-rs"
+                    134 -> "icmpv6-ra"
+                    135 -> "icmpv6-ns"
+                    136 -> "icmpv6-na"
+                    128 -> "icmpv6-echo-request"
+                    129 -> "icmpv6-echo-reply"
+                    else -> "icmpv6-type=$type"
+                }
+                "$name src=$source"
+            }
+            6 -> {
+                if (frame.size < 14 + 40 + 14) return "ipv6 tcp short"
+                val destination = addressAt(14 + 24)
+                val destinationPort = ((frame[14 + 40 + 2].toInt() and 0xff) shl 8) or (frame[14 + 40 + 3].toInt() and 0xff)
+                val flags = frame[14 + 40 + 13].toInt() and 0xff
+                val flagNames = buildList {
+                    if (flags and 0x02 != 0) add("syn")
+                    if (flags and 0x10 != 0) add("ack")
+                    if (flags and 0x01 != 0) add("fin")
+                    if (flags and 0x04 != 0) add("rst")
+                    if (flags and 0x08 != 0) add("psh")
+                }
+                "ipv6 tcp ${flagNames.joinToString("-").ifEmpty { "flags=0x${flags.toString(16)}" }} dport=$destinationPort dst=$destination src=$source"
+            }
+            17 -> "ipv6 udp"
+            else -> "ipv6 proto=$nextHeader"
         }
     }
 
@@ -206,15 +260,23 @@ class LwipSessionNetwork(
         LwipNative.setTimeout(handle, listener.fd, 1)
         listener.bind(LWIP_LISTEN_PORT)
         thread(name = "lwip-proxy") {
+            var waitingReports = 0
             while (running.get()) {
                 val client = try {
                     listener.accept()
                 } catch (_: java.net.SocketTimeoutException) {
+                    // A periodic heartbeat proves the accept loop is alive even when the
+                    // iPhone never connects; without it, "no relay lines" is ambiguous
+                    // between "nobody connected" and "the listener died".
+                    if (++waitingReports % 10 == 1) {
+                        report("wired lwip proxy waiting accepted=${waitingReports - 1} listenerFd=${listener.fd}")
+                    }
                     continue
                 } catch (failure: Exception) {
                     if (running.get()) fail(failure)
                     return@thread
                 }
+                report("wired lwip proxy accepted fd=${client.fd}")
                 thread(name = "lwip-proxy-conn") { relay(client, targetPort) }
             }
         }
