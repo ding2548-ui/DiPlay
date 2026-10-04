@@ -1176,17 +1176,17 @@ class CarPlayController(
                 closeWirelessStack()
                 return
             }
-            val wirelessIdentification = Iap2WirelessIdentification(hostBluetoothMac, hotspotInfo.ssid)
+            val linkWirelessIdentification = Iap2WirelessIdentification(hostBluetoothMac, hotspotInfo.ssid)
             // Upstream 0.2.11: the Bluetooth RFCOMM link is a short-lived bootstrap; long-lived
             // accessory data (location) must only be advertised on the runtime Wi-Fi tunnel, or
             // iOS binds it to the RFCOMM endpoint and rejects it there once the link closes.
             val bootstrapIdentification = config.identification.forWirelessLink(
                 Iap2WirelessLinkRole.BLUETOOTH_BOOTSTRAP,
-                wirelessIdentification,
+                linkWirelessIdentification,
             )
             val runtimeIdentification = config.identification.forWirelessLink(
                 Iap2WirelessLinkRole.RUNTIME_TUNNEL,
-                wirelessIdentification,
+                linkWirelessIdentification,
             )
             // LIVI (f-io/LIVI), the working reference implementation, puts ONLY the link-local
             // IPv6 in 0x4301's wireless ip_address list — the iPhone dials it directly on the
