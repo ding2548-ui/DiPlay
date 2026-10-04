@@ -34,7 +34,7 @@ class LwipSessionNetwork(
     private var handle: Long = 0
     private var linkLocal: Inet6Address? = null
     private val pumpThreads = mutableListOf<Thread>()
-    private var proxyListener: TcpListener? = null
+    private val proxyListeners = mutableMapOf<Int, TcpListener>()
 
     /** Starts the stack and both frame pumps. Throws when the native library is unusable. */
     /**
@@ -253,34 +253,38 @@ class LwipSessionNetwork(
      * every stream into the JVM-side AirPlay server over loopback. UDP is not relayed yet;
      *CarPlay's control/media streams over the wired NCM link are TCP.
      */
-    fun startProxy(targetPort: Int) {
+    /** The AirPlay control port: iPhone -> lwIP :7000 -> loopback relay. */
+    fun startProxy(targetPort: Int) = startProxyPort(LWIP_LISTEN_PORT, targetPort)
+
+    /**
+     * Opens a relay for one more TCP port: iPhone -> lwIP :[listenPort] ->
+     * 127.0.0.1:[targetPort]. The AirPlay session announces extra ports as the session
+     * progresses (eventPort, timing over TCP, stream data ports) — each announcement opens
+     * its lwIP listener here.
+     */
+    @Synchronized
+    fun startProxyPort(listenPort: Int, targetPort: Int = listenPort) {
         check(running.get()) { "USB IPv6 session is closed" }
+        if (proxyListeners.containsKey(listenPort)) return
         val listener = tcpListener()
-        proxyListener = listener
         LwipNative.setTimeout(handle, listener.fd, 1)
-        listener.bind(LWIP_LISTEN_PORT)
-        thread(name = "lwip-proxy") {
-            var waitingReports = 0
+        listener.bind(listenPort)
+        proxyListeners[listenPort] = listener
+        thread(name = "lwip-proxy-$listenPort") {
             while (running.get()) {
                 val client = try {
                     listener.accept()
                 } catch (_: java.net.SocketTimeoutException) {
-                    // A periodic heartbeat proves the accept loop is alive even when the
-                    // iPhone never connects; without it, "no relay lines" is ambiguous
-                    // between "nobody connected" and "the listener died".
-                    if (++waitingReports % 10 == 1) {
-                        report("wired lwip proxy waiting accepted=${waitingReports - 1} listenerFd=${listener.fd}")
-                    }
                     continue
                 } catch (failure: Exception) {
                     if (running.get()) fail(failure)
                     return@thread
                 }
-                report("wired lwip proxy accepted fd=${client.fd}")
-                thread(name = "lwip-proxy-conn") { relay(client, targetPort) }
+                report("wired lwip proxy accepted port=$listenPort fd=${client.fd}")
+                thread(name = "lwip-proxy-conn-$listenPort") { relay(client, targetPort) }
             }
         }
-        report("wired lwip proxy listening port=$LWIP_LISTEN_PORT target=127.0.0.1:$targetPort")
+        report("wired lwip proxy listening port=$listenPort target=127.0.0.1:$targetPort")
     }
 
     private fun relay(client: TcpSocket, targetPort: Int) {
@@ -325,8 +329,10 @@ class LwipSessionNetwork(
 
     override fun close() {
         if (!running.compareAndSet(true, false)) return
-        runCatching { proxyListener?.close() }
-        proxyListener = null
+        synchronized(proxyListeners) {
+            proxyListeners.values.forEach { runCatching { it.close() } }
+            proxyListeners.clear()
+        }
         LwipNative.stop(handle)
         handle = 0
         // Own the bridge like Ipv6NcmBridge does: the wired USB session dies with the stack.

@@ -59,6 +59,7 @@ class CarPlayVpnService : VpnService() {
 
     /** True when this attachment is fed by the lwIP loopback relay (see [attachWireless]). */
     @Volatile private var loopbackRelay = false
+    @Volatile private var portNotifier: ((Int) -> Unit)? = null
     /** All bound listeners: the IPv6 wildcard plus an explicit IPv4 socket when needed. */
     private val serverSockets = mutableListOf<ServerSocket>()
     private var bridge: Ipv6NcmBridge? = null
@@ -163,8 +164,12 @@ class CarPlayVpnService : VpnService() {
         // a "self-test" (isLocalSource matches the loopback interface) and the session
         // could never start (run-124 report).
         loopbackRelay: Boolean = false,
+        // lwIP mode: the session announces extra ports as it progresses (eventPort, timing,
+        // stream data ports). Each announcement opens its lwIP relay listener here.
+        portNotifier: ((Int) -> Unit)? = null,
     ): AttachResult {
         this.loopbackRelay = loopbackRelay
+        this.portNotifier = portNotifier
         if (active.get()) {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
             releaseLocked()
@@ -312,6 +317,8 @@ class CarPlayVpnService : VpnService() {
                             }
                         },
                         media = current.media,
+                        loopbackBind = current.loopbackRelay,
+                        portNotifier = current.portNotifier,
                     ).also(::addSession)
                 }
                 session.start()

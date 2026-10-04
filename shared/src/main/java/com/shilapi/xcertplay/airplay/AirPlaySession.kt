@@ -65,6 +65,12 @@ class AirPlaySession(
     private val mfi: MfiAuthenticator?,
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
+    // lwIP mode: every announced port must also get an lwIP relay listener (run-131:
+    // the phone connects the announced eventPort over TCP through the userspace stack),
+    // and the JVM sockets bind the loopback instead of the wildcard so the relay target
+    // addresses are reachable.
+    private val loopbackBind: Boolean = false,
+    private val portNotifier: ((Int) -> Unit)? = null,
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
@@ -507,6 +513,7 @@ class AirPlaySession(
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
                         activeStreams.add(type)
+                        portNotifier?.invoke(port)
                         result.add(linkedMapOf("type" to type, "dataPort" to port))
                     }
                 }
@@ -617,10 +624,17 @@ class AirPlaySession(
     }
 
     private fun openEvent(): Int {
-        val server = ServerSocket(0, 50, InetAddress.getByName("::"))
+        val bindAddress = if (loopbackBind) {
+            InetAddress.getLoopbackAddress()
+        } else {
+            InetAddress.getByName("::")
+        }
+        val server = ServerSocket(0, 50, bindAddress)
         eventServer = server
         spawnEvent("airplay-event-accept") { acceptEvent(server) }
-        return server.localPort
+        val port = server.localPort
+        portNotifier?.invoke(port)
+        return port
     }
 
     private fun teardown() {
