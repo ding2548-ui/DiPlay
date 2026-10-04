@@ -265,6 +265,7 @@ class DiPlayActivity : ComponentActivity() {
                 AirPlayPersistence.saveMediaBufferMillis(this, bufferPresets[it])
             }
             choice(card, "帧率", listOf("30 fps · 负载更轻", "60 fps · 画面更流畅"), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
+            videoDecoderControl(card)
             toggle(card, "高效视频", "使用 HEVC。关闭可获得最广的车机兼容性。", AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
             toggle(card, "右舵", "让 CarPlay 控件更靠近驾驶员。", AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
             // Three interlocked display switches. 全屏 = both bars hidden; either bar switch
@@ -765,8 +766,40 @@ class DiPlayActivity : ComponentActivity() {
             .setNegativeButton("取消", null).show()
     }
 
-    private fun carPlaySizeControl(parent: LinearLayout) {
-        val sizes = com.shilapi.xcertplay.airplay.CarPlaySize.entries
+    /** AutoKit-parity decode-method switch: 硬解默认，车机解码器异常时可切软解排查。 */
+    private fun videoDecoderControl(parent: LinearLayout) {
+        val software = AirPlayPersistence.loadVideoDecoderSoftware(this)
+        choice(parent, "视频解码方式",
+            listOf("硬解 · 推荐", "软解 · 硬解画面异常时排查用"), if (software) 1 else 0) {
+            AirPlayPersistence.saveVideoDecoderSoftware(this, it == 1)
+        }
+        parent.addView(label(decodeCapabilitySummary(), 14, MUTED).apply {
+            setPadding(0, dp(4), 0, dp(12))
+        })
+    }
+
+    /** Reports the head unit's hardware H.264 decoder limit, AutoKit's "解码能力: WxH". */
+    private fun decodeCapabilitySummary(): String {
+        val mime = "video/avc"
+        val hardware = try {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                .firstOrNull { info ->
+                    !info.isEncoder && mime in info.supportedTypes &&
+                        !info.name.startsWith("OMX.google.") && !info.name.startsWith("c2.android.")
+                }
+        } catch (_: Exception) {
+            null
+        }
+        val caps = hardware?.getCapabilitiesForType(mime)?.videoCapabilities
+        return if (hardware != null && caps != null) {
+            "车机硬解上限：${caps.supportedWidths.upperBound}x${caps.supportedHeights.upperBound}（${hardware.name}）\n" +
+                "软解兜底：OMX.google（CPU 占用更高，画质不变）"
+        } else {
+            "未检测到硬件 H.264 解码器，将使用软解兜底（OMX.google）"
+        }
+    }
+
+    private fun carPlaySizeControl(parent: LinearLayout) {        val sizes = com.shilapi.xcertplay.airplay.CarPlaySize.entries
         val current = com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(this))
         choice(parent, "CarPlay 尺寸", sizes.map { it.label }, sizes.indexOf(current)) {
             AirPlayPersistence.saveWidthPhysicalMm(this, sizes[it].widthMillimeters)

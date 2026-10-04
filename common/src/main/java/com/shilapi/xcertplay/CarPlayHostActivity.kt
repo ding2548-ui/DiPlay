@@ -274,6 +274,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var displayDiagnosticAttempt: String? = null
     private var hevcEnabled = true
     private var hevcSoftwareDecoderEnabled = false
+    private var softwareVideoDecoderEnabled = false
     private var advancedAudioChannelMappingSupported = false
     private var advancedAudioChannelMapping = false
     private var debugLogsEnabled = false
@@ -461,6 +462,7 @@ class CarPlayHostActivity : ComponentActivity() {
         hevcSoftwareDecoderEnabled =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                 AirPlayPersistence.loadHevcSoftwareDecoderEnabled(this)
+        softwareVideoDecoderEnabled = AirPlayPersistence.loadVideoDecoderSoftware(this)
         advancedAudioChannelMapping =
             advancedAudioChannelMappingSupported &&
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
@@ -2871,6 +2873,7 @@ class CarPlayHostActivity : ComponentActivity() {
             videoWidth = videoWidth,
             videoHeight = videoHeight,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
+            preferSoftwareVideoDecoder = softwareVideoDecoderEnabled,
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             onScreenStreamActiveChanged = { type, active ->
                 onScreenStreamStateChanged(controllerGeneration, type, active)

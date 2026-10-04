@@ -2,4 +2,11 @@
 <resources>
     <!-- CH341 USB\VID_1A86&PID_5512&REV_0304 -->
     <usb-device vendor-id="6790" product-id="21778" />
+    <!-- iPhone (Apple 0x05AC), AutoKit-parity "default app" filter: with this entry the first
+         plug shows the system "open with / always" dialog, and every later attach (including the
+         forced re-enumeration the wired path performs) is auto-launched AND auto-granted by
+         UsbSettingsManager instead of popping the permission dialog again. VID-only because the
+         iPhone PID differs between the normal and the CarPlay USB configurations (0x12A8 etc.),
+         and the re-enumeration switches between them. -->
+    <usb-device vendor-id="1452" />
 </resources>

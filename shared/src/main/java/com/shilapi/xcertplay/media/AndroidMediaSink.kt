@@ -42,6 +42,8 @@ class AndroidMediaSink(
     private val videoWidth: Int = 1280,
     private val videoHeight: Int = 720,
     private val preferSoftwareHevcDecoder: Boolean = false,
+    /** AutoKit-parity decode-method switch: force the software codec for every video stream. */
+    private val preferSoftwareVideoDecoder: Boolean = false,
     private val advancedAudioChannelMapping: Boolean = false,
     onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
@@ -241,6 +243,7 @@ class AndroidMediaSink(
                 videoWidth,
                 videoHeight,
                 preferSoftwareHevcDecoder,
+                preferSoftwareVideoDecoder,
                 requestKeyFrame = { requestVideoRecovery(type) },
                 report = { videoDiagnosticHandlers[type]?.invoke(it) },
             )
@@ -261,6 +264,7 @@ private class VideoDecoder(
     private val width: Int,
     private val height: Int,
     private val preferSoftwareHevcDecoder: Boolean,
+    private val preferSoftwareVideoDecoder: Boolean,
     private val requestKeyFrame: () -> Unit,
     private val report: (String) -> Unit,
 ) : Closeable {
@@ -399,6 +403,19 @@ private class VideoDecoder(
     }
 
     private fun createDecoder(mime: String): MediaCodec {
+        if (preferSoftwareVideoDecoder) {
+            val software = softwareDecoderInfo(mime)
+            if (software != null) {
+                try {
+                    Log.i(TAG, "video decode method=software codec=${software.name} mime=$mime")
+                    return MediaCodec.createByCodecName(software.name)
+                } catch (error: Exception) {
+                    Log.w(TAG, "software video decoder unavailable name=${software.name}", error)
+                }
+            } else {
+                Log.w(TAG, "video decode method=software but no software codec found; falling back")
+            }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             mime == MediaFormat.MIMETYPE_VIDEO_HEVC &&
             preferSoftwareHevcDecoder
@@ -415,6 +432,18 @@ private class VideoDecoder(
             }
         }
         return MediaCodec.createDecoderByType(mime)
+    }
+
+    private fun softwareDecoderInfo(mime: String): android.media.MediaCodecInfo? =
+        MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull { info ->
+            !info.isEncoder && mime in info.supportedTypes && isSoftwareCodec(info)
+        }
+
+    private fun isSoftwareCodec(info: android.media.MediaCodecInfo): Boolean = when {
+        // isSoftwareOnly exists only since Q; Android 7 must go by the well-known prefixes.
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> info.isSoftwareOnly
+        else ->
+            info.name.startsWith("OMX.google.") || info.name.startsWith("c2.android.") || ".sw." in info.name
     }
 
     private fun changeSurface(surface: Surface?) {

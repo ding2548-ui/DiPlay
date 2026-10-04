@@ -62,6 +62,14 @@
 - **CarPlay 尺寸新增 HiDPI 2x / 3x（本版新增）**：设置 → CarPlay 尺寸在大/中/小之外新增两档——
   向 iPhone 申报更小的物理屏宽（150mm/100mm），控件相对排布放大、像素密度翻倍/三倍，
   图标与文字更大更锐利（等效 2x/3x HiDPI 面板）。应用后重连 CarPlay 生效。
+- **视频解码方式切换（硬解/软解，本版新增，AutoKit 同款）**：设置 → 显示与性能 → 视频解码方式。
+  默认硬解（MediaCodec 直出 Surface 零拷贝）；车机硬解画面异常时可切**软解**（OMX.google 软件解码器，
+  画质不变、CPU 占用更高）——排查画面问题的二分利器。选择页显示"车机硬解上限 WxH"能力探测
+  （排除 Google 软解组件），应用后重连 CarPlay 生效。
+- **有线 USB 授权记忆（本版新增，AutoKit 同款机制）**：设备过滤器加入 Apple VID（0x05AC）——
+  首次插入 iPhone 时系统弹"打开方式"对话框，勾选"始终"后，之后每次插拔与强制重枚举
+  都由系统自动拉起 CarPlay 并自动授权，**不再反复弹 USB 授权框**（此前每次插线要授权两次）。
+  注意：首次弹的是"是否用 DiPlay 打开此设备"，请勾选"始终/默认"。
 - **零跑 T03 方控支持（本版新增）**：T03 方控的真实通路是**系统 media key 分发**——ICU 把
   按键交给当前活跃的 MediaSession（模拟器实测：`MediaSessionService: Sending KeyEvent
   KEYCODE_MEDIA_NEXT to com.leapmotor.multimedia`，D/loger 即 T03 多媒体的日志）。

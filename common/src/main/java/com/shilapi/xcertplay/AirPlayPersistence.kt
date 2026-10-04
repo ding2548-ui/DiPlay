@@ -39,6 +39,7 @@ object AirPlayPersistence {
     private const val KEY_UI_SCALE_PERCENT = "ui_scale_percent"
     private const val KEY_HEVC_ENABLED = "hevc_enabled"
     private const val KEY_HEVC_SOFTWARE_DECODER = "hevc_software_decoder"
+    private const val KEY_VIDEO_DECODER_SOFTWARE = "video_decoder_software"
     private const val KEY_ADVANCED_AUDIO_CHANNEL_MAPPING = "advanced_audio_channel_mapping"
     private const val KEY_WIRELESS_ENABLED = "wireless_enabled"
     private const val KEY_WIRELESS_HOTSPOT_MODE = "wireless_hotspot_mode"
@@ -124,6 +125,17 @@ object AirPlayPersistence {
     fun saveHevcSoftwareDecoderEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_HEVC_SOFTWARE_DECODER, enabled)
+            .apply()
+    }
+
+    /** True = force the software video decoder (OMX.google) for the CarPlay screen stream. */
+    fun loadVideoDecoderSoftware(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_VIDEO_DECODER_SOFTWARE, false)
+
+    fun saveVideoDecoderSoftware(context: Context, software: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_VIDEO_DECODER_SOFTWARE, software)
             .apply()
     }
 
