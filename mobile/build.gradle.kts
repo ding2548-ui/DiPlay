@@ -45,15 +45,15 @@ android {
         debug {
             // The BYD HUD bridges gate on this suffix, so it stays. The launcher label and the
             // version name no longer carry any "test" marker.
-            applicationIdSuffix = ".hudtest"
+            applicationIdSuffix = ".betatest"
         }
         release {
             optimization {
                 enable = false
             }
             // The BYD HUD bridges gate on the runtime package name (5 hard checks), so the
-            // release build must keep the same ".hudtest" suffix as debug or those gates fail.
-            applicationIdSuffix = ".hudtest"
+            // release build must keep the same ".betatest" suffix as debug or those gates fail.
+            applicationIdSuffix = ".betatest"
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -63,6 +63,12 @@ android {
         // Supplies java.time and java.util.Base64 on Android 7/7.1 (API 24/25).
         isCoreLibraryDesugaringEnabled = true
     }
+    // Android 7 cannot reliably dlopen libs that stay uncompressed inside the APK
+    // (extractNativeLibs=false, the AGP default): extract at install time instead.
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
+
     buildFeatures {
         compose = true
     }

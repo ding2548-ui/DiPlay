@@ -111,6 +111,7 @@ class CarPlayHostActivity : ComponentActivity() {
     // CH341 USB\VID_1A86&PID_5512&REV_0304 is the deployment-supplied bridge identity.
     private fun createRuntimeConfig(): CarPlayRuntimeConfig = CarPlayRuntimeConfig(
         mfiTarget = MfiTarget.LOCAL,
+        wiredLwip = DiPlayPreferences.wiredLwip(this),
         ch341Devices = if (mfiTarget == MfiTarget.USB_CH341) {
             listOf(UsbDeviceId(0x1a86, 0x5512))
         } else {
@@ -266,7 +267,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var pendingDisplaySize: DisplaySize? = null
     private var sessionDisplay: CarPlaySessionDisplay? = null
     private var touchOutsideContent = false
-    private var displayScaleTenths = CarPlayDisplayScale.DEFAULT_TENTHS
+    private var displayScalePercent = CarPlayDisplayScale.DEFAULT_PERCENT
     private var uiScalePercent = CarPlayUiScale.DEFAULT
     private var displayDiagnosticAttempt: String? = null
     private var hevcEnabled = true
@@ -434,7 +435,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun loadPersistedSettings() {
-        displayScaleTenths = AirPlayPersistence.loadDisplayScaleTenths(this)
+        displayScalePercent = AirPlayPersistence.loadDisplayScalePercent(this)
         // The size preset drives BOTH channels iOS reacts to: the physical width in /info AND
         // the pixel canvas. v2.0-65 proved physical width alone is invisible (widthPhysical
         // 300->350 reached the phone but the UI did not change), so translate the preset into
@@ -910,7 +911,7 @@ class CarPlayHostActivity : ComponentActivity() {
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
         )
         val resolutionValue = menuText(
-            CarPlayDisplayScale.label(displayScaleTenths),
+            CarPlayDisplayScale.label(displayScalePercent),
             28f,
             MENU_ACCENT,
             bold = true,
@@ -931,16 +932,16 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
         val seekBar = SeekBar(this).apply {
-            max = CarPlayDisplayScale.MAX_TENTHS - CarPlayDisplayScale.MIN_TENTHS
-            progress = displayScaleTenths - CarPlayDisplayScale.MIN_TENTHS
+            max = CarPlayDisplayScale.MAX_PERCENT - CarPlayDisplayScale.MIN_PERCENT
+            progress = displayScalePercent - CarPlayDisplayScale.MIN_PERCENT
             splitTrack = false
             progressTintList = ColorStateList.valueOf(MENU_ACCENT)
             thumbTintList = ColorStateList.valueOf(MENU_ACCENT)
             setOnSeekBarChangeListener(
                 object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
-                        displayScaleTenths = CarPlayDisplayScale.sanitize(
-                            CarPlayDisplayScale.MIN_TENTHS + progress,
+                        displayScalePercent = CarPlayDisplayScale.sanitize(
+                            CarPlayDisplayScale.MIN_PERCENT + progress,
                         )
                         updateResolutionMenu()
                     }
@@ -1334,7 +1335,7 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveLocationReportingEnabled(this, locationReportingEnabled)
         AirPlayPersistence.saveAutoStartOnBoot(this, autoStartOnBoot)
         AirPlayPersistence.saveAdvancedAudioChannelMapping(this, advancedAudioChannelMapping)
-        AirPlayPersistence.saveDisplayScaleTenths(this, displayScaleTenths)
+        AirPlayPersistence.saveDisplayScalePercent(this, displayScalePercent)
         AirPlayPersistence.saveFps(this, fps)
         AirPlayPersistence.saveWidthPhysicalMm(this, widthPhysicalMm)
         AirPlayPersistence.savePhysicalSizeBasis(this, physicalSizeBasis)
@@ -2501,7 +2502,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun updateResolutionMenu() {
-        resolutionValueView?.text = CarPlayDisplayScale.label(displayScaleTenths)
+        resolutionValueView?.text = CarPlayDisplayScale.label(displayScalePercent)
         val native = activeDisplaySize ?: currentActivitySize()
         val resolution = if (native == null) {
             "握手分辨率：等待显示"
@@ -2513,7 +2514,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     widthPhysicalMm = widthPhysicalMm,
                     fps = fps,
                 ),
-                displayScaleTenths,
+                displayScalePercent,
             )
             "握手分辨率：${native.width} x ${native.height} -> " +
                 "${negotiated.widthPixels} x ${negotiated.heightPixels}"
@@ -2613,7 +2614,7 @@ class CarPlayHostActivity : ComponentActivity() {
             heightPhysicalMm = physical.heightMm,
             fps = fps,
         )
-        val resolutionDisplay = CarPlayDisplayScale.apply(baseDisplay, displayScaleTenths)
+        val resolutionDisplay = CarPlayDisplayScale.apply(baseDisplay, displayScalePercent)
         val requestedPercent = uiScalePercent
         var scaledDisplay = CarPlayUiScale.apply(resolutionDisplay, uiScalePercent)
         val candidate = scaledDisplay
@@ -2645,7 +2646,7 @@ class CarPlayHostActivity : ComponentActivity() {
             safeAreaDrawOutside = safeAreaDrawOutside,
         )
         val requestSummary = "显示请求 已选=${CarPlayUiScale.label(requestedPercent)} 百分比=$requestedPercent " +
-            "表面=${size.width}x${size.height} 分辨率=${displayScaleTenths * 10}% " +
+            "表面=${size.width}x${size.height} 分辨率=${displayScalePercent}% " +
             "基准=${resolutionDisplay.widthPixels}x${resolutionDisplay.heightPixels} " +
             "候选=${candidate.widthPixels}x${candidate.heightPixels} fps=$fps " +
             "编码器=${if (hevcEnabled) "HEVC" else "H.264"} 软件HEVC=$hevcSoftwareDecoderEnabled"
@@ -3024,7 +3025,7 @@ class CarPlayHostActivity : ComponentActivity() {
         appendLog(
             "正在启动 CarPlay 控制器 ${size.width}x${size.height} -> " +
                 "${airPlayConfig.main.widthPixels}x${airPlayConfig.main.heightPixels} " +
-                "(${CarPlayDisplayScale.label(displayScaleTenths)}) " +
+                "(${CarPlayDisplayScale.label(displayScalePercent)}) " +
                 "physical=${airPlayConfig.main.widthPhysicalMm}x" +
                 "${airPlayConfig.main.heightPhysicalMm}mm " +
                 "video=${if (airPlayConfig.hevc) "HEVC" else "H.264"} " +
@@ -3037,7 +3038,7 @@ class CarPlayHostActivity : ComponentActivity() {
             TAG,
             "启动控制器 显示=${size.width}x${size.height} " +
                 "协商=${airPlayConfig.main.widthPixels}x${airPlayConfig.main.heightPixels} " +
-                "缩放=${CarPlayDisplayScale.label(displayScaleTenths)} " +
+                "缩放=${CarPlayDisplayScale.label(displayScalePercent)} " +
                 "HEVC=${airPlayConfig.hevc} " +
                 "软件HEVC=${airPlayConfig.hevc && hevcSoftwareDecoderEnabled} " +
                 "麦克风=${airPlayConfig.microphone} " +
@@ -3074,6 +3075,10 @@ class CarPlayHostActivity : ComponentActivity() {
         // LeapmotorMediaKeys turns each press into a CarPlay media HID press (see the reference
         // notes for the protocol).
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
+        LearnedWheelKeys.onDiagnostic = { message -> appendLog(message) }
+        BluetoothAudioHandoff.onDiagnostic = { message -> appendLog(message) }
+        OemEnvironment.onDiagnostic = { message -> appendLog(message) }
+        OemEnvironment.probe(this)
         LeapmotorMediaKeys.attach(this, next)
         // Leapmotor gear (P/R/N/D) via the CAN server broadcast: reverse pauses CarPlay music, and
         // P gates the iOS 27 video in car player.
@@ -3386,7 +3391,7 @@ class CarPlayHostActivity : ComponentActivity() {
         logLines.clear()
         appendLog(
             "$prefix；正在从 " +
-                "${CarPlayDisplayScale.label(displayScaleTenths)}，" +
+                "${CarPlayDisplayScale.label(displayScalePercent)}，" +
                 (if (hevcEnabled) "HEVC (H.265)" else "H.264") +
                 ", MFI ${mfiTargetLabel(mfiTarget)}" +
                 "，Wi-Fi 会话 ${hotspotModeLabel(wirelessHotspotMode)}",

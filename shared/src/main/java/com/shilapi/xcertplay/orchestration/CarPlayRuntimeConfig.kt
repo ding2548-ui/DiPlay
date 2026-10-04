@@ -65,6 +65,9 @@ class CarPlayRuntimeConfig(
     val manualHotspotSecurity: ManualHotspotSecurity = ManualHotspotSecurity.WPA2,
     val wirelessBluetoothDeviceAddress: String? = null,
     val locationReportingEnabled: Boolean = false,
+    // Beta: run the wired AirPlay transport on the userspace lwIP stack instead of the
+    // kernel TUN (VpnService). Requires a 32-bit process (the native library is v7a-only).
+    val wiredLwip: Boolean = false,
 ) {
     init {
         require(iphoneDevices.all { it.vendorId == APPLE_VENDOR_ID }) {
