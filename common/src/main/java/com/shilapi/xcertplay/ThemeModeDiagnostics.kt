@@ -49,7 +49,6 @@ internal class ThemeModeDiagnostics {
         callbacks = 0
         return message
     }
-}
 
     /** Resolves the night mode bits of a uiMode; null when the system reports "undefined". */
     private fun nightModeOf(uiMode: Int): Boolean? =
