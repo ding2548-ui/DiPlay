@@ -792,7 +792,7 @@ class DiPlayActivity : ComponentActivity() {
         }
         val caps = hardware?.getCapabilitiesForType(mime)?.videoCapabilities
         return if (hardware != null && caps != null) {
-            "车机硬解上限：${caps.supportedWidths.upperBound}x${caps.supportedHeights.upperBound}（${hardware.name}）\n" +
+            "车机硬解上限：${caps.supportedWidths.upper}x${caps.supportedHeights.upper}（${hardware.name}）\n" +
                 "软解兜底：OMX.google（CPU 占用更高，画质不变）"
         } else {
             "未检测到硬件 H.264 解码器，将使用软解兜底（OMX.google）"
