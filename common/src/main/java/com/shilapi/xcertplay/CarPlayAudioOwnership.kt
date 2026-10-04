@@ -109,10 +109,10 @@ internal object CarPlayAudioOwnership {
                     // The car's media keys land here when this is the media button session:
                     // forward them into CarPlay exactly like the broadcast path does.
                     setCallback(object : MediaSession.Callback() {
-                        override fun onMediaButtonEvent(mediaButtonIntent: Intent?): Boolean {
+                        override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
                             val event = runCatching {
                                 @Suppress("DEPRECATION")
-                                mediaButtonIntent?.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                                mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
                             }.getOrNull()
                             val keyCode = event?.keyCode
                             val action = when (keyCode) {

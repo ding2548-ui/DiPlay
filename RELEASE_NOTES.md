@@ -41,7 +41,16 @@
   2.11（125）：帧分类诊断定位到 lwIP 连不上的最终真因——iPhone 的 TCP 已经能进入
   lwIP 并被代理转发到 AirPlay 服务（SYN/SYN-ACK/ACK 全通、数据到达），但 AirPlay 服务把
   来源 127.0.0.1 的转发连接误判成"自检连接"直接关闭（isLocalSource 判定包含回环接口）。
-  现已为 lwIP 代理模式加 loopbackRelay 标记放行转发连接，iPhone 的会话可正常建立。）
+  现已为 lwIP 代理模式加 loopbackRelay 标记放行转发连接，iPhone 的会话可正常建立。
+- **零跑 T03 方控支持（本版新增）**：T03 方控的真实通路是**系统 media key 分发**——ICU 把
+  按键交给当前活跃的 MediaSession（模拟器实测：`MediaSessionService: Sending KeyEvent
+  KEYCODE_MEDIA_NEXT to com.leapmotor.multimedia`，D/loger 即 T03 多媒体的日志）。
+  DiPlay 的媒体会话此前没有按键回调、按键被丢弃。现已在 DiPlay 的媒体会话上实现完整
+  MediaSession.Callback（上一首/下一首/播放/暂停/播放暂停，PlaybackState actions 全集声明），
+  CarPlay 会话活跃时方控键直接转发给 iPhone——**无需任何学习或配置**。
+  并行路径 `com.leapmotor.ICU2MMICtrl` 广播同步保留：广播日志里按键以签名条目出现
+  （mediaSwitch=1 / mediaSwitch=2 / mediaKey=1 内置识别），可点选绑定；250ms 去重窗口
+  保证广播与 media key 双路径同按时只转一次。
 - **包名恢复说明**：2.10（116）的包名被误改为 `.betatest`，本版恢复 `com.shihab.diplay.hudtest`。
   **装过 116 的设备无法在线更新到本版**（包名不同会被安装器拒绝），请手动下载本版 APK 安装一次，
   之后在线更新恢复正常；旧的 116 可在装好后卸载（数据不共享）。
