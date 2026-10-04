@@ -49,8 +49,12 @@
   MediaSession.Callback（上一首/下一首/播放/暂停/播放暂停，PlaybackState actions 全集声明），
   CarPlay 会话活跃时方控键直接转发给 iPhone——**无需任何学习或配置**。
   并行路径 `com.leapmotor.ICU2MMICtrl` 广播同步保留：广播日志里按键以签名条目出现
-  （mediaSwitch=1 / mediaSwitch=2 / mediaKey=1 内置识别），可点选绑定；250ms 去重窗口
-  保证广播与 media key 双路径同按时只转一次。
+  （ICU_MediaSwitch=1 / ICU_MediaSwitch=2 / ICU_MediaKey=1 内置识别），可点选绑定；
+  250ms 去重窗口保证广播与 media key 双路径同按时只转一次。
+  **2.11（131）协议修正（T03 多媒体 APK 反编译 + 模拟器实测三指令全通）**：T03 方控广播的
+  extras 名为 `ICU_MediaKey` / `ICU_MediaSwitch`（非 mediaKey/mediaSwitch），且原厂方控通道
+  为 `com.leapmotor.customkey.music.pauseplay`（已一并监听）。模拟器实测：上一首/下一首/
+  播放暂停三条指令全部真实切歌与暂停（酷狗 tvsdk `song change` / `onPause` 日志为证）。
 - **包名恢复说明**：2.10（116）的包名被误改为 `.betatest`，本版恢复 `com.shihab.diplay.hudtest`。
   **装过 116 的设备无法在线更新到本版**（包名不同会被安装器拒绝），请手动下载本版 APK 安装一次，
   之后在线更新恢复正常；旧的 116 可在装好后卸载（数据不共享）。

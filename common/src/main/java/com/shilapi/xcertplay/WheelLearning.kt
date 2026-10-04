@@ -276,25 +276,47 @@ internal object LearnedWheelKeys {
      * extras-signature level (`BROADCAST:<action>|mediaSwitch=1`), not action level.
      */
     const val ICU2MMI_ACTION = "com.leapmotor.ICU2MMICtrl"
-    private val ICU2MMI_FIELDS = listOf(
-        "volumeCtrl", "muteCtrl", "voiceAssistant", "customKey", "mediaKey", "mediaSwitch",
-    )
+
+    /**
+     * The T03 stock-player wheel channel, reverse-engineered from its own APK
+     * (`com.leapmotor.multimedia-AppMain-方控指令与切歌暂停实现.md`): the stock receiver reads
+     * the integer extras `ICU_MediaKey` / `ICU_MediaSwitch` (1=previous, 2=next, key 1=play
+     * pause) — verified on the emulator: every command really changed the song / toggled
+     * playback through the kugou tvsdk.
+     */
+    const val CUSTOMKEY_ACTION = "com.leapmotor.customkey.music.pauseplay"
 
     /** Non-zero extras as a stable `key=value` signature, or null when nothing is pressed. */
     private fun icu2MmiSignature(intent: Intent?): String? {
         val source = intent ?: return null
-        val parts = ICU2MMI_FIELDS.mapNotNull { field ->
-            val value = runCatching { source.getIntExtra(field, 0) }.getOrDefault(0)
-            if (value != 0) "$field=$value" else null
+        fun readExtra(vararg keys: String): Int {
+            for (key in keys) {
+                val value = runCatching { source.getIntExtra(key, Int.MIN_VALUE) }.getOrDefault(Int.MIN_VALUE)
+                if (value != Int.MIN_VALUE) return value
+            }
+            return 0
         }
+        val mediaKey = readExtra("ICU_MediaKey", "mediaKey")
+        val mediaSwitch = readExtra("ICU_MediaSwitch", "mediaSwitch")
+        val parts = mutableListOf<String>()
+        val volumeCtrl = readExtra("volumeCtrl")
+        if (volumeCtrl != 0) parts += "volumeCtrl=$volumeCtrl"
+        val muteCtrl = readExtra("muteCtrl")
+        if (muteCtrl != 0) parts += "muteCtrl=$muteCtrl"
+        val voiceAssistant = readExtra("voiceAssistant")
+        if (voiceAssistant != 0) parts += "voiceAssistant=$voiceAssistant"
+        val customKey = readExtra("customKey")
+        if (customKey != 0) parts += "customKey=$customKey"
+        if (mediaKey != 0) parts += "ICU_MediaKey=$mediaKey"
+        if (mediaSwitch != 0) parts += "ICU_MediaSwitch=$mediaSwitch"
         return parts.takeIf { it.isNotEmpty() }?.joinToString(",")
     }
 
     /** Built-in media-key mapping; null for keys CarPlay has no media action for. */
     private fun icu2MmiBuiltinAction(signature: String): String? = when (signature) {
-        "mediaSwitch=1" -> "previous"
-        "mediaSwitch=2" -> "next"
-        "mediaKey=1" -> "play_pause"
+        "ICU_MediaSwitch=1", "mediaSwitch=1" -> "previous"
+        "ICU_MediaSwitch=2", "mediaSwitch=2" -> "next"
+        "ICU_MediaKey=1", "mediaKey=1" -> "play_pause"
         else -> null
     }
 
@@ -451,10 +473,13 @@ internal object LearnedWheelKeys {
         val filter = IntentFilter().apply {
             LeapmotorMediaProtocol.ACTIONS.forEach(::addAction)
             addAction(ICU2MMI_ACTION)
+            // The stock T03 wheel channel (extras ICU_MediaKey / ICU_MediaSwitch) —
+            // reverse-engineered and verified: every command toggles/changes the song.
+            addAction(CUSTOMKEY_ACTION)
         }
         val created = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == ICU2MMI_ACTION) {
+                if (intent?.action == ICU2MMI_ACTION || intent?.action == CUSTOMKEY_ACTION) {
                     handleIcu2Mmi(intent)
                 } else {
                     handleBusBroadcast(intent)
