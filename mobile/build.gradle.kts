@@ -45,15 +45,15 @@ android {
         debug {
             // The BYD HUD bridges gate on this suffix, so it stays. The launcher label and the
             // version name no longer carry any "test" marker.
-            applicationIdSuffix = ".betatest"
+            applicationIdSuffix = ".hudtest"
         }
         release {
             optimization {
                 enable = false
             }
             // The BYD HUD bridges gate on the runtime package name (5 hard checks), so the
-            // release build must keep the same ".betatest" suffix as debug or those gates fail.
-            applicationIdSuffix = ".betatest"
+            // release build must keep the same ".hudtest" suffix as debug or those gates fail.
+            applicationIdSuffix = ".hudtest"
             signingConfig = signingConfigs.getByName("release")
         }
     }
