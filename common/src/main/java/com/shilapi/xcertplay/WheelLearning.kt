@@ -282,9 +282,9 @@ internal object LearnedWheelKeys {
 
     /** Non-zero extras as a stable `key=value` signature, or null when nothing is pressed. */
     private fun icu2MmiSignature(intent: Intent?): String? {
-        val extras = intent ?: return null
+        val source = intent ?: return null
         val parts = ICU2MMI_FIELDS.mapNotNull { field ->
-            val value = runCatching { extras.getInt(field, 0) }.getOrDefault(0)
+            val value = runCatching { source.getIntExtra(field, 0) }.getOrDefault(0)
             if (value != 0) "$field=$value" else null
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(",")
@@ -399,8 +399,8 @@ internal object LearnedWheelKeys {
         if (broadcastReceivers.containsKey(action)) return
         val created = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (broadcastLogEnabled) recordBroadcast(action, intent)
-                onLearnedBroadcast(action)
+                if (broadcastLogEnabled) recordBroadcast(action, intent, WheelBinding.BROADCAST_PREFIX + action)
+                handleBusBroadcast(intent)
             }
         }
         runCatching { context.registerReceiver(created, IntentFilter(action)) }
