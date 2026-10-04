@@ -601,7 +601,7 @@ class AirPlaySession(
     }
 
     private fun openTiming(peerPort: Int): Int {
-        val port = ntp.listen()
+        val port = ntp.listen(if (loopbackBind) InetAddress.getByName("127.0.0.1") else InetAddress.getByName("::"))
         if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
         udpPortNotifier?.invoke(port)
         return port
@@ -610,7 +610,12 @@ class AirPlaySession(
     private fun openKeepAlive(): Int {
         val socket = DatagramSocket(null)
         socket.reuseAddress = true
-        socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
+        socket.bind(
+            InetSocketAddress(
+                if (loopbackBind) InetAddress.getByName("127.0.0.1") else InetAddress.getByName("::"),
+                0,
+            ),
+        )
         keepAliveSocket = socket
         keepAliveThread = Thread({ runKeepAlive(socket) }, "airplay-keepalive").apply {
             isDaemon = true
@@ -632,8 +637,11 @@ class AirPlaySession(
     }
 
     private fun openEvent(): Int {
+        // Relay target is 127.0.0.1 (the loopback bind must match it exactly). getLoopbackAddress()
+        // returned a non-127.0.0.1 loopback (::1) on the msm8953 head unit, so the phone's relayed
+        // event connection was refused and the whole session stayed gray (run-137 report).
         val bindAddress = if (loopbackBind) {
-            InetAddress.getLoopbackAddress()
+            InetAddress.getByName("127.0.0.1")
         } else {
             InetAddress.getByName("::")
         }
@@ -641,6 +649,7 @@ class AirPlaySession(
         eventServer = server
         spawnEvent("airplay-event-accept") { acceptEvent(server) }
         val port = server.localPort
+        debugLog("airplay event listener bind=${bindAddress.hostAddress} port=$port")
         portNotifier?.invoke(port)
         return port
     }

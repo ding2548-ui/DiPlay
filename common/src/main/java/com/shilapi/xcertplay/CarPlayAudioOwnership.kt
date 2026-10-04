@@ -249,7 +249,7 @@ internal object CarPlayAudioOwnership {
                     isActive = true
                 }
             }.getOrElse {
-                report("media session unavailable: ${it.javaClass.simpleName}")
+                report("media session unavailable: ${it.javaClass.simpleName}: ${it.message}")
                 null
             }
         }
