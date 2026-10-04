@@ -27,6 +27,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 
+/** AudioTrack's attributes getter is only available from Android 10. */
+internal fun audioTrackAttributesForFocus(track: AudioTrack, configured: AudioAttributes): AudioAttributes =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) track.audioAttributes else configured
+
 /**
  * Android rendering backend for the CarPlay media engine. Video frames are
  * decoded with MediaCodec onto a Surface; audio streams are decoded to PCM and
