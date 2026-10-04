@@ -2604,6 +2604,7 @@ class CarPlayController(
                 mfi = mfiSession?.client,
                 listener = sessionListener,
                 media = media,
+                loopbackRelay = true,
             )) {
                 CarPlayVpnService.AttachResult.Started -> {
                     val targetPort = service.boundPort() ?: airPlayConfig.port

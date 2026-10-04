@@ -56,6 +56,9 @@ class CarPlayVpnService : VpnService() {
     private val sessionsLock = Any()
     private val sessions = mutableSetOf<AirPlaySession>()
     @Volatile private var attachment: AirPlayAttachment? = null
+
+    /** True when this attachment is fed by the lwIP loopback relay (see [attachWireless]). */
+    @Volatile private var loopbackRelay = false
     /** All bound listeners: the IPv6 wildcard plus an explicit IPv4 socket when needed. */
     private val serverSockets = mutableListOf<ServerSocket>()
     private var bridge: Ipv6NcmBridge? = null
@@ -155,7 +158,13 @@ class CarPlayVpnService : VpnService() {
         mfi: MfiAuthenticator?,
         listener: AirPlaySessionListener,
         media: AirPlayMediaHandler,
+        // The lwIP wired path relays the iPhone's TCP streams into this server over
+        // 127.0.0.1; without this flag acceptLoop would drop every relayed connection as
+        // a "self-test" (isLocalSource matches the loopback interface) and the session
+        // could never start (run-124 report).
+        loopbackRelay: Boolean = false,
     ): AttachResult {
+        this.loopbackRelay = loopbackRelay
         if (active.get()) {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
             releaseLocked()
@@ -262,7 +271,10 @@ class CarPlayVpnService : VpnService() {
                 // address families. Those connections arrive here too, and without this they would
                 // be logged as a real `airplay connection accepted from ...` and spin up a bogus
                 // session — a false positive indistinguishable from the phone finally connecting.
-                if (isLocalSource(socket.inetAddress)) {
+                // In lwIP relay mode every connection arrives from 127.0.0.1 (the relay itself),
+                // so the local-source filter would drop the phone's real session — the relay
+                // flag turns the filter off for this attachment.
+                if (isLocalSource(socket.inetAddress) && !loopbackRelay) {
                     Log.i(TAG, "airplay self-test connection from ${socket.remoteSocketAddress}")
                     attachment?.listener?.onDebugLog(
                         "airplay self-test connection (ours, not the phone)",
