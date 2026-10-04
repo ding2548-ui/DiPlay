@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -8,6 +9,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
 import android.util.Log
+import android.view.KeyEvent
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import org.json.JSONObject
 
@@ -39,6 +41,10 @@ internal object CarPlayAudioOwnership {
     private var session: MediaSession? = null
     private var focusHeld = false
     private var mediaActive = false
+
+    /** Media-key de-duplication: some head units deliver one press on BOTH the broadcast and
+     *  the media-session path; a single key press must only ever reach CarPlay once. */
+    private var lastMediaKeyDispatchAt = 0L
 
     @Volatile
     var onDiagnostic: ((String) -> Unit)? = null
@@ -86,10 +92,49 @@ internal object CarPlayAudioOwnership {
                 MediaSession(appContext!!, "DiPlay CarPlay").apply {
                     setPlaybackState(
                         PlaybackState.Builder()
-                            .setActions(PlaybackState.ACTION_PLAY_PAUSE)
+                            // The full action set is required for head units that route the
+                            // steering-wheel keys as media-key events (T03: the ICU hands them
+                            // to whatever MediaSession is the current media button session —
+                            // measured on the emulator, MediaSessionService → KGMusicBrowserService).
+                            .setActions(
+                                PlaybackState.ACTION_PLAY_PAUSE or
+                                    PlaybackState.ACTION_PLAY or
+                                    PlaybackState.ACTION_PAUSE or
+                                    PlaybackState.ACTION_SKIP_TO_NEXT or
+                                    PlaybackState.ACTION_SKIP_TO_PREVIOUS,
+                            )
                             .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
                             .build(),
                     )
+                    // The car's media keys land here when this is the media button session:
+                    // forward them into CarPlay exactly like the broadcast path does.
+                    setCallback(object : MediaSession.Callback() {
+                        override fun onMediaButtonEvent(mediaButtonIntent: Intent?): Boolean {
+                            val event = runCatching {
+                                @Suppress("DEPRECATION")
+                                mediaButtonIntent?.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                            }.getOrNull()
+                            val keyCode = event?.keyCode
+                            val action = when (keyCode) {
+                                KeyEvent.KEYCODE_MEDIA_NEXT -> "next"
+                                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "previous"
+                                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "playpause"
+                                KeyEvent.KEYCODE_MEDIA_PLAY -> "play"
+                                KeyEvent.KEYCODE_MEDIA_PAUSE -> "pause"
+                                else -> null
+                            }
+                            if (action == null) {
+                                return super.onMediaButtonEvent(mediaButtonIntent)
+                            }
+                            dispatchToCarPlay(action, "media-key=$keyCode")
+                            return true
+                        }
+
+                        override fun onSkipToNext() = dispatchToCarPlay("next", "session-callback")
+                        override fun onSkipToPrevious() = dispatchToCarPlay("previous", "session-callback")
+                        override fun onPlay() = dispatchToCarPlay("play", "session-callback")
+                        override fun onPause() = dispatchToCarPlay("pause", "session-callback")
+                    })
                     isActive = true
                 }
             }.getOrElse {
@@ -101,6 +146,25 @@ internal object CarPlayAudioOwnership {
         // back on the same actions without our marker, and the car ALSO emits its own `pause` when
         // another app takes audio focus. Both came back as "wheel presses" and paused CarPlay
         // itself, so pressing a key ended with nothing playing at all. Focus alone is kept.
+    }
+
+    /**
+     * Forwards a media-session key into CarPlay through the shared wheel dispatch (video
+     * gating, built-in mapping, learned bindings). De-duplicates head units that deliver one
+     * press on both the broadcast and the media-session path (250 ms window, same as the
+     * broadcast receivers).
+     */
+    private fun dispatchToCarPlay(action: String, source: String) {
+        val now = System.currentTimeMillis()
+        synchronized(this) {
+            if (now - lastMediaKeyDispatchAt < 250) {
+                report("media session key ignored (duplicate window) action=$action source=$source")
+                return
+            }
+            lastMediaKeyDispatchAt = now
+        }
+        val sent = LeapmotorMediaKeys.dispatch(action, "media-session")
+        report("media session key action=$action source=$source sent=$sent")
     }
 
     private fun releaseLocked(reason: String) {
