@@ -31,7 +31,10 @@
   `falling back to the VPN transport ... error=`（失败原因）。
   （2.11（120）修复 lwIP 加载失败的真正原因：依赖库 androidx.graphics 自带了 arm64-v8a 的
   so，让 64 位车机按 64 位安装应用——64 位进程无法加载 v7a 的 lwIP 库。现已在应用层把
-  全部 native 库锁定为 armeabi-v7a，进程为 32 位，lwIP 可正常加载。）
+  全部 native 库锁定为 armeabi-v7a，进程为 32 位，lwIP 可正常加载。
+  2.11（122）继续修复：栈启动后 iPhone 仍不发起连接的原因——车机 NCM 侧 MAC 全零时
+  lwIP 网卡的 IPv6 链路本地地址随之无效，iPhone 的邻居发现（NDP）得不到有效回应，
+  TCP 永远发不出来（EasyPlay 的处理：MAC 全零时现场生成随机本地管理 MAC）。已对齐。）
 - **包名恢复说明**：2.10（116）的包名被误改为 `.betatest`，本版恢复 `com.shihab.diplay.hudtest`。
   **装过 116 的设备无法在线更新到本版**（包名不同会被安装器拒绝），请手动下载本版 APK 安装一次，
   之后在线更新恢复正常；旧的 116 可在装好后卸载（数据不共享）。

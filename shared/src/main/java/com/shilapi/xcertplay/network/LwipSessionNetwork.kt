@@ -37,11 +37,27 @@ class LwipSessionNetwork(
     private var proxyListener: TcpListener? = null
 
     /** Starts the stack and both frame pumps. Throws when the native library is unusable. */
+    /**
+     * The lwIP netif MAC, exactly as EasyPlay derives it: use the bridge's host MAC when it
+     * is not all zeros; otherwise a locally-administered random one (first byte gets the
+     * locally-administered bit and loses the multicast bit). A zero MAC breaks IPv6 neighbor
+     * discovery — the iPhone cannot resolve our link-local address, so it never opens its
+     * TCP connection even though the stack and the proxy are alive (run-120 report).
+     */
+    private fun netifMac(): ByteArray {
+        val bridged = ncm.hostMac
+        if (bridged != null && bridged.any { it != 0.toByte() }) return bridged
+        return ByteArray(6).also { random ->
+            java.security.SecureRandom().nextBytes(random)
+            random[0] = ((random[0].toInt() and 0xfe) or 0x02).toByte()
+        }
+    }
+
     fun start() {
         check(LwipNative.available) { "lwIP native library is unavailable on this ABI" }
         check(running.compareAndSet(false, true)) { "lwIP session already running" }
         try {
-            handle = LwipNative.start(ncm.hostMac ?: ByteArray(6))
+            handle = LwipNative.start(netifMac())
             val local = LwipNative.getLocalAddress(handle)
             val address = InetAddress.getByAddress(local) as? Inet6Address
             check(address != null && address.isLinkLocalAddress) {
