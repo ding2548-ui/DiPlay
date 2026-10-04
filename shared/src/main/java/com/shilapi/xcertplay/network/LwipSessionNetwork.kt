@@ -322,7 +322,7 @@ class LwipSessionNetwork(
         val local = java.net.DatagramSocket(null).apply {
             reuseAddress = true
             bind(java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0))
-            soTimeout = RECV_TIMEOUT_MILLIS
+            soTimeout = RECV_TIMEOUT_MILLIS.toInt()
         }
         var lastPeer: Pair<ByteArray, Int>? = null
         thread(name = "lwip-udp-rx-$listenPort", isDaemon = true) {
