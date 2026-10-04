@@ -181,7 +181,7 @@ class LwipSessionNetwork(
     }
 
     /** Raw TCP connection inside lwIP with stream-shaped IO. */
-    inner class TcpSocket internal constructor(private val fd: Int) : Closeable {
+    inner class TcpSocket internal constructor(internal val fd: Int) : Closeable {
         val input: InputStream = object : InputStream() {
             private val chunk = ByteArray(16 * 1024)
             override fun read(): Int {
