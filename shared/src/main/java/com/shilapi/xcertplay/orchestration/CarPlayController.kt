@@ -27,6 +27,7 @@ import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayContact
 import com.shilapi.xcertplay.airplay.AirPlayDeviceInfo
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
+import com.shilapi.xcertplay.airplay.AirPlayKnobState
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
@@ -74,6 +75,8 @@ import com.shilapi.xcertplay.transport.Iap2WirelessControlClient
 import com.shilapi.xcertplay.transport.Iap2WirelessControlResult
 import com.shilapi.xcertplay.transport.Iap2WirelessControlTerminal
 import com.shilapi.xcertplay.transport.Iap2WirelessIdentification
+import com.shilapi.xcertplay.transport.Iap2WirelessLinkRole
+import com.shilapi.xcertplay.transport.forWirelessLink
 import com.shilapi.xcertplay.transport.I2cTransport
 import com.shilapi.xcertplay.transport.I2cTransportException
 import com.shilapi.xcertplay.transport.IphoneCarPlayConfiguration
@@ -306,7 +309,10 @@ class CarPlayController(
             if (activeSession !== session) {
                 BydNavigationOutputs.start(appContext)
                 // The gear may have changed since /info.
-                if (videoListener != null) session.setVideoPlaybackAllowed(VideoInCar.allowed)
+                if (videoListener != null) {
+                    val delivery = session.setVideoPlaybackAllowed(VideoInCar.allowed)
+                    debugLog("video in car session allowed=${VideoInCar.allowed} delivery=$delivery")
+                }
             }
             activeSession = session
             wirelessAirPlayConnections.incrementAndGet()
@@ -421,8 +427,8 @@ class CarPlayController(
             videoGate = VideoInCarGate(
                 readVideoAllowed = listener::readVideoAllowed,
                 onChanged = { allowed ->
-                    val sent = activeSession?.setVideoPlaybackAllowed(allowed)
-                    debugLog("video in car allowed=$allowed sent=${sent ?: "no session"}")
+                    val delivery = activeSession?.setVideoPlaybackAllowed(allowed)
+                    debugLog("video in car allowed=$allowed delivery=${delivery ?: "no session"}")
                     listener.onVideoAllowedChanged(allowed)
                 },
             ).also { it.start() }
@@ -458,6 +464,18 @@ class CarPlayController(
         val session = activeSession ?: return false
         return try {
             touchExecutor.execute { session.sendTouch(contacts) }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Sends a CarPlay knob/touchpad movement or button state through the AirPlay HID channel. */
+    fun sendKnob(state: AirPlayKnobState, momentary: Boolean = true): Boolean {
+        if (closed) return false
+        val session = activeSession ?: return false
+        return try {
+            touchExecutor.execute { session.sendKnob(state, momentary) }
             true
         } catch (_: Exception) {
             false
@@ -1158,8 +1176,17 @@ class CarPlayController(
                 closeWirelessStack()
                 return
             }
-            val identification = config.identification.copy(
-                wireless = Iap2WirelessIdentification(hostBluetoothMac, hotspotInfo.ssid),
+            val wirelessIdentification = Iap2WirelessIdentification(hostBluetoothMac, hotspotInfo.ssid)
+            // Upstream 0.2.11: the Bluetooth RFCOMM link is a short-lived bootstrap; long-lived
+            // accessory data (location) must only be advertised on the runtime Wi-Fi tunnel, or
+            // iOS binds it to the RFCOMM endpoint and rejects it there once the link closes.
+            val bootstrapIdentification = config.identification.forWirelessLink(
+                Iap2WirelessLinkRole.BLUETOOTH_BOOTSTRAP,
+                wirelessIdentification,
+            )
+            val runtimeIdentification = config.identification.forWirelessLink(
+                Iap2WirelessLinkRole.RUNTIME_TUNNEL,
+                wirelessIdentification,
             )
             // LIVI (f-io/LIVI), the working reference implementation, puts ONLY the link-local
             // IPv6 in 0x4301's wireless ip_address list — the iPhone dials it directly on the
@@ -1182,20 +1209,19 @@ class CarPlayController(
                 sourceVersion = airPlayConfig.sourceVersion,
                 bssid = bssidBytes(hotspotInfo.bssid),
             )
-            wirelessIdentification = identification
+            wirelessIdentification = runtimeIdentification
             wirelessAirPlayEndpoint = endpoint
             media.setIapTunnelHandler(::startWirelessTunnelControl)
 
             onStatus(CarPlayStatus.RunningWireless)
-            debugLog("wireless Bluetooth iAP2 control starting")
+            debugLog("wireless Bluetooth iAP2 control starting location=false")
             val result = Iap2WirelessControlClient(
                 session = channel,
                 mfi = Iap2MfiAuthenticationClient(mfi),
             ).run(
-                identification = identification,
+                identification = bootstrapIdentification,
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
-                locationProvider = locationProvider,
                 onIncoming = ::onRouteFrame,
                 onProgress = ::debugLog,
             )
@@ -1301,6 +1327,7 @@ class CarPlayController(
         debugLog(
             "wireless bring-up verdict=$verdict " +
                 "discoveryEvents=$discoveryEvents airPlayConnections=$airPlayConnections " +
+                (bonjour?.diagnosticSnapshot() ?: "bonjour=not_started") + " " +
                 stage + hint,
         )
     }
@@ -2036,7 +2063,11 @@ class CarPlayController(
             throw IOException("The car hotspot is off. Turn it on in the car settings and connect again.")
         }
         val manager: WirelessHotspotManager = when (hotspotMode) {
-            WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(appContext, ::debugLog)
+            WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(
+                appContext,
+                ::debugLog,
+                preferredChannel = config.wifiP2pPreferredChannel,
+            )
             WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> LocalOnlyHotspotManager(appContext)
             WirelessHotspotMode.EXTERNAL_WIFI -> ExternalWifiManager(
                 context = appContext,

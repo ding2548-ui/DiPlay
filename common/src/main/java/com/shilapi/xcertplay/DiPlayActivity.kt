@@ -30,6 +30,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import java.io.File
 import java.text.SimpleDateFormat
@@ -552,10 +553,41 @@ class DiPlayActivity : ComponentActivity() {
         openSystem(Intent(Settings.ACTION_WIRELESS_SETTINGS))
     }
 
+    private fun wifiDirectChannelLabel(channel: Int): String = when (channel) {
+        WifiP2pChannels.AUTO -> "自动"
+        else -> "信道 $channel（${if (channel < 36) "2.4 GHz" else "5 GHz"}）"
+    }
+
+    /** Preferred Wi-Fi Direct listen channel; saved and used from the next connection on. */
+    private fun wifiDirectChannelControl(parent: LinearLayout) {
+        val summary: (Int) -> String = { "首选 Wi-Fi Direct 信道 · ${wifiDirectChannelLabel(it)}" }
+        val control = button(summary(AirPlayPersistence.loadWifiP2pPreferredChannel(this)), false) {}
+        control.setOnClickListener {
+            val choices = listOf(WifiP2pChannels.AUTO) + WifiP2pChannels.channels
+            val current = AirPlayPersistence.loadWifiP2pPreferredChannel(this)
+            var selection = current
+            AlertDialog.Builder(this).setTitle("Wi-Fi Direct 信道")
+                .setSingleChoiceItems(choices.map(::wifiDirectChannelLabel).toTypedArray(),
+                    choices.indexOf(current)) { _, which -> selection = choices[which] }
+                .setPositiveButton("保存") { _, _ ->
+                    if (selection != current) {
+                        AirPlayPersistence.saveWifiP2pPreferredChannel(this, selection)
+                        control.text = summary(selection)
+                        toast("已保存，下次连接无线时生效")
+                    }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+        parent.addView(control, matchButton(12, 60))
+        parent.addView(label("仅对 Wi-Fi Direct 方式生效；个别环境下固定信道能避开自动选到的拥挤信道。", 15, MUTED).apply {
+            setPadding(0, dp(6), 0, dp(12))
+        })
+    }
+
     // Wi-Fi Direct is the default link. The car's own hotspot is an alternative when Wi-Fi Direct is unstable.
     // The runtime config rejects manual mode without valid credentials, so it is only saved together with them.
-    private fun wirelessLinkControls(parent: LinearLayout) {
-        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
+    private fun wirelessLinkControls(parent: LinearLayout) {        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
         val carHotspot = mode == WirelessHotspotMode.MANUAL || mode == WirelessHotspotMode.EXTERNAL_WIFI
         val options = arrayOf("Wi-Fi Direct · 默认", "车机热点", "外部 Wi-Fi · 车机与手机同一网络")
         val currentIndex = when (mode) {
@@ -595,6 +627,9 @@ class DiPlayActivity : ComponentActivity() {
                 }.setNegativeButton("取消", null).show()
         }
         parent.addView(control, matchButton(0, 60)); parent.addView(space(12))
+        // Wi-Fi Direct preferred channel (upstream 0.2.11): remembered and used from the next
+        // connection on; "自动" keeps the previous behaviour. Only meaningful for Wi-Fi Direct.
+        wifiDirectChannelControl(parent)
         if (!carHotspot) {
             parent.addView(label("DiPlay 会为 iPhone 自建 Wi-Fi Direct 网络。", 14, MUTED).apply {
                 setPadding(0, 0, 0, dp(18))

@@ -39,7 +39,11 @@ import java.util.concurrent.atomic.AtomicReference
 class WifiP2pGroupManager(
     context: Context,
     private val diagnostic: (String) -> Unit = {},
+    private val preferredChannel: Int = WifiP2pChannels.AUTO,
 ) : WirelessHotspotManager {
+    init {
+        require(WifiP2pChannels.isValid(preferredChannel)) { "Unsupported Wi-Fi Direct channel: $preferredChannel" }
+    }
     private val appContext = context.applicationContext
     private val p2pManager = appContext.getSystemService(WifiP2pManager::class.java)
         ?: throw IllegalStateException("WifiP2pManager is unavailable")
@@ -144,6 +148,7 @@ class WifiP2pGroupManager(
             val creation = P2pStartupRecovery.create(
                 stationFrequency = stationFrequency,
                 preferred = preferred?.request,
+                preferredChannel = preferredChannel,
                 planOverride = if (legacyGroupApi) P2pStartupRecovery.legacyPlan() else null,
                 beforeRetry = {
                     ensureStartActive(attempt)

@@ -47,6 +47,25 @@ class Iap2LocationClientTest {
     }
 
     @Test
+    fun rmcCourseIsEmptyWithoutAGpsDirection() {
+        fun rmcFields(bearing: Double?) = NmeaLocationEncoder.encode(
+            CarPlayLocationFix(
+                latitudeDegrees = 48.1173,
+                longitudeDegrees = 11.5166667,
+                bearingDegrees = bearing,
+                speedMetersPerSecond = 0.0,
+                timestampMillis = Instant.parse("2026-03-23T12:35:19Z").toEpochMilli(),
+            ),
+        ).split("\r\n").single { it.startsWith("\$GPRMC") }.substringBefore('*').split(',')
+
+        // $GPRMC,time,status,lat,N/S,lon,E/W,speed,course,date,...
+        assertEquals("", rmcFields(null)[8])
+        assertEquals("", rmcFields(Double.NaN)[8])
+        assertEquals("84.40", rmcFields(84.4)[8])
+        assertEquals("230326", rmcFields(null)[9])
+    }
+
+    @Test
     fun identificationAdvertisesLocationMessagesAndComponentOnlyWhenEnabled() {
         val base = wiredIdentification(locationInformationEnabled = false)
         val enabled = wiredIdentification(locationInformationEnabled = true)

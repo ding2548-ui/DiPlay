@@ -26,6 +26,7 @@ import android.text.TextUtils
 import android.text.TextWatcher
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
@@ -148,6 +149,7 @@ class CarPlayHostActivity : ComponentActivity() {
         manualHotspotChannel = manualHotspotChannel,
         manualHotspotSecurity = manualHotspotSecurity,
         locationReportingEnabled = locationReportingEnabled,
+        wifiP2pPreferredChannel = AirPlayPersistence.loadWifiP2pPreferredChannel(this),
     )
 
     private val vpnConsent =
@@ -326,6 +328,10 @@ class CarPlayHostActivity : ComponentActivity() {
     private var gestureTracking = false
     private var gestureStartX = 0f
     private var gestureStartY = 0f
+
+    /** Fingers for the swipe-down that opens settings; some head units reserve three (upstream 0.2.11). */
+    private var gestureFingerCount = 3
+    private var settingsGestureHint: android.widget.TextView? = null
     private val shuttingDown = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val teardownExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -392,6 +398,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         initializeSessionLog()
+        gestureFingerCount = AirPlayPersistence.loadSettingsGestureFingers(this)
         // Forensic probe for the car's own vehicle-data bus (car.meter.caninfo/carinfo): the first
         // drive that engages reverse tells us whether the ICU exposes a gear field to apps.
         LeapmotorCanInfoProbe.onDiagnostic = { message -> appendLog(message) }
@@ -590,6 +597,24 @@ class CarPlayHostActivity : ComponentActivity() {
         if (hasFocus) applyFullscreenMode()
     }
 
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Android TV / remote navigation: on TV-shaped or no-touch devices the D-pad drives
+        // CarPlay's own knob HID controller, not Android View focus (upstream 0.2.11).
+        if (!menuOpen && event != null &&
+            AndroidTvInputMode.shouldUseKnobAsPrimaryInput(this) &&
+            CarPlayRemoteKeys.dispatch(event, controller)
+        ) {
+            if (event.repeatCount == 0) {
+                Log.d(
+                    TAG,
+                    "remote key ${KeyEvent.keyCodeToString(event.keyCode)} action=${event.action}",
+                )
+            }
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onStop() {
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
         super.onStop()
@@ -679,10 +704,22 @@ class CarPlayHostActivity : ComponentActivity() {
             background = GradientDrawable().apply { setColor(Color.rgb(166, 200, 255)); cornerRadius = dp(20).toFloat() }
             setOnClickListener { showDiPlayHome() }
         }, LinearLayout.LayoutParams(dp(300), dp(64)))
-        panel.addView(TextView(this).apply {
-            text = "在 CarPlay 中，用三指向下滑动可打开 DiPlay 设置。"
+        val gestureHint = TextView(this).apply {
+            text = "在 CarPlay 中，用 $gestureFingerCount 指向下滑动可打开 DiPlay 设置。"
             textSize = 13f; gravity = Gravity.CENTER; setTextColor(Color.rgb(168, 182, 202)); setPadding(0, dp(20), 0, 0)
-        })
+        }
+        panel.addView(gestureHint)
+        settingsGestureHint = gestureHint
+        // Some head units reserve three fingers for their own UI; let the driver pick 2/3/4.
+        panel.addView(Button(this).apply {
+            text = "设置手势：$gestureFingerCount 指"; isAllCaps = false; textSize = 15f
+            setOnClickListener {
+                gestureFingerCount = if (gestureFingerCount >= 4) 2 else gestureFingerCount + 1
+                AirPlayPersistence.saveSettingsGestureFingers(this@CarPlayHostActivity, gestureFingerCount)
+                settingsGestureHint?.text = "在 CarPlay 中，用 $gestureFingerCount 指向下滑动可打开 DiPlay 设置。"
+                text = "设置手势：$gestureFingerCount 指"
+            }
+        }, LinearLayout.LayoutParams(dp(300), dp(52)).apply { topMargin = dp(8) })
         root.addView(panel, FrameLayout.LayoutParams(-1, -1))
         videoView = video
         gestureOverlay = gestureLayer
@@ -3455,20 +3492,20 @@ class CarPlayHostActivity : ComponentActivity() {
                 gestureTracking = false
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                if (event.pointerCount == THREE_FINGER_COUNT && !gestureSequenceActive) {
+                if (event.pointerCount == gestureFingerCount && !gestureSequenceActive) {
                     gestureSequenceActive = true
                     gestureTracking = true
                     gestureStartX = pointerCentroid(event, horizontal = true)
                     gestureStartY = pointerCentroid(event, horizontal = false)
                     controller?.sendTouch(emptyList())
-                    appendLog("三指下滑手势跟踪已启动")
+                    appendLog("${gestureFingerCount}指下滑手势跟踪已启动")
                     return true
                 }
             }
         }
 
         if (gestureSequenceActive) {
-            if (!gestureTracking || event.pointerCount != THREE_FINGER_COUNT) {
+            if (!gestureTracking || event.pointerCount != gestureFingerCount) {
                 if (event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
@@ -3696,7 +3733,6 @@ class CarPlayHostActivity : ComponentActivity() {
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"
         const val PROTOCOL_TRACE_PREFIX = "TRACE "
-        const val THREE_FINGER_COUNT = 3
         const val THREE_FINGER_SWIPE_DISTANCE_DP = 72
         const val THREE_FINGER_SWIPE_DIRECTION_RATIO = 1.15f
         const val MAX_SETTINGS_MENU_WIDTH_PX = 1200

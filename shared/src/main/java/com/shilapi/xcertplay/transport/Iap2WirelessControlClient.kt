@@ -25,8 +25,6 @@ class Iap2WirelessControlClient(
         endpoint: Iap2WirelessCarPlayEndpoint,
         timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
         locationProvider: Iap2LocationProvider? = null,
-        locationRequest: Iap2LocationRequest? = null,
-        continueLocationRequest: Boolean = false,
         onReady: () -> Unit = {},
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
@@ -65,8 +63,9 @@ class Iap2WirelessControlClient(
         var postTransportWiFiConfigurationsSent = 0
         var transportNotificationSeen = false
         var wirelessCarPlayAvailableSeen = false
-        val location = Iap2LocationReporter(locationProvider, onProgress, locationRequest, continueLocationRequest)
-        while (true) {
+        val location = Iap2LocationReporter(locationProvider, onProgress)
+        try {
+            while (true) {
                 val remaining = remainingMillis(deadlineNanos)
                 if (remaining == 0L) {
                     return Iap2WirelessControlResult(
@@ -154,6 +153,7 @@ class Iap2WirelessControlClient(
 
                     CARPLAY_AVAILABILITY -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
+                        onProgress(carPlayAvailabilityDiagnostic(incoming))
                         send(carPlayStartSession(endpoint), deadlineNanos)
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
@@ -212,6 +212,11 @@ class Iap2WirelessControlClient(
                         forwardedFrames++
                     }
                 }
+            }
+        } finally {
+            // The location fix subscription belongs to this iAP2 link; leaving it running after
+            // the control loop exits would keep the provider running for nobody.
+            locationProvider?.stop()
         }
     }
 
@@ -220,6 +225,16 @@ class Iap2WirelessControlClient(
     }
 
     companion object {
+        /** Malformed optional availability metadata must not change existing control behavior. */
+        internal fun carPlayAvailabilityDiagnostic(frame: Iap2Frame): String = try {
+            val value = Iap2CarPlayMessages.availability(frame)
+            "iap2 availability wired=${value.wired?.available ?: "unknown"} " +
+                "wireless=${value.wireless?.available ?: "unknown"} " +
+                "themeAssets=${value.themeAssets?.available ?: "unknown"}"
+        } catch (error: Exception) {
+            "iap2 availability decode=failed failureClass=${error.javaClass.simpleName}"
+        }
+
         private const val REQUEST_ACCESSORY_WIFI_CONFIGURATION = 0x5702
         private const val ACCESSORY_WIFI_CONFIGURATION = 0x5703
         private const val CARPLAY_AVAILABILITY = 0x4300

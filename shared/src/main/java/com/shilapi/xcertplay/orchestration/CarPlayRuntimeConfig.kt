@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.orchestration
 
+import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.UsbDeviceId
 import java.net.Inet6Address
@@ -68,6 +69,8 @@ class CarPlayRuntimeConfig(
     // Beta: run the wired AirPlay transport on the userspace lwIP stack instead of the
     // kernel TUN (VpnService). Requires a 32-bit process (the native library is v7a-only).
     val wiredLwip: Boolean = false,
+    /** Preferred Wi-Fi Direct listen channel (upstream 0.2.11); 0 = automatic. */
+    val wifiP2pPreferredChannel: Int = WifiP2pChannels.AUTO,
 ) {
     init {
         require(iphoneDevices.all { it.vendorId == APPLE_VENDOR_ID }) {
@@ -97,6 +100,12 @@ class CarPlayRuntimeConfig(
         }
         require(remoteMfiToken?.contains('\u0000') != true) {
             "Remote MFi token must not contain U+0000"
+        }
+        // Only a wireless session starts the hotspot; a USB session must not fail on unused settings.
+        if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P) {
+            require(WifiP2pChannels.isValid(wifiP2pPreferredChannel)) {
+                "Unsupported Wi-Fi Direct channel: $wifiP2pPreferredChannel"
+            }
         }
         if (wirelessHotspotMode == WirelessHotspotMode.EXTERNAL_WIFI) {
             // The car is a plain station client: ExternalWifiManager reads the live SSID, BSSID,

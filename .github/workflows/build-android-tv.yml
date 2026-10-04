@@ -1,0 +1,32 @@
+name: Build DiPlay Android TV source APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject credential files in public source
+        run: python3 scripts/check_public_tree.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Test, lint and build without authentication assets
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :mobile:assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DiPlay-Android-TV-source-only
+          path: mobile/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
