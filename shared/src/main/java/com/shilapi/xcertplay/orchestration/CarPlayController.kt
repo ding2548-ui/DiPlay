@@ -1023,9 +1023,13 @@ class CarPlayController(
                 )
             }
             val hostAddressText = hostAddressText(hostAddress)
-            // Every family the interface offers. This list is both what Bonjour publishes on and
-            // what the phone is told to dial, so the two can never disagree about the family.
-            val advertisedAddresses = hostAddressTexts(hotspotInfo.interfaceName, hostAddressText)
+            // Single-address policy (the PSA hotspot-ipv4 source, matching upstream 0.2.11):
+            // the AirPlay listener, the Bonjour record and the 0x4301 payload all use this ONE
+            // scored address. A mixed v4+v6 list is never dialled by the iPhone (phone-side
+            // pcap), and a fe80-only list dies behind the tether's IPv6 mangle rules — one
+            // correct address beats a list of candidates. The 155 build advertised the whole
+            // interface family list and the wireless session stalled in endless retries.
+            val advertisedAddresses = listOf(hostAddressText)
             debugLog(
                 "wireless interface addresses iface=${hotspotInfo.interfaceName ?: "unknown"} " +
                     "families=${advertisedAddresses.joinToString(",") { familyLabel(it) }}",
@@ -1106,12 +1110,10 @@ class CarPlayController(
                 config = advertisedAirPlayConfig,
                 identity = identity,
                 advertisedHost = hostAddress.hostAddress,
-                // Publish on every family the interface offers, not just the primary one. A JmDNS
-                // instance joins only its own address family's multicast group, so a receiver
-                // advertised over link-local IPv6 alone is invisible to an IPv4 browser — which is
-                // exactly how wireless CarPlay kept stalling at discovery while the phone was
-                // already joined to our group.
-                advertisedHosts = advertisedAddresses.filter { it != hostAddressText },
+                // Publish the SAME single scored address that 0x4301 advertises — the listener,
+                // Bonjour and the endpoint must never disagree about the address (extra
+                // families only produced addresses the phone would not dial).
+                advertisedHosts = emptyList(),
                 // Bind discovery and its connect probe to the same AP/address family as AirPlay.
                 // The car hotspot previously used system NSD, which could resolve another interface
                 // or IPv6 while the listener/probe was bound to the AP's IPv4 address.
@@ -1202,15 +1204,11 @@ class CarPlayController(
                 Iap2WirelessLinkRole.RUNTIME_TUNNEL,
                 linkWirelessIdentification,
             )
-            // Address policy (upstream 0.2.11/0.2.12 parity): advertise the scored best host
-            // address FIRST, followed by the remaining addresses of the interface, deduplicated.
-            // The old LIVI-style fe80-only list is dead — upstream itself dropped it: 0.2.8 ran
-            // the car hotspot on IPv4 alone (20-24 fps on this very head unit), 0.2.11 went back
-            // to a single best address (`listOf(hostAddressText)`, IPv4 preferred by
-            // interfaceScore), and 0.2.12 made it "primary + rest" with an explicit
-            // addressPolicy=IPv4_only readiness gate. A fe80-only list on the car hotspot was
-            // never dialled: the tether's inbound IPv6 is what the netmgrd mangle rules drop.
-            val ipAddresses = (listOf(hostAddressText) + advertisedAddresses).distinct()
+            // Single-address policy (the PSA hotspot-ipv4 source, matching upstream 0.2.11):
+            // exactly ONE scored address goes into 0x4301. 155 advertised a primary+rest list
+            // and the iPhone never dialled it — a mixed v4+v6 list is ignored, and the old
+            // fe80-only variant died behind the tether's IPv6 mangle rules.
+            val ipAddresses = listOf(hostAddressText)
             val endpoint = Iap2WirelessCarPlayEndpoint(
                 ssid = hotspotInfo.ssid,
                 passphrase = hotspotInfo.passphrase,
@@ -2522,20 +2520,6 @@ class CarPlayController(
      * risks it trying that and giving up, so the routable address goes first and IPv6 stays as a
      * fallback for a peer that negotiated IPv6.
      */
-    private fun hostAddressTexts(interfaceName: String?, preferred: String): List<String> {
-        val addresses = interfaceName
-            ?.let { name -> runCatching { NetworkInterface.getByName(name) }.getOrNull() }
-            ?.let { nic -> Collections.list(nic.inetAddresses) }
-            .orEmpty()
-        val candidates = listOf(
-            addresses.filterIsInstance<Inet4Address>()
-                .firstOrNull { !it.isLoopbackAddress }?.hostAddress,
-            addresses.filterIsInstance<Inet6Address>()
-                .firstOrNull { !it.isLoopbackAddress }?.hostAddress?.substringBefore('%'),
-        ).filterNotNull().filter { it.isNotBlank() }
-        return (candidates + preferred).distinct()
-    }
-
     /** Report-safe label for an address literal; the address itself is redacted from reports. */
     private fun familyLabel(addressText: String): String = when {
         addressText.startsWith("fe80:", ignoreCase = true) -> "IPv6-linklocal"
