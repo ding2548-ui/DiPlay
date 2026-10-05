@@ -203,6 +203,10 @@ class CarPlayController(
     private val permissionGrant = AtomicBoolean(false)
     private val availabilityPollGeneration = AtomicInteger(0)
     private var permissionPollGeneration = 0
+    /** Vendor-request transitions issued this bring-up (first entry into CarPlay USB mode). */
+    private var configurationTransitions = 0
+    /** Device node handed to the transition request; a different node proves the switch. */
+    private var transitionSourceDeviceName: String? = null
     private var lastReportedStatus: CarPlayStatus? = null
     private var mfiResetLogged = false
 
@@ -1577,6 +1581,8 @@ class CarPlayController(
         diagnosticRun.incrementAndGet()
         availabilityPollGeneration.incrementAndGet()
         phase = Phase.IPHONE
+        configurationTransitions = 0
+        transitionSourceDeviceName = null
         onStatus(CarPlayStatus.DiscoveringIphone)
         checkIphoneAvailability()
     }
@@ -1647,15 +1653,25 @@ class CarPlayController(
                         connectionDiagnostic(
                             "USB configuration ready=${configuration != null} " +
                                 "configurationId=${configuration?.id ?: "none"} " +
-                                "action=${if (configuration != null) "reuse-descriptors" else "reject-missing-configuration"}",
+                                "transitions=$configurationTransitions " +
+                                "action=${if (configuration != null) "reuse-descriptors" else "request-carplay-mode"}",
                         )
                         when {
                             // The CarPlay configuration is exposed: open it directly. AutoKit
-                            // parity — never re-enumerate; a re-enumeration invalidates the USB
-                            // grant and cost a second permission dialog on every cable plug
-                            // (run-146 report). Reopening + setConfiguration is safe now that
-                            // teardown releases every endpoint (fixed in v2.0-84).
+                            // parity — never re-enumerate a device that already offers the
+                            // configuration; a re-enumeration invalidates the USB grant and
+                            // cost a second permission dialog on every cable plug (run-146
+                            // report). Reopening + setConfiguration is safe now that teardown
+                            // releases every endpoint (fixed in v2.0-84).
                             configuration != null -> openDataPaths(result.device)
+                            // The iPhone is still in its default USB mode. Entry into the
+                            // CarPlay configuration REQUIRES the Apple vendor request, and iOS
+                            // re-enumerates whenever it changes configuration — this is the
+                            // protocol, not the removed redundancy. The system auto-grants the
+                            // new node once "always" was ticked, and the 2.4 s permission
+                            // window below covers the grant landing.
+                            configurationTransitions < MAX_CONFIGURATION_TRANSITIONS ->
+                                beginCarPlayModeTransition(result.device)
                             else -> fail(
                                 IphoneUsbException.Protocol(
                                     "iPhone did not expose a complete CarPlay USB configuration",
@@ -1723,6 +1739,48 @@ class CarPlayController(
                 }
             },
             DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS,
+        )
+    }
+
+    /**
+     * First entry into the CarPlay USB configuration: the Apple vendor request makes the iPhone
+     * switch modes, which re-enumerates the device (iOS behaviour on any configuration change).
+     * The new node returns through [onIphoneAttached] / the poll below; the permission window
+     * auto-grants it when "always" was ticked, so a returning user plugs in with zero dialogs.
+     */
+    private fun beginCarPlayModeTransition(device: UsbDevice) {
+        configurationTransitions += 1
+        transitionSourceDeviceName = device.deviceName
+        connectionDiagnostic("USB CarPlay mode transition requested count=$configurationTransitions")
+        onStatus(CarPlayStatus.SelectingConfiguration)
+        iphoneHost.requestCarPlayReenumerationAsync(device, executor) { transition ->
+            when (transition) {
+                IphoneUsbHost.TransitionResult.ReenumerationRequested -> {
+                    onStatus(CarPlayStatus.WaitingForReenumeration)
+                    // Backstop for a missed USB attach broadcast while waiting for the new node.
+                    scheduleTransitionPoll()
+                }
+                is IphoneUsbHost.TransitionResult.Failed -> fail(transition.error)
+            }
+        }
+    }
+
+    private fun scheduleTransitionPoll() {
+        val generation = availabilityPollGeneration.get()
+        mainHandler.postDelayed(
+            {
+                if (closed || phase == Phase.IDLE) return@postDelayed
+                if (generation != availabilityPollGeneration.get()) return@postDelayed
+                val replacement = iphoneHost.discover()
+                    .firstOrNull { it.deviceName != transitionSourceDeviceName }
+                if (replacement != null) {
+                    debugLog("wired re-enumerated iPhone appeared; requesting USB access")
+                    requestIphonePermission(replacement)
+                } else {
+                    scheduleTransitionPoll()
+                }
+            },
+            TRANSITION_POLL_INTERVAL_MILLIS,
         )
     }
 
@@ -2801,6 +2859,8 @@ class CarPlayController(
         /** Backstop cadence for a missed USB attach broadcast after re-enumeration. */
         private const val PERMISSION_POLL_TIMEOUT_MILLIS = 120_000L
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
+        private const val MAX_CONFIGURATION_TRANSITIONS = 2
+        private const val TRANSITION_POLL_INTERVAL_MILLIS = 400L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val AUTO_GRANT_POLL_ATTEMPTS = 6
