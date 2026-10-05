@@ -6,6 +6,7 @@
 # Gradle and local tooling
 .gradle/
 .kotlin/
+.android-sdk/
 build/
 local.properties
 

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_night_mode">Modo día/noche de CarPlay</string>
+    <string name="carplay_night_system">Seguir el sistema Android</string>
+    <string name="carplay_night_ambient">Automático (luz ambiental)</string>
+    <string name="carplay_night_day">Siempre de día</string>
+    <string name="carplay_night_night">Siempre de noche</string>
+    <string name="carplay_night_hint">Guarda y vuelve a CarPlay para aplicar. El modo automático usa el umbral y el retardo de abajo; sin sensor de luz, sigue Android.</string>
+    <string name="carplay_night_time_note">La apariencia automática de CarPlay también usa la hora del iPhone: de noche, Siempre de día puede seguir mostrando el modo oscuro.</string>
+</resources>

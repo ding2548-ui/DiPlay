@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carapp_hw_status_title">Стан обладнання xcertplay</string>
+    <string name="carapp_hw_not_configured">Апаратний транспорт не налаштовано. Для I2C на платі потрібен шлях /dev/i2c-N і дозвіл ОС/SELinux; для CH341 потрібна конфігурація VID/PID.</string>
+</resources>

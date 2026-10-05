@@ -75,7 +75,7 @@ class SafeAreaTest {
     @Test
     fun activity978MapsThroughEvenAlignedDisplayDimensions() {
         val native = AirPlayDisplayConfig(widthPixels = 1920, heightPixels = 978)
-        val display = CarPlayDisplayScale.apply(native, 70)
+        val display = CarPlayDisplayScale.apply(native, 7)
 
         val full = AirPlaySafeArea.toInsets(
             mapping = null,

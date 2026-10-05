@@ -6,20 +6,16 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        // Android 7.0 (API 24). The previous floor was 28; see docs/BUILD.md.
-        minSdk = 24
+        minSdk = 28
         targetSdk = 37
 
         ndk {
-            // v7a-only release line: 32-bit processes can load libdiplay_lwip.so, so the
-            // userspace lwIP wired transport is actually testable on the head unit. The
-            // package name stays untouched, so in-app OTA keeps working across builds.
-            abiFilters 'armeabi-v7a'
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
         }
 
         externalNativeBuild {
             ndkBuild {
-                arguments 'APP_PLATFORM=android-24'
+                arguments 'APP_PLATFORM=android-28'
             }
         }
 
@@ -34,13 +30,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // java.time.Instant and java.util.Base64 are API 26 APIs used by the pairing and
-        // location code; desugaring supplies them on Android 7/7.1 (API 24/25).
-        coreLibraryDesugaringEnabled = true
     }
 }
 dependencies {
-    coreLibraryDesugaring libs.desugar.jdk.libs
     implementation libs.androidx.app
     implementation libs.bouncycastle
     implementation libs.jmdns

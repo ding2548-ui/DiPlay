@@ -36,7 +36,6 @@ class NcmUsbBridge internal constructor(
     private var failure: IphoneUsbException? = null
     private var sequence = 0
     private var loggedWriteTimeout = false
-    private var padLogged = false
     private val frames = ArrayDeque<ByteArray>()
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
@@ -47,7 +46,6 @@ class NcmUsbBridge internal constructor(
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
     // data is lost between calls. This is the only requestWait() user on this connection.
     private val directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
-    private val usbCompat = UsbRequestCompat()
     private var readRequest: UsbRequest? = null
     private var readQueued = false
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
@@ -138,7 +136,6 @@ class NcmUsbBridge internal constructor(
         }
         connection.close()
         runCatching { requestToClose?.close() }
-        usbCompat.close()
     }
 
     private fun drainStatus(endpoint: UsbEndpoint) {
@@ -181,20 +178,11 @@ class NcmUsbBridge internal constructor(
             }
             val blockLength = readU16(buffered, 8)
             if (blockLength < 28) throw failSession("Invalid NTB16 block length $blockLength")
-            if (bufferedSize < blockLength) return
             val padded = blockLength % USB_PACKET_SIZE == 0
-            // Apple terminates an NTB whose length is a whole number of USB packets with a single
-            // zero pad byte, so the transfer ends with a short packet instead of a ZLP. Android 7
-            // delivers that terminator as a ZLP instead, which readChunk() drops, so the byte
-            // after the block may be absent or may already be the next NTB header. Only consume a
-            // pad when one is actually present.
-            var wireLength = blockLength
-            if (padded && bufferedSize > blockLength && buffered[blockLength].toInt() == 0) {
-                wireLength = blockLength + 1
-            }
-            if (!padLogged && padded && wireLength == blockLength) {
-                padLogged = true
-                Log.i(IphoneCarPlayConfiguration.TAG, "NTB16 block without the expected pad byte; accepting a ZLP terminator")
+            val wireLength = blockLength + if (padded) 1 else 0
+            if (bufferedSize < wireLength) return
+            if (padded && buffered[blockLength].toInt() != 0) {
+                throw failSession("Invalid NTB16 short-packet pad")
             }
             for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
             val remaining = bufferedSize - wireLength
@@ -244,7 +232,7 @@ class NcmUsbBridge internal constructor(
                 }
                 if (!readQueued) {
                     directReadBuffer.clear()
-                    if (!usbCompat.queue(current, directReadBuffer)) throw failSession("Android could not queue the NCM read request")
+                    if (!current.queue(directReadBuffer)) throw failSession("Android could not queue the NCM read request")
                     readQueued = true
                 }
                 current
@@ -254,7 +242,7 @@ class NcmUsbBridge internal constructor(
         }
         try {
             val completed = try {
-                usbCompat.requestWait(connection, timeoutMillis.coerceAtLeast(1))
+                connection.requestWait(timeoutMillis.coerceAtLeast(1))
             } catch (_: TimeoutException) {
                 // Nothing arrived yet; the request stays queued for the next call. USBMUX owns
                 // authoritative detach/failure detection for the same phone.

@@ -54,6 +54,13 @@ class AudioStream(
 
     fun listen(listener: Listener): Pair<Int, Int> {
         val data = bindAnyPort()
+        // Keep short Wi-Fi bursts in the kernel while decrypting or scheduling pauses
+        // the receive thread. The platform may cap this request; log the actual size.
+        val originalBufferBytes = runCatching { data.receiveBufferSize }.getOrDefault(0)
+        if (originalBufferBytes < AUDIO_RECEIVE_BUFFER_BYTES) {
+            runCatching { data.receiveBufferSize = AUDIO_RECEIVE_BUFFER_BYTES }
+        }
+        onDiagnostic("Audio UDP receive buffer type=$streamType original=$originalBufferBytes requested=$AUDIO_RECEIVE_BUFFER_BYTES actual=${runCatching { data.receiveBufferSize }.getOrDefault(0)}")
         val control = bindAnyPort()
         dataSocket = data
         controlSocket = control
@@ -88,8 +95,13 @@ class AudioStream(
                 } catch (_: Exception) {
                     if (closed.get()) return else continue
                 }
-                stats.received(packet.length, if (packet.length >= 12)
-                    ((buffer[2].toInt() and 0xff) shl 8) or (buffer[3].toInt() and 0xff) else null)
+                stats.received(
+                    size = packet.length,
+                    sequence = if (packet.length >= RTP_HEADER_LEN) {
+                        ((buffer[2].toInt() and 0xff) shl 8) or (buffer[3].toInt() and 0xff)
+                    } else null,
+                    timestamp = if (packet.length >= RTP_HEADER_LEN) readU32Be(buffer, 4) else null,
+                )
                 val wire = packet.data.copyOf(packet.length)
                 val packetNumber = receivedPackets.incrementAndGet()
                 if (wire.size < RTP_HEADER_LEN + TAIL_LEN) {
@@ -189,6 +201,7 @@ class AudioStream(
     private companion object {
         const val TAG = "xcertplay-usb"
         const val DATAGRAM_BYTES = 4_096
+        const val AUDIO_RECEIVE_BUFFER_BYTES = 512 * 1024
         const val RTP_HEADER_LEN = 12
         const val TAG_LEN = 16
         const val NONCE_LEN = 8

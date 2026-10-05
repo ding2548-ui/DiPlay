@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay.hud
 
-/** One instrument-cluster frame in the AMap broadcast vocabulary accepted by com.byd.amapservice. */
+/** One instrument-cluster frame in the AMap broadcast vocabulary accepted by the stock AMap adapter. */
 internal data class BydClusterFrame(
     val icon: Int,
     val roundaboutExit: Int,

@@ -20,7 +20,7 @@ internal object BydStandaloneNavigationBridge {
             started = true
             Executors.newSingleThreadScheduledExecutor { task ->
                 Thread(task, "diplay-standalone-navi").apply { isDaemon = true }
-            }.scheduleWithFixedDelay(::tick, 0, 500, TimeUnit.MILLISECONDS)
+            }.scheduleWithFixedDelay(::tick, 0, 250, TimeUnit.MILLISECONDS)
         }
     }
 
@@ -40,8 +40,14 @@ internal object BydStandaloneNavigationBridge {
         try {
             val frame = if (context?.let(BydOutputSettings::enabled) == true)
                 route.currentApple()?.let(BydClusterFrame::from) else null
-            if (frame == null) output?.clear()
-            else output?.update(frame.icon, frame.roundaboutExit, frame.distanceMeters, frame.road)
+            val line = context?.takeIf(BydOutputSettings::hudSong)
+                ?.let { BydClusterSong.current() }?.takeIf { it.playing }?.line
+            // Directions own the shared row. Text-only mode clears previous maneuver records first.
+            when {
+                frame != null -> output?.update(frame.icon, frame.roundaboutExit, frame.distanceMeters, frame.road)
+                line != null -> output?.showText(line)
+                else -> output?.clear()
+            }
         } catch (error: Exception) {
             Log.w("DiPlay-Standalone", "HUD update/cleanup will retry", error)
         }

@@ -7,10 +7,6 @@ plugins {
 val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
     .orNull?.let { file(it).canonicalFile }
 
-// Optional build stamp. CI sets this to the workflow run number so every APK and every
-// exported diagnostic report can be traced back to one exact build.
-val buildNumber = providers.environmentVariable("DIPLAY_BUILD_NUMBER").orNull
-
 android {
     namespace = "com.shilapi.xcertplay"
     compileSdk {
@@ -19,20 +15,11 @@ android {
 
     defaultConfig {
         applicationId = "com.shihab.diplay"
-        minSdk = 24
+        minSdk = 28
         targetSdk = 37
-        versionCode = 20
-        versionName = buildNumber?.let { "2.11（$it）" } ?: "2.11"
+        versionCode = 31
+        versionName = "0.2.12"
 
-        // The APK ABI is decided HERE, in the app module: shared's abiFilters only control
-        // its own externalNativeBuild, and bundled AARs (androidx.graphics) ship their own
-        // arm64/x86 .so files, which made the 64-bit-capable head unit install the app as
-        // arm64 — a 64-bit process cannot load the v7a-only libdiplay_lwip.so (run-119
-        // report). Pinning every merged native library to v7a keeps the process 32-bit,
-        // which is exactly what the userspace lwIP wired transport needs.
-        ndk {
-            abiFilters.add("armeabi-v7a")
-        }
     }
 
 
@@ -52,39 +39,26 @@ android {
 
     buildTypes {
         debug {
-            // The BYD HUD bridges gate on this suffix, so it stays. The launcher label and the
-            // version name no longer carry any "test" marker.
             applicationIdSuffix = ".hudtest"
+            versionNameSuffix = "-hud-test"
         }
         release {
             optimization {
                 enable = false
             }
-            // The BYD HUD bridges gate on the runtime package name (5 hard checks), so the
-            // release build must keep the same ".hudtest" suffix as debug or those gates fail.
-            applicationIdSuffix = ".hudtest"
             signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // Supplies java.time and java.util.Base64 on Android 7/7.1 (API 24/25).
-        isCoreLibraryDesugaringEnabled = true
     }
-    // Android 7 cannot reliably dlopen libs that stay uncompressed inside the APK
-    // (extractNativeLibs=false, the AGP default): extract at install time instead.
-    packaging {
-        jniLibs.useLegacyPackaging = true
-    }
-
     buildFeatures {
         compose = true
     }
 }
 
 dependencies {
-    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(platform(libs.androidx.compose.bom))
     implementation(project(":common"))
     implementation(project(":shared"))
@@ -123,3 +97,24 @@ val rejectBundledCredentials by tasks.registering {
     }
 }
 tasks.named("preBuild") { dependsOn(rejectBundledCredentials) }
+
+// Car-test packages must be standalone. Keep ordinary source/CI builds identity-free.
+val verifyStandaloneAuthentication by tasks.registering {
+    group = "verification"
+    description = "Require the explicit runtime authentication input for a standalone car-test APK."
+    val directory = localAuthenticationAssets
+    doLast {
+        check(directory != null) {
+            "Standalone car builds require DIPLAY_AUTH_ASSETS_DIR; assembleDebug alone is source-only."
+        }
+        check(listOf("identity.pk8", "certificate.p7b").all {
+            directory.resolve("offline-mfi/$it").let { file -> file.isFile && file.length() > 0 }
+        }) { "Standalone CarPlay authentication files are missing or empty" }
+    }
+}
+tasks.named("preBuild") { mustRunAfter(verifyStandaloneAuthentication) }
+tasks.register("assembleStandaloneDebug") {
+    group = "build"
+    description = "Build a standalone car-test APK with explicitly provisioned authentication."
+    dependsOn(verifyStandaloneAuthentication, "assembleDebug")
+}

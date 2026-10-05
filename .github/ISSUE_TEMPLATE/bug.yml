@@ -7,11 +7,11 @@ body:
       value: 'Test while parked. Reports are public: review diagnostic files and remove personal information before attaching them. Never post credentials.'
   - type: input
     id: version
-    attributes: {label: DiPlay version, placeholder: '0.1.0'}
+    attributes: {label: DiPlay version, placeholder: '0.2.12'}
     validations: {required: true}
   - type: input
     id: car
-    attributes: {label: Car and head-unit model, placeholder: 'Car model/year, DiLink version, Android version'}
+    attributes: {label: Car and head-unit model, placeholder: 'Car model/year, head unit, DiLink/Android version and exact firmware'}
     validations: {required: true}
   - type: input
     id: phone
@@ -21,16 +21,16 @@ body:
     id: transport
     attributes:
       label: Connection
-      options: [Wireless, USB, Both]
+      options: ['Wireless: built-in car hotspot', 'Wireless: Wi-Fi Direct', 'Wireless: Existing Wi-Fi / Same LAN', USB, Both, 'Other / unsure']
     validations: {required: true}
   - type: textarea
     id: reproduce
     attributes:
       label: What happened and how to reproduce it
-      description: 'Include expected behavior, steps, display settings and whether the car is also connected to a Wi-Fi network. For wireless, include the band/channel if the report shows it.'
+      description: 'Include expected behavior, steps, relevant settings and the approximate failure time. For wireless, include the backend, band/channel if shown, and whether the car is also connected to another Wi-Fi network. For Same LAN, include the router model and whether client isolation is enabled.'
     validations: {required: true}
   - type: textarea
     id: diagnostics
     attributes:
       label: Diagnostic report or recording
-      description: 'Settings → Save diagnostic report; Android 10+ saves to Downloads/DiPlay. Attach the reviewed file here. If export fails, describe exactly when.'
+      description: 'Update and reproduce on 0.2.12, then Settings → Diagnostics → Save diagnostic report. Android 10+ normally saves to Downloads/DiPlay; Android 9 uses a document picker. If storage is unavailable, use View report or Share in the confirmation. Review the text before attaching it and never include your hotspot password. Include the approximate failure time.'

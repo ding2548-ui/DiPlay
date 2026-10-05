@@ -10,11 +10,10 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Publishes CarPlay arrows and distance to the BYD instrument cluster through the stock
- * AMap adapter (com.byd.amapservice), independently of the SOME/IP windshield HUD path.
+ * AMap adapter (see [BydAmapAdapter]), independently of the SOME/IP windshield HUD path.
  */
 internal object BydClusterBridge {
     private const val TAG = "DiPlay-BYD-Cluster"
-    private const val AMAP_PACKAGE = "com.byd.amapservice"
     private const val AMAP_ACTION = "AUTONAVI_STANDARD_BROADCAST_SEND"
     private const val KEY_GUIDANCE = 10001
     private const val KEY_STATE = 10019
@@ -26,26 +25,33 @@ internal object BydClusterBridge {
     private val route = BydHudRouteState()
     private var context: Context? = null
     private var available = false
+    private var adapter: BydAmapAdapter? = null
     private var factory: BydFactoryNavigationOutput? = null
     private var senderStarted = false
     private var lastSent: BydClusterFrame? = null
     private var ticksSinceSend = 0
     private var guidanceLogged = false
 
+    private var guidanceActive = false
+    private var mapShown = false
+
     fun initialize(appContext: Context) = synchronized(lock) {
         if (context != null) return@synchronized
         context = appContext.applicationContext
-        available = try {
-            appContext.packageManager.getPackageInfo(AMAP_PACKAGE, 0)
-            true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
+        adapter = BydAmapAdapter.find { packageName ->
+            try {
+                appContext.packageManager.getPackageInfo(packageName, 0)
+                true
+            } catch (_: PackageManager.NameNotFoundException) {
+                false
+            }
         }
+        available = adapter != null
         if (!available && appContext.packageName.endsWith(".hudtest")) {
             factory = BydFactoryNavigationOutput(appContext.applicationContext)
             available = true
         }
-        Log.i(TAG, "仪表适配器 可用=$available 工厂测试=${factory != null}")
+        Log.i(TAG, "cluster adapter available=$available adapter=${adapter?.packageName} factoryTest=${factory != null}")
         if (available && !senderStarted) {
             senderStarted = true
             Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -69,6 +75,7 @@ internal object BydClusterBridge {
     }
 
     private fun tick() = synchronized(lock) {
+        applyClusterModeLocked() // Retries a mode switch that waited for ADB approval.
         // Guidance can expire without a frame (a list that stays empty), so check every second.
         if (lastSent != null && route.currentApple() == null) sendEndLocked()
         else if (++ticksSinceSend >= KEEPALIVE_TICKS) sendCurrentLocked(force = true)
@@ -101,13 +108,16 @@ internal object BydClusterBridge {
             putExtra("NEXT_ROAD_NAME", frame.road)
             putExtra("ROUTE_REMAIN_DIS", frame.routeRemainingMeters)
             putExtra("ROUTE_REMAIN_TIME", frame.routeRemainingSeconds)
+            if (adapter?.needsSimpleNavigationMode == true) putDiLink3Text(this, frame)
         }
         if (broadcastLocked(intent)) {
             lastSent = frame
             ticksSinceSend = 0
+            guidanceActive = true
+            applyClusterModeLocked()
             if (!guidanceLogged) {
                 guidanceLogged = true
-                Log.i(TAG, "已发送仪表导航指引 $frame")
+                Log.i(TAG, "cluster guidance sent $frame")
             }
         }
     }
@@ -131,12 +141,60 @@ internal object BydClusterBridge {
         if (!broadcastLocked(intent)) return
         lastSent = null
         guidanceLogged = false
-        Log.i(TAG, "仪表导航指引已结束")
+        guidanceActive = false
+        applyClusterModeLocked()
+        Log.i(TAG, "cluster guidance ended")
+    }
+
+    /** The host's CarPlay map window appeared on or left the cluster display. */
+    fun setMapShown(shown: Boolean) = synchronized(lock) {
+        mapShown = shown
+        if (context != null) applyClusterModeLocked()
+    }
+
+    /**
+     * On DiLink 3 the cluster keeps its stock view until it is switched: simple navigation for the
+     * guidance card, or projection for DiPlay's map window. Restores the stock mode only after
+     * DiPlay changed it.
+     */
+    private fun applyClusterModeLocked() {
+        if (adapter?.needsSimpleNavigationMode != true) return
+        val appContext = context ?: return
+        BydDiLink3ClusterOutput.setDesired(appContext, mapShown, guidanceActive)
+    }
+
+    private fun putDiLink3Text(intent: Intent, frame: BydClusterFrame) {
+        val text = BydDiLink3GuidanceText
+        text.distance(frame.distanceMeters)?.let { intent.putExtra("SEG_REMAIN_DIS_AUTO", it) }
+        text.distance(frame.routeRemainingMeters)?.let { intent.putExtra("ROUTE_REMAIN_DIS_AUTO", it) }
+        text.duration(frame.routeRemainingSeconds)?.let { intent.putExtra("ROUTE_REMAIN_TIME_AUTO", it) }
+        val use24Hour = context?.let { android.text.format.DateFormat.is24HourFormat(it) } ?: true
+        text.arrival(System.currentTimeMillis(), frame.routeRemainingSeconds, java.util.TimeZone.getDefault(), use24Hour)
+            ?.let { intent.putExtra("ETA_TEXT", it) }
+    }
+
+    /** DiLink 3 only: creates the cluster projection display in the background so the map window can find it. */
+    fun prepareProjectionDisplay(appContext: Context) {
+        if (BydAmapAdapter.find { installed(appContext, it) } != BydAmapAdapter.DILINK3) return
+        BydDiLink3ClusterOutput.prepareDisplay(appContext) { projectionDisplayPresent(appContext) }
+    }
+
+    private fun projectionDisplayPresent(appContext: Context): Boolean =
+        appContext.getSystemService(android.hardware.display.DisplayManager::class.java)
+            ?.displays?.any { it.name == DILINK3_DISPLAY } == true
+
+    private const val DILINK3_DISPLAY = "fission_bg_xdjaVirtualSurface"
+
+    private fun installed(appContext: Context, packageName: String): Boolean = try {
+        appContext.packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
     }
 
     // IS_BYD_MAP=true is required: the adapter drops foreign frames while it believes the stock map navigates.
     private fun baseIntent(keyType: Int) = Intent(AMAP_ACTION).apply {
-        setPackage(AMAP_PACKAGE)
+        setPackage(adapter?.packageName ?: BydAmapAdapter.BYD.packageName)
         addFlags(FLAG_RECEIVER_INCLUDE_BACKGROUND)
         putExtra("KEY_TYPE", keyType)
         putExtra("IS_BYD_MAP", true)
@@ -149,7 +207,7 @@ internal object BydClusterBridge {
             appContext.sendBroadcast(intent)
             true
         } catch (error: RuntimeException) {
-            Log.w(TAG, "仪表广播失败", error)
+            Log.w(TAG, "cluster broadcast failed", error)
             false
         }
     }

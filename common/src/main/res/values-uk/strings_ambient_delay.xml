@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ambient_delay_title">Затримка перемикання</string>
+    <string name="ambient_delay_hint">Введіть від 0 до 60 секунд. Нуль — миттєве перемикання.</string>
+    <string name="custom_number_error">Введіть ціле число від %1$d до %2$d.</string>
+    <string name="ambient_delay_summary">%1$d с</string>
+</resources>

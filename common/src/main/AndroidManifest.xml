@@ -1,19 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Optional, user-authorized startup of the car's own hotspot. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- In-app updates: the platform signature grants silent PackageInstaller sessions on the car. -->
-    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Optional: the dashboard map as a card over the home screen. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Optional, owner-enabled Usage Access for the verified DiLink 5.1 cluster profile. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <!-- The centre card also follows whichever launcher is the default home. -->
+    <queries>
+        <package android:name="com.byd.carsettings" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+    </queries>
     <application>
+        <provider
+            android:name="com.shilapi.xcertplay.DiagnosticReportProvider"
+            android:authorities="${applicationId}.diagnostic-reports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/diagnostic_report_paths" />
+        </provider>
         <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
             android:exported="true" android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:theme="@style/Theme.Xcertplay">
             <intent-filter>
@@ -22,10 +43,11 @@
             </intent-filter>
         </activity>
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
-            android:exported="false" android:foregroundServiceType="connectedDevice|microphone" />
+            android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
 
         <activity
             android:name="com.shilapi.xcertplay.CarPlayHostActivity"
+            android:taskAffinity="${applicationId}.carplay"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
@@ -42,23 +64,73 @@
         </activity>
 
         <activity
-            android:name="com.shilapi.xcertplay.MainActivity"
+            android:name="com.shilapi.xcertplay.AdbClusterActivity"
+            android:label="@string/adb_cluster_activity_label"
+            android:icon="@drawable/ic_dp_navigation"
+            android:taskAffinity="${applicationId}.cluster"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:allowEmbedded="true"
+            android:exported="true"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.AdbCluster">
+        </activity>
+
+        <activity
+            android:name="com.shilapi.xcertplay.CarPlayVideoActivity"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
             android:theme="@style/Theme.Xcertplay" />
 
-        <!-- iOS 27 video in car: the car's own full-screen player (only while in N; Leapmotor has no P). -->
         <activity
-            android:name="com.shilapi.xcertplay.CarPlayVideoActivity"
+            android:name="com.shilapi.xcertplay.MainActivity"
             android:exported="false"
-            android:launchMode="singleTop"
-            android:screenOrientation="fullSensor"
+            android:resizeableActivity="true"
             android:theme="@style/Theme.Xcertplay" />
 
         <activity
             android:name="com.shilapi.xcertplay.ImageCropActivity"
             android:exported="false"
+            android:resizeableActivity="true"
             android:screenOrientation="fullSensor"
             android:theme="@style/Theme.Xcertplay" />
+
+        <!-- CarPlay navigation widget, for launchers that host standard widgets. -->
+        <receiver
+            android:name="com.shilapi.xcertplay.NavigationWidget"
+            android:exported="false"
+            android:label="@string/navigation_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/navigation_widget_info" />
+        </receiver>
+
+        <!-- The live dashboard map for launchers that embed it (docs/LAUNCHER_INTEGRATION.md). -->
+        <service
+            android:name="com.shilapi.xcertplay.MapEmbedService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="com.shihab.diplay.action.EMBED_MAP" />
+            </intent-filter>
+        </service>
+
+        <!-- Optional: steering-wheel keys for the dashboard map zoom (docs/BYD_NAVIGATION.md). -->
+        <service
+            android:name="com.shilapi.xcertplay.WheelKeyService"
+            android:exported="true"
+            android:label="@string/wheel_key_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/wheel_key_service" />
+        </service>
 
         <receiver
             android:name="com.shilapi.xcertplay.BootReceiver"
@@ -69,29 +141,17 @@
             </intent-filter>
         </receiver>
 
-        <!-- In-app update: session result callback, and cleanup + relaunch after the replace. -->
-        <receiver
-            android:name="com.shilapi.xcertplay.UpdateInstallReceiver"
-            android:exported="false" />
-        <receiver
-            android:name="com.shilapi.xcertplay.UpdateInstalledReceiver"
-            android:exported="false">
+        <service
+            android:name="com.shilapi.xcertplay.UsbAutoConfirmService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
-        </receiver>
-
-        <!-- Shares the downloaded update APK with the system installer for the manual fallback
-             (non-platform-signed ROMs cannot run silent PackageInstaller sessions). -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
             <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
+                android:name="android.accessibilityservice"
+                android:resource="@xml/usb_auto_confirm_service_config" />
+        </service>
     </application>
 
 </manifest>

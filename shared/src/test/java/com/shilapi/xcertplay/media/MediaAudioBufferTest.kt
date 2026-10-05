@@ -7,23 +7,35 @@ class MediaAudioBufferTest {
     @Test
     fun `music buffers the chosen delay plus headroom`() {
         // 48 kHz stereo 16-bit = 192 000 bytes/s.
-        val plan = MediaAudioBuffer.plan("media", 48_000, 2, minBufferBytes = 7_680, mediaMillis = 500)
+        val plan = MediaAudioBuffer.plan(true, 48_000, 2, minBufferBytes = 7_680, mediaMillis = 500)
         assertEquals(96_000, plan.startBytes)
         assertEquals(134_400, plan.trackBufferBytes)
     }
 
     @Test
+    fun `all streams mapped to media receive the music buffer`() {
+        val selection = AudioChannelMapper.map(
+            "compatibility", 100, AudioChannelMappingMode.AUTOMOTIVE_BUS,
+        )
+        val plan = MediaAudioBuffer.plan(selection.channel == AudioChannel.MEDIA,
+            48_000, 2, minBufferBytes = 7_680, mediaMillis = 500)
+        assertEquals(96_000, plan.startBytes)
+    }
+
+    @Test
     fun `calls and prompts keep the low-latency buffer`() {
-        val plan = MediaAudioBuffer.plan("telephony", 16_000, 1, minBufferBytes = 1_280, mediaMillis = 1000)
+        val plan = MediaAudioBuffer.plan(false, 16_000, 1, minBufferBytes = 1_280, mediaMillis = 1000)
         assertEquals(4 * 1024, plan.startBytes)
         assertEquals(16 * 1024, plan.trackBufferBytes)
-        assertEquals(plan, MediaAudioBuffer.plan("alert", 16_000, 1, minBufferBytes = 1_280, mediaMillis = 1000))
+        val guidance = AudioChannelMapper.map("default", 100, AudioChannelMappingMode.AUTOMOTIVE_BUS)
+        assertEquals(plan, MediaAudioBuffer.plan(guidance.channel == AudioChannel.MEDIA,
+            16_000, 1, minBufferBytes = 1_280, mediaMillis = 1000))
     }
 
     @Test
     fun `unknown delay falls back to the default`() {
         assertEquals(MediaAudioBuffer.DEFAULT_MILLIS, MediaAudioBuffer.sanitize(250))
-        assertEquals(57_600, MediaAudioBuffer.plan("media", 48_000, 2, 7_680, mediaMillis = 42).startBytes)
+        assertEquals(57_600, MediaAudioBuffer.plan(true, 48_000, 2, 7_680, mediaMillis = 42).startBytes)
     }
 
     @Test

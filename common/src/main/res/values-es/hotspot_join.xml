@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hotspot_join_title">Unión automática al punto de acceso (experimental)</string>
+    <string name="hotspot_join_description">Reparación opcional para firmware compatible con Android 13+ y un punto de acceso de coche de solo 5 GHz. La comprobación prepara una copia privada de restauración sin cambiar el punto de acceso. Requiere ADB local autorizado en localhost:5555; no admite emparejamiento de depuración inalámbrica TLS.</string>
+    <string name="hotspot_join_check">Comprobar reparación del punto de acceso</string>
+    <string name="hotspot_join_apply">Añadir información de unión automática</string>
+    <string name="hotspot_join_restore">Restaurar punto de acceso guardado</string>
+    <string name="hotspot_join_working">Comprobando o actualizando… La cancelación puede requerir otra comprobación para verificar el resultado.</string>
+    <string name="hotspot_join_confirm">Con el coche estacionado, desconecta CarPlay y apaga primero el punto de acceso en los ajustes del coche. Esta acción solo cambia la configuración guardada y verifica su lectura. Después, enciéndelo tú para actualizar las emisiones. Los clientes se desconectarán al apagarlo. Conserva la copia privada para restaurar.</string>
+    <string name="hotspot_join_disconnect">Desconecta CarPlay antes de cambiar el punto de acceso.</string>
+    <string name="hotspot_join_ready">Configuración de 5 GHz compatible. Copia privada completa preparada; aún no hay cambios.</string>
+    <string name="hotspot_join_present">La información probada ya está presente. No se añadió un duplicado; DiPlay no puede restaurar un elemento preexistente.</string>
+    <string name="hotspot_join_applied">Configuración guardada verificada. Enciende el punto de acceso en los ajustes para actualizar las emisiones y prueba la unión automática. La emisión y CarPlay aún requieren una prueba en el dispositivo.</string>
+    <string name="hotspot_join_restored">Configuración completa restaurada y verificada. Enciende el punto de acceso en los ajustes del coche.</string>
+    <string name="hotspot_join_unsupported">API, firmware, banda o información de proveedor conflictiva no compatibles. No se aplicó la reparación. Usa una configuración compatible de solo 5 GHz; otras bandas no están verificadas.</string>
+    <string name="hotspot_join_off_required">El punto de acceso debe estar confirmado como apagado. Desconecta clientes, apágalo en los ajustes y reintenta. DiPlay no lo reiniciará automáticamente.</string>
+    <string name="hotspot_join_drift">La configuración cambió desde la copia. No se sobrescribió nada. Comprueba de nuevo; se conserva la copia de restauración pendiente.</string>
+    <string name="hotspot_join_firmware_changed">El firmware cambió. La copia privada se conserva, pero no se puede restaurar de forma segura en este firmware.</string>
+    <string name="hotspot_join_cancelled">Cancelado antes de escribir. Comprueba de nuevo el estado de restauración retenido.</string>
+    <string name="hotspot_join_failed_restored">La reparación falló o se canceló tras escribir. Configuración original restaurada y lectura verificada.</string>
+    <string name="hotspot_join_busy">Otra operación del punto de acceso sigue en curso. Espera y comprueba de nuevo.</string>
+    <string name="hotspot_join_adb_required">Requiere ADB local normal autorizado en localhost:5555. Actívalo y autorízalo con el procedimiento compatible del coche. El emparejamiento inalámbrico TLS por sí solo no funciona.</string>
+    <string name="hotspot_join_recovery">Resultado o verificación de copia inciertos. Apaga el punto de acceso y comprueba de nuevo antes de continuar. Se conserva cualquier copia privada existente; solo se permite restaurar si la configuración aún coincide.</string>
+</resources>

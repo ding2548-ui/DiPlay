@@ -72,6 +72,48 @@ class WifiP2pGroupManagerTest {
         return encoded
     }
 
+    @Test fun manualChannelOverridesAlignmentWithoutReplacingAutomaticMemory() {
+        val remembered = seedMemory()
+        val logs = mutableListOf<String>()
+        WifiP2pGroupManager(context, logs::add, preferredChannel = 149).use { manager ->
+            val info = background { manager.start(5000) }
+            assertEquals(149, info.channel)
+            assertEquals(listOf(5745), radio.requests.map { it?.groupOwnerBand })
+            manager.onCarPlayConfirmed()
+            assertEquals(remembered, memory.getString("confirmed", null))
+        }
+        assertEquals(remembered, memory.getString("confirmed", null))
+        assertTrue(logs.any { it.contains("preference=149 frequencyMHz=5745") })
+        assertTrue(logs.any { it.contains("requestedMHz=5745 actualMHz=5745 matched=true") })
+        radio.requests.clear()
+        WifiP2pGroupManager(context).use { manager ->
+            background { manager.start(5000) }
+            assertEquals(listOf(2437), radio.requests.map { it?.groupOwnerBand })
+            manager.onCarPlayConfirmed()
+        }
+    }
+
+    @Test fun rejectedManualChannelHasAnActionableErrorAndNoFallback() {
+        radio.rejectCustom = true
+        WifiP2pGroupManager(context, preferredChannel = 149).use { manager ->
+            val error = failure { manager.start(5000) }
+            assertTrue(error.message!!.contains("channel 149"))
+            assertTrue(error.message!!.contains("Choose Auto"))
+        }
+        assertEquals(listOf(5745), radio.requests.map { it?.groupOwnerBand })
+        assertNull(memory.getString("confirmed", null))
+    }
+
+    @Test fun firmwareIgnoringManualChannelFailsAndRemovesItsOwnGroup() {
+        radio.reportedFrequency = 5180
+        WifiP2pGroupManager(context, preferredChannel = 149).use { manager ->
+            assertTrue(failure { manager.start(5000) }.message!!.contains("selected channel 36 instead"))
+        }
+        assertEquals(listOf(5745), radio.requests.map { it?.groupOwnerBand })
+        assertEquals(1, radio.removals)
+        assertNull(memory.getString("confirmed", null))
+    }
+
     @Test fun hotspotCreationAloneAndLateConfirmationAfterCloseAreNeverLearned() {
         val manager = WifiP2pGroupManager(context)
         background { manager.start(5000) }
@@ -259,6 +301,46 @@ class WifiP2pGroupManagerTest {
         }
         assertTrue(radio.requests.isEmpty())
         assertEquals(0, radio.removals)
+    }
+
+    @Test fun closeLeavesAnotherAppsReplacementGroupRunning() {
+        val logs = mutableListOf<String>()
+        val manager = WifiP2pGroupManager(context, logs::add)
+        background { manager.start(5000) }
+        val replacement = radio.makeGroup(null)
+        radio.group = replacement
+        background { manager.close() }
+        assertSame(replacement, radio.group)
+        assertEquals(0, radio.removals)
+        assertTrue(logs.any { it.contains("cleanup skipped=another_app_owns_group") })
+    }
+
+    @Test fun connectionSnapshotDoesNotInterpretAnEmptyP2pListAsFailedIphoneAssociation() {
+        val manager = WifiP2pGroupManager(context)
+        background { manager.start(5000) }
+        val snapshot = background { manager.connectionDiagnosticSnapshot() }
+        assertTrue(snapshot.contains("p2pGroup=present owner=true sameGroup=true"))
+        assertTrue(snapshot.contains("reportedP2pClients=0 association=unknown legacyClients=not_exposed"))
+        radio.group = null
+        assertEquals("p2pGroup=absent association=unknown", background { manager.connectionDiagnosticSnapshot() })
+        background { manager.close() }
+        assertEquals("p2pGroup=unavailable association=unknown", manager.connectionDiagnosticSnapshot())
+    }
+
+    @Test fun staleCloseCannotRemoveANewerDiPlaySession() {
+        val old = WifiP2pGroupManager(context)
+        val previous = background { old.start(5000) }
+        // The framework has lost the old group; a new controller acquires a fresh one.
+        radio.group = null
+        val current = WifiP2pGroupManager(context)
+        val next = background { current.start(5000) }
+        assertNotEquals(previous.ssid, next.ssid)
+        val replacement = radio.group
+        background { old.close() }
+        assertSame(replacement, radio.group)
+        assertEquals(0, radio.removals)
+        background { current.close() }
+        assertEquals(1, radio.removals)
     }
 
     @Test fun groupAppearingAfterRejectionIsNotRemovedDuringFallback() {

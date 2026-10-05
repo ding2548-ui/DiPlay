@@ -39,10 +39,7 @@ internal class SessionLogFile(val file: File) : Closeable {
     override fun close() = synchronized(lock) { closed = true }
     companion object {
         const val MAX_BYTES = 512 * 1024L
-        // Three generations: enough for cross-restart diagnosis, without carrying megabytes of
-        // old-build noise into every exported report (the 7-generation report hit 21k lines —
-        // the run-143 triage).
-        private val ARCHIVE_NAMES = listOf("previous.log") + (2..3).map { "previous-$it.log" }
+        private val ARCHIVE_NAMES = listOf("previous.log") + (2..7).map { "previous-$it.log" }
         val REPORT_NAMES = ARCHIVE_NAMES.reversed() + "diplay.log"
     }
 }

@@ -36,6 +36,11 @@ class BydStandaloneStreetTest {
         assertEquals("A".repeat(46) + "🚗", decoded("A".repeat(46) + "🚗End"))
         assertEquals("AB", decoded("A\uD800B\uDC00"))
     }
+    @Test fun runsOfWhitespaceCollapseToOneCell() {
+        assertEquals("A B", decoded("A   B"))
+        assertEquals("A B C", decoded("A \t\n B  C"))
+        assertEquals("A B", decoded("  A  B  "))
+    }
     @Test fun blankAndControlsReplacePriorTextWithSafeWhitespace() {
         assertEquals(" ", decoded(""))
         assertEquals(" ", decoded("\n\u0000\t"))

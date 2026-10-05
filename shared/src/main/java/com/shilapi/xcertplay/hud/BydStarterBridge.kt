@@ -37,11 +37,11 @@ object BydStarterBridge {
 
     @Synchronized fun configure(context: Context, secret: String) {
         check(context.packageName in setOf("com.andrerinas.headunitrevived.bydhudtest", "com.shihab.diplay.hudtest"))
-        val parsed = requireNotNull(decodeToken(secret)) { "启动令牌无效" }
+        val parsed = requireNotNull(decodeToken(secret)) { "Invalid starter token" }
         context.getSharedPreferences("hud_starter", Context.MODE_PRIVATE).edit().putString("token", secret).apply()
         initialize(context)
         token = parsed
-        Log.i(TAG, "已收到临时启动凭据")
+        Log.i(TAG, "Temporary starter credentials received")
     }
 
     private fun decodeToken(secret: String?): ByteArray? = secret?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
@@ -58,7 +58,7 @@ object BydStarterBridge {
     fun demonstrate(context: Context) {
         initialize(context)
         demoStartMs = SystemClock.elapsedRealtime()
-        Log.i(TAG, "已请求停车演示：左转 500 米、右转 800 米，然后清除")
+        Log.i(TAG, "Parked demo requested: left 500m, right 800m, then clear")
     }
 
     private fun tick() {
@@ -76,7 +76,7 @@ object BydStarterBridge {
             if (frame == null) {
                 if (socket != null) {
                     send(0, 0, 0)
-                    notice("导航指引已清除")
+                    notice("Guidance cleared")
                     close()
                 }
                 return
@@ -94,11 +94,11 @@ object BydStarterBridge {
                 } catch (error: Exception) { next.close(); throw error }
             }
             send(1, frame.turn, frame.distance)
-            notice("已连接 ADB 启动器；导航写入已确认")
+            notice("Connected to ADB starter; navigation writes acknowledged")
         } catch (error: Exception) {
             close() // EOF makes the helper clear any guidance it owns.
             retryAfterMs = SystemClock.elapsedRealtime() + 3_000
-            notice("等待 ADB 启动器（${error.javaClass.simpleName}：${error.message}）")
+            notice("Waiting for ADB starter (${error.javaClass.simpleName}: ${error.message})")
         }
     }
 
@@ -106,7 +106,7 @@ object BydStarterBridge {
         val out = checkNotNull(output)
         out.writeInt(MAGIC); out.writeInt(operation); out.writeInt(turn); out.writeInt(distance); out.flush()
         val result = checkNotNull(input).readInt()
-        check(result == 0) { "启动器拒绝了命令：$result" }
+        check(result == 0) { "Starter rejected command: $result" }
     }
 
     private fun close() {

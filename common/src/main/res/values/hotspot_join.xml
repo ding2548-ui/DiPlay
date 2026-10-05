@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hotspot_join_title">Automatic hotspot joining (experimental)</string>
+    <string name="hotspot_join_description">Optional repair for supported firmware with Android 13+ and a 5 GHz-only car hotspot. Check prepares a private rollback backup without changing the hotspot. Requires authorized local ADB on localhost:5555; TLS wireless-debugging pairing is not supported.</string>
+    <string name="hotspot_join_check">Check hotspot repair</string>
+    <string name="hotspot_join_apply">Add automatic-join information</string>
+    <string name="hotspot_join_restore">Restore saved hotspot</string>
+    <string name="hotspot_join_working">Checking or updating… Cancellation may need a fresh check to verify the outcome.</string>
+    <string name="hotspot_join_confirm">While parked, disconnect CarPlay and turn the hotspot off in car settings first. This action changes only the saved hotspot configuration and verifies readback. Turn the hotspot back on yourself afterward to update its broadcasts. Existing clients will disconnect when you turn it off. Keep the private backup for rollback.</string>
+    <string name="hotspot_join_disconnect">Disconnect CarPlay before changing the hotspot.</string>
+    <string name="hotspot_join_ready">Supported 5 GHz configuration. Private full backup prepared; no hotspot change yet.</string>
+    <string name="hotspot_join_present">The tested information is already present. No duplicate added; DiPlay has no rollback ownership of an existing element.</string>
+    <string name="hotspot_join_applied">Saved configuration verified. Turn the hotspot on in car settings to update broadcasts, then test automatic joining. Broadcast and CarPlay success still require a device test.</string>
+    <string name="hotspot_join_restored">Full saved configuration restored and verified. Turn the hotspot on in car settings.</string>
+    <string name="hotspot_join_unsupported">Unsupported API, firmware, band or conflicting vendor information. No repair applied. Use a supported 5 GHz-only configuration; other bands are unverified.</string>
+    <string name="hotspot_join_off_required">Hotspot must be confirmed off. Disconnect clients and turn it off in car settings, then retry. DiPlay will not restart it automatically.</string>
+    <string name="hotspot_join_drift">Configuration changed since the backup. Nothing overwritten. Check again; an outstanding rollback backup is retained.</string>
+    <string name="hotspot_join_firmware_changed">Firmware changed. The private backup is retained but cannot safely be restored on this firmware.</string>
+    <string name="hotspot_join_cancelled">Cancelled before writing. Check again to inspect any retained rollback state.</string>
+    <string name="hotspot_join_failed_restored">Repair failed or was cancelled after writing. Original configuration restored and readback verified.</string>
+    <string name="hotspot_join_busy">Another hotspot operation is still running. Wait, then check again.</string>
+    <string name="hotspot_join_adb_required">Requires approved plain local ADB on localhost:5555. Enable and authorize it using your supported car setup. Android TLS wireless-debugging pairing alone will not work.</string>
+    <string name="hotspot_join_recovery">Outcome or backup verification is uncertain. Turn the hotspot off and check again before continuing. An existing private backup is retained; restore is allowed only when the configuration still matches.</string>
+</resources>

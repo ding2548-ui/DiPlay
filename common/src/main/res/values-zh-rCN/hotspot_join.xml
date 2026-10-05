@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hotspot_join_title">自动加入热点（实验性）</string>
+    <string name="hotspot_join_description">适用于 Android 13 及以上、支持相关固件且仅使用 5 GHz 的车载热点。检查只准备私有恢复备份，不更改热点。需要已授权的 localhost:5555 本地 ADB；不支持 TLS 无线调试配对。</string>
+    <string name="hotspot_join_check">检查热点修复</string>
+    <string name="hotspot_join_apply">添加自动加入信息</string>
+    <string name="hotspot_join_restore">恢复已保存的热点</string>
+    <string name="hotspot_join_working">正在检查或更新…取消后可能需要重新检查以确认结果。</string>
+    <string name="hotspot_join_confirm">停车后，请先断开 CarPlay 并在车辆设置中关闭热点。此操作只更改已保存的热点配置并读取验证。随后请自行开启热点以更新广播。关闭热点会断开现有客户端。请保留私有备份用于恢复。</string>
+    <string name="hotspot_join_disconnect">更改热点前请断开 CarPlay。</string>
+    <string name="hotspot_join_ready">支持此 5 GHz 配置。已准备完整私有备份；尚未更改热点。</string>
+    <string name="hotspot_join_present">已存在测试使用的信息。未添加重复项；DiPlay 无法回滚此前已存在的元素。</string>
+    <string name="hotspot_join_applied">已验证保存的配置。请在车辆设置中开启热点以更新广播，然后测试自动加入。广播与 CarPlay 的成功仍需实机测试。</string>
+    <string name="hotspot_join_restored">已恢复并验证完整配置。请在车辆设置中开启热点。</string>
+    <string name="hotspot_join_unsupported">不支持此 API、固件、频段或存在冲突的厂商信息。未应用修复。请使用受支持的纯 5 GHz 配置；其他频段尚未验证。</string>
+    <string name="hotspot_join_off_required">必须确认热点已关闭。断开客户端并在车辆设置中关闭热点，然后重试。DiPlay 不会自动重启热点。</string>
+    <string name="hotspot_join_drift">配置在备份后发生变化。未覆盖任何内容。请重新检查；待恢复的备份会保留。</string>
+    <string name="hotspot_join_firmware_changed">固件已更改。私有备份已保留，但无法在此固件上安全恢复。</string>
+    <string name="hotspot_join_cancelled">已在写入前取消。请重新检查保留的恢复状态。</string>
+    <string name="hotspot_join_failed_restored">修复失败或写入后被取消。已恢复原配置并读取验证。</string>
+    <string name="hotspot_join_busy">另一热点操作仍在运行。请等待后重新检查。</string>
+    <string name="hotspot_join_adb_required">需要已授权的 localhost:5555 普通本地 ADB。请按车辆支持的方式启用并授权。仅 TLS 无线调试配对无法使用。</string>
+    <string name="hotspot_join_recovery">结果或备份验证不确定。请关闭热点并重新检查后再继续。现有私有备份会保留；只有配置仍匹配时才允许恢复。</string>
+</resources>

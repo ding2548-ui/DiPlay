@@ -11,11 +11,22 @@ object BydStandalonePackets {
         return (record(0x43F01018, distanceMeters) + record(0x43F01010, turn) +
             record(0x43F01030, turn)).toHex() + (road?.let { "," + streetName(it) } ?: "")
     }
+    /**
+     * One free text line on the HUD's road-name feature, with no maneuver records around it.
+     * Navigation writes distance and turn through their own features, so a line posted here and a
+     * maneuver in flight describe different fields and can stay on screen together. CarPlay music
+     * apps report what they choose here: Apple Music sends the track name, third-party ones often
+     * advance it line by line with the lyrics.
+     */
+    fun text(value: String): String = streetName(value)
     /** Exact non-RCS encodeReqSplitString format from the inspected IVI HAL.
      * The HAL caps this feature at 96 bytes. Each record carries seven content bytes,
      * a sequence byte, and the original feature incremented by 0x1000.
      */
     fun streetName(road: String): String {
+        // The row is a fixed number of cells, and a space is a cell like any other: runs of
+        // whitespace (lyrics padded for centring, tabs, newlines) collapse into one.
+        var spaced = false
         val text = buildString {
             var index = 0
             while (index < road.length && length < 48) {
@@ -25,11 +36,18 @@ object BydStandalonePackets {
                         if (index < road.length && road[index].isLowSurrogate()) {
                             if (length > 46) break
                             append(char).append(road[index++])
+                            spaced = false
                         }
                     }
                     char.isLowSurrogate() -> Unit
-                    char.isISOControl() || char.isWhitespace() -> append(' ')
-                    else -> append(char)
+                    char.isISOControl() || char.isWhitespace() -> {
+                        if (!spaced) append(' ')
+                        spaced = true
+                    }
+                    else -> {
+                        append(char)
+                        spaced = false
+                    }
                 }
             }
         }.trim().ifEmpty { " " } // setString rejects zero bytes; a space replaces stale text.

@@ -55,7 +55,6 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
     private fun accept(bound: ServerSocket) {
         try {
             val accepted = bound.accept()
-            accepted.tcpNoDelay = true
             socket = accepted
             run(accepted)
         } catch (error: Exception) {

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_night_mode">CarPlay 日夜模式</string>
+    <string name="carplay_night_system">跟随 Android 系统</string>
+    <string name="carplay_night_ambient">自动（环境光）</string>
+    <string name="carplay_night_day">固定日间</string>
+    <string name="carplay_night_night">固定夜间</string>
+    <string name="carplay_night_hint">保存后返回 CarPlay 即可应用。自动模式使用下方的门槛和延迟；无光线传感器时跟随 Android。</string>
+    <string name="carplay_night_time_note">CarPlay 外观设为自动时也会参考 iPhone 时间，夜间选择固定日间仍可能显示深色。</string>
+</resources>

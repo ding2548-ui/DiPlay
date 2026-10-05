@@ -41,7 +41,7 @@ class LocalMfiAuthenticationClient private constructor(
     }
 
     companion object {
-        /** Presence of this private app directory selects offline-only mode, even if incomplete. */
+        /** Private app directory loaded only when local authentication is selected. */
         const val DIRECTORY = "offline-mfi"
         private const val MAX_FILE_BYTES = 16 * 1024
 

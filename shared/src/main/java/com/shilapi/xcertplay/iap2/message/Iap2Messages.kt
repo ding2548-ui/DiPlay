@@ -33,7 +33,7 @@ data class Iap2WirelessSessionParameters(
 ) {
     init {
         require(ssid.isNotBlank()) { "wireless SSID must not be blank" }
-        require(passphrase.isNotBlank()) { "wireless passphrase must not be blank" }
+        require(securityType == 0 || passphrase.isNotEmpty()) { "secured wireless network requires a passphrase" }
         require(channel in 0..0xff) { "wireless channel must be in 0..255" }
         require(ipAddresses.isNotEmpty()) { "wireless IP address list must not be empty" }
         require(securityType in 0..0xff) { "wireless security type must be in 0..255" }

@@ -7,21 +7,19 @@ class AudioBufferProgressTest {
     @Test fun musicRebuffersOnlyAfterHardwareAndIncomingQueuesDrain() {
         val buffer = AudioBufferProgress(4)
         buffer.written(4000)
-        assertFalse(buffer.shouldRebuffer("media", true, true, true, 999))
-        assertFalse(buffer.shouldRebuffer("media", true, true, false, 1000))
-        assertFalse(buffer.shouldRebuffer("media", true, false, true, 1000))
-        assertTrue(buffer.shouldRebuffer("media", true, true, true, 1000))
-        assertFalse(buffer.shouldRebuffer("media", false, true, true, 1000))
+        assertFalse(buffer.shouldRebuffer(true, true, true, true, 999))
+        assertFalse(buffer.shouldRebuffer(true, true, true, false, 1000))
+        assertFalse(buffer.shouldRebuffer(true, true, false, true, 1000))
+        assertTrue(buffer.shouldRebuffer(true, true, true, true, 1000))
+        assertFalse(buffer.shouldRebuffer(true, false, true, true, 1000))
         buffer.written(400)
         assertEquals(400, buffer.queuedBytes(1000))
-        assertFalse(buffer.shouldRebuffer("media", true, true, true, 1000))
+        assertFalse(buffer.shouldRebuffer(true, true, true, true, 1000))
     }
 
     @Test fun doesNotAddRebufferDelayToCallsOrSpeech() {
         val buffer = AudioBufferProgress(2)
-        for (type in listOf("telephony", "speechrecognition", "default", "alert")) {
-            assertFalse(buffer.shouldRebuffer(type, true, true, true, 0))
-        }
+        assertFalse(buffer.shouldRebuffer(false, true, true, true, 0))
     }
 
     @Test fun unsignedPlaybackHeadWrapKeepsQueuedAudio() {

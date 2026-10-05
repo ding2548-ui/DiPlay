@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture_adjustments">画面调整</string>
+    <string name="picture_live_hint">主屏 CarPlay 视频实时预览，调整立即保存。原始画面仅用于临时对比。</string>
+    <string name="picture_show_original">显示原始画面</string>
+    <string name="picture_done">完成</string>
+    <string name="picture_brightness">亮度</string>
+    <string name="picture_contrast">对比度</string>
+    <string name="picture_saturation">饱和度</string>
+    <string name="picture_warmth">色温</string>
+    <string name="picture_reset">重置画面</string>
+</resources>

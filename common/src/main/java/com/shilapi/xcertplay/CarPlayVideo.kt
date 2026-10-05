@@ -6,9 +6,10 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
-import com.shilapi.xcertplay.airplay.CarPlayButton
+import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.airplay.VideoInCar
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.hud.BydNavigationOutputs
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayVideoListener
 import java.util.concurrent.CompletableFuture
@@ -20,11 +21,7 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * iOS 27 video in car (see [VideoInCar]). The iPhone hands the car a media URL (insertPlayQueueItem)
  * and drives it (setRate, seek, stop); the car plays it in [CarPlayVideoActivity], which opens as soon
- * as the iPhone starts the item (or sends requestUI "videoplayback:") and only while the car is in N
- * (Leapmotor has no P).
- *
- * The video-allowed state comes from [LeapmotorGearMonitor] (the Leapmotor CAN broadcast, N 挡),
- * replacing the upstream BYD parked source; Leapmotor gates on N instead of P.
+ * as the iPhone starts the item (or sends requestUI "videoplayback:") and only while the car is in P.
  */
 internal object CarPlayVideo : CarPlayVideoListener {
     private const val TAG = "DiPlay-Video"
@@ -57,18 +54,10 @@ internal object CarPlayVideo : CarPlayVideoListener {
         next.videoListener = this
     }
 
-    fun detach(expected: CarPlayController?) {
-        if (expected != null && controller !== expected) return
-        controller = null
-        appContext = null
-        activity?.finish()
-        stop()
-    }
-
-    override fun readVideoAllowed(): Boolean? = LeapmotorGearMonitor.videoAllowed()
+    override fun readParked(): Boolean? = appContext?.let(BydNavigationOutputs::parked)
 
     override fun onVideoAllowedChanged(allowed: Boolean) {
-        if (!allowed) main.post { closePlayer("the car left N") }
+        if (!allowed) main.post { closePlayer("the car left P") }
     }
 
     override fun onVideoSessionEnded() {
@@ -87,15 +76,15 @@ internal object CarPlayVideo : CarPlayVideoListener {
     }
 
     /**
-     * A steering-wheel media key (CarPlayButton index) while the player is on screen: play and pause
+     * A steering-wheel media key (CarPlayMediaButton index) while the player is on screen: play and pause
      * toggle it, next and previous skip 10 s. The iPhone is not asked: a CarPlay play/pause makes it end
-     * the video session. Returns false when no player is open. Main thread not required.
+     * the video session. Returns false when no player is open. Main thread.
      */
     fun onMediaKey(index: Int): Boolean {
         val player = activity ?: return false
         when (index) {
-            CarPlayButton.NEXT -> player.skip(SKIP_MILLIS)
-            CarPlayButton.PREVIOUS -> player.skip(-SKIP_MILLIS)
+            CarPlayMediaButton.NEXT -> player.skip(SKIP_MILLIS)
+            CarPlayMediaButton.PREVIOUS -> player.skip(-SKIP_MILLIS)
             else -> setPlaying(!playing)
         }
         return true
@@ -119,7 +108,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
         stop()
     }
 
-    /** The player closed on the car (Back, or the car left N): pause, so the iPhone shows it paused. */
+    /** The player closed on the car (Back, or the car left P): pause, so the iPhone shows it paused. */
     fun onPlayerClosed(positionMillis: Int?) {
         positionMillis?.let { startMillis = it }
         if (playing) setPlaying(false)
@@ -242,7 +231,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
         val context = appContext ?: return
         when {
             url == null -> Log.w(TAG, "video player requested without a playable item")
-            !VideoInCar.allowed -> Log.w(TAG, "video player requested while not in N")
+            !VideoInCar.allowed -> Log.w(TAG, "video player requested while not parked")
             activity != null -> Unit
             else -> context.startActivity(
                 Intent(context, CarPlayVideoActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),

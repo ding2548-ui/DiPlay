@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hotspot_join_title">الانضمام التلقائي لنقطة الاتصال (تجريبي)</string>
+    <string name="hotspot_join_description">إصلاح اختياري للبرامج الثابتة المدعومة بنظام Android 13 أو أحدث ونقطة اتصال سيارة تعمل على 5 GHz فقط. يجهز الفحص نسخة خاصة للاستعادة دون تغيير نقطة الاتصال. يتطلب ADB محليًا مصرحًا على localhost:5555؛ اقتران تصحيح الأخطاء اللاسلكي عبر TLS غير مدعوم.</string>
+    <string name="hotspot_join_check">فحص إصلاح نقطة الاتصال</string>
+    <string name="hotspot_join_apply">إضافة معلومات الانضمام التلقائي</string>
+    <string name="hotspot_join_restore">استعادة نقطة الاتصال المحفوظة</string>
+    <string name="hotspot_join_working">جارٍ الفحص أو التحديث… قد يتطلب الإلغاء فحصًا جديدًا للتحقق من النتيجة.</string>
+    <string name="hotspot_join_confirm">أثناء الوقوف، افصل CarPlay وأوقف نقطة الاتصال من إعدادات السيارة أولًا. يغير هذا الإجراء إعدادات نقطة الاتصال المحفوظة فقط ويتحقق من قراءتها. شغل نقطة الاتصال بنفسك بعد ذلك لتحديث بثها. ستنفصل الأجهزة المتصلة عند إيقافها. احتفظ بالنسخة الخاصة للاستعادة.</string>
+    <string name="hotspot_join_disconnect">افصل CarPlay قبل تغيير نقطة الاتصال.</string>
+    <string name="hotspot_join_ready">إعداد 5 GHz مدعوم. جهزت نسخة خاصة كاملة؛ لم تتغير نقطة الاتصال بعد.</string>
+    <string name="hotspot_join_present">المعلومات المختبرة موجودة بالفعل. لم تضف نسخة مكررة؛ لا يملك DiPlay نسخة لاستعادة عنصر موجود مسبقًا.</string>
+    <string name="hotspot_join_applied">تم التحقق من الإعدادات المحفوظة. شغل نقطة الاتصال في إعدادات السيارة لتحديث البث ثم اختبر الانضمام التلقائي. لا يزال نجاح البث وCarPlay يتطلب اختبارًا على الجهاز.</string>
+    <string name="hotspot_join_restored">تمت استعادة الإعدادات المحفوظة بالكامل والتحقق منها. شغل نقطة الاتصال من إعدادات السيارة.</string>
+    <string name="hotspot_join_unsupported">واجهة أو برنامج ثابت أو نطاق أو معلومات مورد متعارضة غير مدعومة. لم يطبق إصلاح. استخدم إعدادًا مدعومًا على 5 GHz فقط؛ النطاقات الأخرى غير مختبرة.</string>
+    <string name="hotspot_join_off_required">يجب التأكد من إيقاف نقطة الاتصال. افصل الأجهزة وأوقفها من إعدادات السيارة ثم أعد المحاولة. لن يعيد DiPlay تشغيلها تلقائيًا.</string>
+    <string name="hotspot_join_drift">تغيرت الإعدادات منذ النسخ الاحتياطي. لم تستبدل. افحص مجددًا؛ تحتفظ النسخة المعلقة للاستعادة.</string>
+    <string name="hotspot_join_firmware_changed">تغير البرنامج الثابت. النسخة الخاصة محفوظة لكن لا يمكن استعادتها بأمان على هذا البرنامج.</string>
+    <string name="hotspot_join_cancelled">ألغي قبل الكتابة. افحص مجددًا لمعرفة حالة الاستعادة المحفوظة.</string>
+    <string name="hotspot_join_failed_restored">فشل الإصلاح أو ألغي بعد الكتابة. استعيدت الإعدادات الأصلية وتم التحقق من قراءتها.</string>
+    <string name="hotspot_join_busy">عملية أخرى لنقطة الاتصال لا تزال جارية. انتظر ثم افحص مجددًا.</string>
+    <string name="hotspot_join_adb_required">يتطلب ADB محليًا عاديًا مصرحًا على localhost:5555. فعله وصرح به بالطريقة المدعومة لسيارتك. اقتران تصحيح الأخطاء اللاسلكي عبر TLS وحده لن يعمل.</string>
+    <string name="hotspot_join_recovery">النتيجة أو التحقق من النسخة غير مؤكد. أوقف نقطة الاتصال وافحص مجددًا قبل المتابعة. تحتفظ النسخة الخاصة الموجودة؛ لا تسمح الاستعادة إلا إذا ظلت الإعدادات متطابقة.</string>
+</resources>

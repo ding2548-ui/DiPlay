@@ -25,17 +25,18 @@ data class AirPlayDeviceInfo(
 
 /** Session lifecycle and command callbacks for the driver/UI layer. */
 interface AirPlaySessionListener {
+    fun onTcpAccepted(event: AirPlayTcpAccepted) {}
     fun onSessionActive(session: AirPlaySession) {}
     fun onSessionEnded(session: AirPlaySession) {}
     fun onVideoFrameRendered(session: AirPlaySession) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
     fun onHostUiRequested(session: AirPlaySession) {}
+    fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {}
     /** Video in car: a playback message on a remote control session (X-Apple-StreamID). */
     fun onRemoteControlMessage(session: AirPlaySession, streamId: Long, message: Map<String, Any?>) {}
     /** Video in car: requestUI "videoplayback:", the iPhone asks the car to show its video player. */
     fun onVideoPlaybackUiRequested(session: AirPlaySession) {}
-    fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {}
     fun onDebugLog(message: String) {}
 }
 
@@ -65,14 +66,6 @@ class AirPlaySession(
     private val mfi: MfiAuthenticator?,
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
-    // lwIP mode: every announced port must also get an lwIP relay listener (run-131:
-    // the phone connects the announced eventPort over TCP through the userspace stack),
-    // and the JVM sockets bind the loopback instead of the wildcard so the relay target
-    // addresses are reachable.
-    private val loopbackBind: Boolean = false,
-    private val portNotifier: ((Int) -> Unit)? = null,
-    /** lwIP mode: announced UDP ports (timing, keepalive) open their relay here. */
-    private val udpPortNotifier: ((Int) -> Unit)? = null,
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
@@ -80,6 +73,12 @@ class AirPlaySession(
     internal var encBuf = ByteArray(0)
     internal var deviceBtMac = ""
     internal val activeStreams = linkedSetOf<Int>()
+
+    /** Counts the iPhone's cluster stream setups; 0 while no cluster stream is up. */
+    @Volatile var clusterStream = 0
+        private set
+    private var clusterStreamSetups = 0
+    @Volatile private var mainScreenToken: Any? = null
 
     private val closed = AtomicBoolean(false)
     private val notified = AtomicBoolean(false)
@@ -132,6 +131,8 @@ class AirPlaySession(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        mainScreenToken = null
+        clearClusterContent()
         safeClose(socket)
         try {
             media.onSessionClosed(this)
@@ -141,6 +142,140 @@ class AirPlaySession(
         teardown()
         if (notified.compareAndSet(false, true)) listener.onSessionEnded(this)
     }
+
+    /** Stable identity of the usable primary screen; replaced on SETUP, absent after teardown/close. */
+    internal fun mainScreenSessionToken(): Any? = if (closed.get()) null else mainScreenToken
+
+    /**
+     * Asks the iPhone to draw CarPlay's cluster UI on the alt screen (showUI with the display's URL,
+     * then a keyframe) or to stop drawing it (stopUI). The stream stays up either way; CarKit handles
+     * both as car-initiated commands for a screen UUID.
+     */
+    fun setClusterUiShown(shown: Boolean): Boolean {
+        synchronized(clusterCommandLock) {
+            if (closed.get() || clusterStream <= 0) return false
+            val content = synchronized(clusterContentLock) { clusterContent } ?: return false
+            if (!shown) {
+                val sent = sendCommand(mapOf("type" to "stopUI",
+                    "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID)))
+                return synchronized(clusterContentLock) {
+                    val current = clusterContent ?: return false
+                    if (closed.get() || current.stream != content.stream) {
+                        if (sent) clusterContent = current.copy(displayed = null, shown = false, token = Any())
+                        return false
+                    }
+                    if (sent) clusterContent = current.copy(shown = false)
+                    sent
+                }
+            }
+            return showClusterUrl(content, content.requested ?: return false)
+        }
+    }
+
+    private data class ClusterContent(val stream: Int, val requested: String?, val displayed: String?,
+        val shown: Boolean = true, val token: Any = Any())
+    private val clusterContentLock = Any()
+    private val clusterCommandLock = Any()
+    @Volatile private var clusterContent: ClusterContent? = null
+    private var requestedClusterUrl = config.cluster?.initialUrl // guarded by clusterContentLock
+
+    /** Last delivered content for this stream. Pending selections never grant wheel zoom eligibility. */
+    fun clusterUrl(): String? = clusterContentRoute()?.second
+
+    /** One immutable snapshot keeps content and generation checks consistent without locking keys. */
+    internal fun clusterContentRoute(): Triple<Int, String?, Any>? {
+        val content = clusterContent ?: return null
+        if (closed.get() || content.stream != clusterStream) return null
+        return Triple(content.stream, content.displayed, content.token)
+    }
+
+    /**
+     * Switches the dashboard to another of the iPhone's `altScreenURLs` without reconnecting: `showUI`
+     * with that URL and a keyframe (on a Tang this switches map, turn card and both at once). With [send]
+     * false (the map is paused) the URL is only kept for the next `showUI`. False without a cluster stream.
+     */
+    fun setClusterUrl(url: String, send: Boolean): Boolean {
+        return synchronized(clusterCommandLock) {
+            val content = synchronized(clusterContentLock) {
+                val current = clusterContent ?: return false
+                if (closed.get() || current.stream != clusterStream || config.cluster == null) return false
+                requestedClusterUrl = url
+                current.copy(requested = url).also { clusterContent = it }
+            }
+            if (!send) true else showClusterUrl(content, url)
+        }
+    }
+
+    /** Seeds a retained controller selection even when this phone has not set up its cluster yet. */
+    internal fun restoreClusterUrl(url: String, send: Boolean): Boolean = synchronized(clusterCommandLock) {
+        val content = synchronized(clusterContentLock) {
+            if (closed.get() || config.cluster == null) return false
+            requestedClusterUrl = url
+            clusterContent?.copy(requested = url)?.also { clusterContent = it }
+        }
+        if (content == null || !send || (content.shown && content.displayed == url)) true
+        else showClusterUrl(content, url)
+    }
+
+    private fun showClusterUrl(content: ClusterContent, url: String): Boolean {
+        if (closed.get() || clusterStream != content.stream) return false
+        val uuid = AirPlayInfoPlist.ALT_UUID
+        val uiSent = sendCommand(mapOf("type" to "showUI", "params" to mapOf("uuid" to uuid, "url" to url)))
+        val sent = uiSent && clusterStream == content.stream && !closed.get() &&
+            sendCommand(mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to uuid)))
+        return synchronized(clusterContentLock) {
+            val current = clusterContent ?: return false
+            if (closed.get() || current.stream != content.stream || clusterStream != content.stream) {
+                // A command already in flight can outlast re-SETUP. Its displayed result is unknown.
+                if (uiSent) clusterContent = current.copy(displayed = null, token = Any())
+                return false
+            }
+            if (uiSent) clusterContent = current.copy(displayed = if (sent) url else null,
+                shown = true, token = Any())
+            sent
+        }
+    }
+
+    private fun beginClusterContent() = synchronized(clusterContentLock) {
+        val stream = ++clusterStreamSetups
+        val initial = config.cluster?.initialUrl
+        clusterContent = ClusterContent(stream, requestedClusterUrl, initial)
+        clusterStream = stream
+    }
+
+    private fun clearClusterContent() = synchronized(clusterContentLock) {
+        clusterStream = 0
+        clusterContent = null
+    }
+
+    // Re-SETUP starts at initialURL. Reapply the saved live selection only after SETUP was answered,
+    // or the event channel becomes ready, without claiming it was displayed before delivery.
+    private fun reapplyClusterContent() {
+        synchronized(clusterCommandLock) {
+            val content = clusterContent ?: return
+            val requested = content.requested ?: return
+            if (content.shown && requested != content.displayed) showClusterUrl(content, requested)
+        }
+    }
+
+    /**
+     * Zooms CarPlay's dashboard map one step, as a car's own zoom controls do: the car command
+     * changeMapZoomLevel for the cluster screen's UUID. Seen with Apple Maps on a Tang: zoomDirection 0
+     * zooms in, 1 zooms out. Sent only while the cluster stream is up.
+     */
+    fun changeMapZoomLevel(zoomIn: Boolean): Boolean = clusterStream > 0 && sendCommand(
+        linkedMapOf(
+            "type" to "changeMapZoomLevel",
+            "params" to linkedMapOf(
+                "uuid" to AirPlayInfoPlist.ALT_UUID,
+                "zoomDirection" to if (zoomIn) ZOOM_DIRECTION_IN else ZOOM_DIRECTION_OUT,
+            ),
+        ),
+    )
+
+    /** Moves CarPlay on the main screen to one of its declared view areas, without reconnecting. */
+    fun showViewArea(index: Int): Boolean =
+        sendCommand(AirPlayInfoPlist.viewAreaCommand(index, config.main.viewAreas?.size ?: 1))
 
     fun sendCommand(command: Map<String, Any?>): Boolean = synchronized(eventWriteLock) {
         sendCommandLocked(command)
@@ -290,9 +425,6 @@ class AirPlaySession(
         )
 
     private fun runControl() {
-        // Ported from upstream 0.2.7: a vanished peer is detected by TCP keep-alive instead of
-        // treating a legitimately idle CarPlay screen as a failure. On Android 9 and older the
-        // socket-level tuning is unavailable and only keepAlive is enabled (graceful degradation).
         com.shilapi.xcertplay.network.TcpLiveness.configure(socket) { debugLog(it) }
         val input = BufferedInputStream(socket.getInputStream())
         val output = BufferedOutputStream(socket.getOutputStream())
@@ -333,6 +465,10 @@ class AirPlaySession(
                         "airplay rx ${request.method} ${request.path} cseq=$cseq body=${request.body.size}",
                         showInDebugOverlay,
                     )
+                    if (showInDebugOverlay) debugLog(
+                        AirPlayControlDiagnostics.request(request.method, request.path, request.body.size),
+                        false,
+                    )
                     trace(
                         "airplay control rx headers=${request.headers} " +
                             "bodyHex=${request.body.toHex()}",
@@ -350,6 +486,10 @@ class AirPlaySession(
                     debugLog(
                         "airplay tx status=${response.status ?: 200} cseq=$cseq body=${response.body.size}",
                         showInDebugOverlay,
+                    )
+                    if (showInDebugOverlay) debugLog(
+                        "airplay control response status=${response.status ?: 200} contentBytes=${response.body.size}",
+                        false,
                     )
                     val wire = RtspMessage.buildResponse(request, response)
                     trace("airplay control tx wireHex=${wire.toHex()}")
@@ -413,6 +553,10 @@ class AirPlaySession(
                         "audioFormats=${(info["audioFormats"] as? List<*>)?.size ?: 0} " +
                         "audioLatencies=${(info["audioLatencies"] as? List<*>)?.size ?: 0}",
                 )
+                debugLog(
+                    "airplay /info videoInCar=${config.videoInCar} " +
+                        "videoPlaybackAllowed=${if (config.videoInCar) VideoInCar.allowed else "not-offered"}",
+                )
                 debugLog("airplay /info displays=${info["displays"]}")
                 RtspMessage.Response(
                     headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
@@ -441,6 +585,7 @@ class AirPlaySession(
         } catch (error: Exception) {
             Log.w(TAG, "airplay SETUP response callback failed", error)
         }
+        reapplyClusterContent()
     }
 
     private fun debugLog(message: String, uiVisible: Boolean = true) {
@@ -519,7 +664,8 @@ class AirPlaySession(
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
                         activeStreams.add(type)
-                        portNotifier?.invoke(port)
+                        if (type == STREAM_TYPE_ALT_SCREEN) beginClusterContent()
+                        else mainScreenToken = Any()
                         result.add(linkedMapOf("type" to type, "dataPort" to port))
                     }
                 }
@@ -591,37 +737,34 @@ class AirPlaySession(
         )
         trace("airplay TEARDOWN raw${request.body.size}Hex=${request.body.toHex()}")
 
+        // Restore wheel input before releasing media resources, which may take time to close.
+        if (types == null || STREAM_TYPE_MAIN_SCREEN in types) mainScreenToken = null
+        if (types == null || STREAM_TYPE_ALT_SCREEN in types) clearClusterContent()
         if (types == null) {
             activeStreams.toList().forEach { media.onTeardown(this, it) }
             activeStreams.clear()
         } else {
             types.forEach { type -> if (activeStreams.remove(type)) media.onTeardown(this, type) }
         }
+        if (STREAM_TYPE_ALT_SCREEN !in activeStreams) clearClusterContent()
         return RtspMessage.Response(status = 200)
     }
 
     private fun openTiming(peerPort: Int): Int {
-        val port = ntp.listen(if (loopbackBind) InetAddress.getByName("127.0.0.1") else InetAddress.getByName("::"))
+        val port = ntp.listen()
         if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
-        udpPortNotifier?.invoke(port)
         return port
     }
 
     private fun openKeepAlive(): Int {
         val socket = DatagramSocket(null)
         socket.reuseAddress = true
-        socket.bind(
-            InetSocketAddress(
-                if (loopbackBind) InetAddress.getByName("127.0.0.1") else InetAddress.getByName("::"),
-                0,
-            ),
-        )
+        socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
         keepAliveSocket = socket
         keepAliveThread = Thread({ runKeepAlive(socket) }, "airplay-keepalive").apply {
             isDaemon = true
             start()
         }
-        udpPortNotifier?.invoke(socket.localPort)
         return socket.localPort
     }
 
@@ -637,21 +780,10 @@ class AirPlaySession(
     }
 
     private fun openEvent(): Int {
-        // Relay target is 127.0.0.1 (the loopback bind must match it exactly). getLoopbackAddress()
-        // returned a non-127.0.0.1 loopback (::1) on the msm8953 head unit, so the phone's relayed
-        // event connection was refused and the whole session stayed gray (run-137 report).
-        val bindAddress = if (loopbackBind) {
-            InetAddress.getByName("127.0.0.1")
-        } else {
-            InetAddress.getByName("::")
-        }
-        val server = ServerSocket(0, 50, bindAddress)
+        val server = ServerSocket(0, 50, InetAddress.getByName("::"))
         eventServer = server
         spawnEvent("airplay-event-accept") { acceptEvent(server) }
-        val port = server.localPort
-        debugLog("airplay event listener bind=${bindAddress.hostAddress} port=$port")
-        portNotifier?.invoke(port)
-        return port
+        return server.localPort
     }
 
     private fun teardown() {
@@ -702,6 +834,7 @@ class AirPlaySession(
             }
             val videoDelivery = videoPlaybackAvailability.setEventReady(true)
             debugLog("airplay video event ready availability=$videoDelivery")
+            reapplyClusterContent()
             runEventRead(socket)
         } catch (error: Exception) {
             if (!closed.get()) {
@@ -782,32 +915,12 @@ class AirPlaySession(
         const val STREAM_TYPE_DATA = 130
 
         const val READ_CHUNK_BYTES = 16 * 1024
+        const val ZOOM_DIRECTION_IN = 0
+        const val ZOOM_DIRECTION_OUT = 1
         const val EVENT_READY_POLL_MILLIS = 25L
         const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }
-
-internal fun safeClose(closeable: Closeable?) {
-    try {
-        closeable?.close()
-    } catch (_: Exception) {
-        // Best-effort close.
-    }
-}
-
-private fun ByteArray.toHex(): String =
-    joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
-
-private fun asMap(value: Any?): Map<String, Any?>? {
-    val map = value as? Map<*, *> ?: return null
-    val result = LinkedHashMap<String, Any?>(map.size)
-    for ((key, entry) in map) result[key.toString()] = entry
-    return result
-}
-
-private fun string(value: Any?): String = value as? String ?: ""
-
-private fun long(value: Any?): Long? = (value as? Number)?.toLong()
 
 /** The features SETUP enables; video in car only when configured and the iPhone [proposed] it. */
 internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): List<String> {
@@ -834,3 +947,25 @@ internal fun teardownStreamTypes(body: Any?): List<Int>? {
     if (entries.isEmpty()) return null
     return entries.filterNot { (type, streamId) -> type == 130 && streamId != null && streamId != 1L }.map { it.first }
 }
+
+internal fun safeClose(closeable: Closeable?) {
+    try {
+        closeable?.close()
+    } catch (_: Exception) {
+        // Best-effort close.
+    }
+}
+
+private fun ByteArray.toHex(): String =
+    joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+private fun asMap(value: Any?): Map<String, Any?>? {
+    val map = value as? Map<*, *> ?: return null
+    val result = LinkedHashMap<String, Any?>(map.size)
+    for ((key, entry) in map) result[key.toString()] = entry
+    return result
+}
+
+private fun string(value: Any?): String = value as? String ?: ""
+
+private fun long(value: Any?): Long? = (value as? Number)?.toLong()

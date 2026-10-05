@@ -7,8 +7,8 @@ import java.net.InetAddress
 enum class WirelessHotspotBackend(val label: String) {
     WIFI_P2P("Wi-Fi P2P"),
     LOCAL_ONLY_HOTSPOT("LocalOnlyHotspot"),
-    MANUAL_HOTSPOT("手动热点"),
-    EXTERNAL_WIFI("外部 Wi-Fi"),
+    MANUAL_HOTSPOT("Manual hotspot"),
+    EXISTING_WIFI("Existing Wi-Fi / Same LAN"),
 }
 
 /** The live Wi-Fi credentials and interface details for a wireless CarPlay network. */
@@ -51,13 +51,6 @@ interface WirelessHotspotManager : Closeable {
 
     /** Counts reported by the framework, when available; never contains station identities. */
     fun connectionDiagnosticSnapshot(): String = "association=not_exposed"
-
-    /**
-     * How many devices have joined the group, or null when that cannot be determined. Kept from
-     * the previous fork state: it separates "the phone never joined our Wi-Fi" (0) from "joined
-     * but AirPlay never opened" (>= 1), which otherwise look identical in the log.
-     */
-    fun joinedClientCount(): Int? = null
 }
 
 /**

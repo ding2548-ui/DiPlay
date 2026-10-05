@@ -30,7 +30,7 @@ internal class BydFactoryNavigationOutput(private val context: Context) {
             valueClass.getField("intArrayValue").set(value, intArrayOf(distance, turn, turn))
             checkResult("guidance", sdk.javaClass.getMethod("set", IntArray::class.java, valueClass).invoke(sdk, ids, value))
             if (!logged) {
-                Log.i(TAG, "原厂导航已接受 转向=$turn 距离=$distance；HUD 可见输出未确认")
+                Log.i(TAG, "Factory navigation accepted turn=$turn distance=$distance; visible HUD output unconfirmed")
                 logged = true
             }
         } catch (error: Exception) {
@@ -38,7 +38,7 @@ internal class BydFactoryNavigationOutput(private val context: Context) {
             clear()
             disabled = true
             val cause = (error as? InvocationTargetException)?.targetException ?: error
-            Log.w(TAG, "原厂导航已停用：${cause.javaClass.simpleName}：${cause.message}")
+            Log.w(TAG, "Factory navigation disabled: ${cause.javaClass.simpleName}: ${cause.message}")
         }
     }
 
@@ -49,16 +49,16 @@ internal class BydFactoryNavigationOutput(private val context: Context) {
         try {
             val sdk = device ?: return
             checkResult("end", sdk.javaClass.getMethod("sendAutoNaviStatus", Int::class.javaPrimitiveType).invoke(sdk, 1))
-            Log.i(TAG, "原厂导航已结束")
+            Log.i(TAG, "Factory navigation ended")
         } catch (error: Exception) {
             disabled = true
             val cause = (error as? InvocationTargetException)?.targetException ?: error
-            Log.w(TAG, "原厂导航清理失败：${cause.message}")
+            Log.w(TAG, "Factory navigation cleanup failed: ${cause.message}")
         }
     }
 
     private fun checkResult(operation: String, result: Any?) {
-        check(result == 0) { "$operation 返回 $result" }
+        check(result == 0) { "$operation returned $result" }
     }
 
     companion object { private const val TAG = "BYD-Factory-Navi" }

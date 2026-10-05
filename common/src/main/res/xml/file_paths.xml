@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <!-- Update APKs land here; the manual-install fallback shares them with the system installer. -->
-    <external-files-path name="update_apks" path="." />
-    <files-path name="update_apks_internal" path="." />
-</paths>

@@ -1,8 +1,8 @@
 package com.shilapi.xcertplay.orchestration
 
-import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.UsbDeviceId
+import com.shilapi.xcertplay.network.WifiP2pChannels
 import java.net.Inet6Address
 import java.net.InetAddress
 
@@ -22,8 +22,7 @@ enum class WirelessHotspotMode {
     WIFI_P2P,
     LOCAL_ONLY_HOTSPOT,
     MANUAL,
-    /** The car and the iPhone both join an external Wi-Fi network (e.g. a pocket router). */
-    EXTERNAL_WIFI,
+    EXISTING_WIFI,
 }
 
 enum class ManualHotspotBand {
@@ -66,11 +65,9 @@ class CarPlayRuntimeConfig(
     val manualHotspotSecurity: ManualHotspotSecurity = ManualHotspotSecurity.WPA2,
     val wirelessBluetoothDeviceAddress: String? = null,
     val locationReportingEnabled: Boolean = false,
-    // Beta: run the wired AirPlay transport on the userspace lwIP stack instead of the
-    // kernel TUN (VpnService). Requires a 32-bit process (the native library is v7a-only).
-    val wiredLwip: Boolean = false,
-    /** Preferred Wi-Fi Direct listen channel (upstream 0.2.11); 0 = automatic. */
     val wifiP2pPreferredChannel: Int = WifiP2pChannels.AUTO,
+    val existingWifiSsid: String = "",
+    val existingWifiPassphrase: String = "",
 ) {
     init {
         require(iphoneDevices.all { it.vendorId == APPLE_VENDOR_ID }) {
@@ -102,24 +99,16 @@ class CarPlayRuntimeConfig(
             "Remote MFi token must not contain U+0000"
         }
         // Only a wireless session starts the hotspot; a USB session must not fail on unused settings.
+        if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.EXISTING_WIFI) {
+            require(ManualHotspotValidation.error(existingWifiSsid, existingWifiPassphrase) == null) {
+                "Existing Wi-Fi requires an SSID of at most 32 UTF-8 bytes and an empty (open) or 8–63 character WPA2 password"
+            }
+        }
         if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P) {
             require(WifiP2pChannels.isValid(wifiP2pPreferredChannel)) {
                 "Unsupported Wi-Fi Direct channel: $wifiP2pPreferredChannel"
             }
         }
-        if (wirelessHotspotMode == WirelessHotspotMode.EXTERNAL_WIFI) {
-            // The car is a plain station client: ExternalWifiManager reads the live SSID, BSSID,
-            // channel and addresses from the joined network, so both stored fields may stay
-            // blank. A stored SSID is only an optional expectation check, and Android apps
-            // cannot read back the passphrase of the joined network anyway.
-            require('\u0000' !in manualHotspotSsid.orEmpty()) {
-                "manualHotspotSsid must not contain U+0000"
-            }
-            require('\u0000' !in manualHotspotPassphrase.orEmpty()) {
-                "manualHotspotPassphrase must not contain U+0000"
-            }
-        }
-        // Only a wireless session starts the hotspot; a USB session must not fail on unused settings.
         if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.MANUAL) {
             val ssid = manualHotspotSsid
             require(!ssid.isNullOrBlank()) {

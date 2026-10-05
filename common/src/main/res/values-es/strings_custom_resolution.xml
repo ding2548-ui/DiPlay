@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="custom_resolution_hint">Introduce un porcentaje entre 30 y 160. Aplica para reconectar CarPlay.</string>
+    <string name="resolution_number_error">Introduce un entero entre %1$d y %2$d.</string>
+    <string name="custom_resolution_summary">%1$d%%</string>
+    <string name="resolution_reset_defaults">Restablecer valor predeterminado</string>
+    <string name="resolution_canvas_unsupported" formatted="false">Esta unidad principal no puede decodificar la resolución ampliada. Se usará el 100%.</string>
+</resources>

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -19,18 +20,24 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.shilapi.xcertplay.host.R
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** Loads one local image and writes a user-positioned 1:1 PNG into the AirPlay icon slot. */
 class ImageCropActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var cropView: SquareCropView
     private lateinit var statusView: TextView
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +53,7 @@ class ImageCropActivity : Activity() {
             textSize = 16f
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            text = "正在加载图片"
+            text = getString(R.string.loading_image)
         }
 
         val controls = LinearLayout(this).apply {
@@ -56,7 +63,7 @@ class ImageCropActivity : Activity() {
         }
         controls.addView(
             Button(this).apply {
-                text = "取消"
+                text = getString(R.string.cancel)
                 isAllCaps = false
                 setOnClickListener {
                     setResult(RESULT_CANCELED)
@@ -67,7 +74,7 @@ class ImageCropActivity : Activity() {
         )
         controls.addView(
             Button(this).apply {
-                text = "保存 1:1"
+                text = getString(R.string.save_1_1)
                 isAllCaps = false
                 setOnClickListener { saveCrop() }
             },
@@ -116,10 +123,10 @@ class ImageCropActivity : Activity() {
                     return@runOnUiThread
                 }
                 if (bitmap == null) {
-                    statusView.text = "无法解码图片"
+                    statusView.text = getString(R.string.could_not_decode_image)
                 } else {
                     cropView.setBitmap(bitmap)
-                    statusView.text = "拖动移动，双指缩放"
+                    statusView.text = getString(R.string.drag_to_move_pinch_to_zoom)
                 }
             }
         }
@@ -133,13 +140,13 @@ class ImageCropActivity : Activity() {
 
     private fun saveCrop() {
         val cropped = cropView.cropToSquare() ?: run {
-            statusView.text = "图片尚未就绪"
+            statusView.text = getString(R.string.image_is_not_ready)
             return
         }
         val encoded = ByteArrayOutputStream().use { output ->
             if (!cropped.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                 cropped.recycle()
-                statusView.text = "无法编码图片"
+                statusView.text = getString(R.string.could_not_encode_image)
                 return
             }
             cropped.recycle()
@@ -153,7 +160,7 @@ class ImageCropActivity : Activity() {
             )
             finish()
         } catch (_: Exception) {
-            statusView.text = "无法保存图片"
+            statusView.text = getString(R.string.could_not_save_image)
         }
     }
 
@@ -177,7 +184,7 @@ class ImageCropActivity : Activity() {
         }
     }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     private class SquareCropView(context: android.content.Context) : View(context) {
         private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)

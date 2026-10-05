@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_night_mode">Дневной/ночной режим CarPlay</string>
+    <string name="carplay_night_system">Как в системе Android</string>
+    <string name="carplay_night_ambient">Автоматически (по освещённости)</string>
+    <string name="carplay_night_day">Всегда дневной</string>
+    <string name="carplay_night_night">Всегда ночной</string>
+    <string name="carplay_night_hint">Сохраните и вернитесь в CarPlay. Автоматический режим использует порог и задержку ниже; без датчика света — настройки Android.</string>
+    <string name="carplay_night_time_note">Автоматическое оформление CarPlay также учитывает время iPhone: ночью даже режим «Всегда дневной» может оставаться тёмным.</string>
+</resources>

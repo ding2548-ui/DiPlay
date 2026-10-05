@@ -5,8 +5,8 @@ import java.io.Closeable
 
 /** iOS 27 video in car, played by the host in the car's own player (see [VideoInCar]). */
 interface CarPlayVideoListener {
-    /** Whether video may play now (Leapmotor: N 挡), or null when it cannot tell. Blocking; read once a second while CarPlay runs. */
-    fun readVideoAllowed(): Boolean?
+    /** Whether the car is in P, or null when it cannot tell. Blocking; read once a second while CarPlay runs. */
+    fun readParked(): Boolean?
 
     /** Video became allowed or not; when not, the player must close. Any thread. */
     fun onVideoAllowedChanged(allowed: Boolean)
@@ -22,22 +22,22 @@ interface CarPlayVideoListener {
 }
 
 /**
- * Keeps [VideoInCar.allowed] in step with the car: allowed only while the gear reads N (Leapmotor
- * has no P gear reading), so an unknown gear (no CAN data) keeps video off. Changes go to [onChanged].
+ * Keeps [VideoInCar.allowed] in step with the car: allowed only while the gear reads P, so an unknown
+ * gear (no ADB) keeps video off. Changes go to [onChanged].
  */
 internal class VideoInCarGate(
-    private val readVideoAllowed: () -> Boolean?,
+    private val readParked: () -> Boolean?,
     private val onChanged: (Boolean) -> Unit,
     private val onObserved: (Boolean?) -> Unit = {},
 ) : Closeable {
     @Volatile private var closed = false
     private var observed = false
-    private var lastObserved: Boolean? = null
+    private var lastParked: Boolean? = null
 
     fun start() {
         Thread({
             while (!closed) {
-                update(runCatching(readVideoAllowed).getOrNull())
+                update(runCatching(readParked).getOrNull())
                 try {
                     Thread.sleep(POLL_MILLIS)
                 } catch (_: InterruptedException) {
@@ -47,16 +47,16 @@ internal class VideoInCarGate(
         }, "diplay-video-gate").apply { isDaemon = true }.start()
     }
 
-    internal fun update(allowed: Boolean?) {
-        if (!observed || allowed != lastObserved) {
+    internal fun update(parked: Boolean?) {
+        if (!observed || parked != lastParked) {
             observed = true
-            lastObserved = allowed
-            onObserved(allowed)
+            lastParked = parked
+            onObserved(parked)
         }
-        val gate = allowed == true
-        if (gate == VideoInCar.allowed || closed) return
-        VideoInCar.allowed = gate
-        onChanged(gate)
+        val allowed = parked == true
+        if (allowed == VideoInCar.allowed || closed) return
+        VideoInCar.allowed = allowed
+        onChanged(allowed)
     }
 
     override fun close() {

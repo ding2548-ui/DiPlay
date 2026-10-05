@@ -3,7 +3,10 @@ package com.shilapi.xcertplay.media
 import android.util.Log
 
 /** Five-second video counters that separate network/iPhone gaps from decoder throughput. */
-internal class VideoStats(private val nanoTime: () -> Long = System::nanoTime) {
+internal class VideoStats(
+    private val label: String = "",
+    private val nanoTime: () -> Long = System::nanoTime,
+) {
     private var windowStartNs = nanoTime()
     private var lastArrivalNs = 0L
     private var received = 0
@@ -20,7 +23,8 @@ internal class VideoStats(private val nanoTime: () -> Long = System::nanoTime) {
         val gap = now - lastArrivalNs
         if (lastArrivalNs != 0L && gap < IDLE_GAP_NS) maxArrivalGapNs = maxOf(maxArrivalGapNs, gap)
         lastArrivalNs = now
-        val touchLatency = TouchLatencyProbe.onFrame(now)
+        // Touches only change the main screen; a second stream must not consume their samples.
+        val touchLatency = if (label.isEmpty()) TouchLatencyProbe.onFrame(now) else -1L
         if (touchLatency >= 0) {
             touchSamples++
             touchLatencySumNs += touchLatency
@@ -41,7 +45,7 @@ internal class VideoStats(private val nanoTime: () -> Long = System::nanoTime) {
         val seconds = elapsedNs / 1e9
         if (received == 0 && touchSamples == 0) { windowStartNs = now; return null }
         val touchAvgMs = if (touchSamples == 0) -1 else touchLatencySumNs / touchSamples / 1_000_000
-        val line = ("video stats rx=%.1ffps shown=%.1ffps maxGap=%dms kbps=%d recoveries=%d " +
+        val line = ("video stats$label rx=%.1ffps shown=%.1ffps maxGap=%dms kbps=%d recoveries=%d " +
             "touch2frame avg=%dms max=%dms n=%d touchSendMax=%dms").format(
             received / seconds, rendered / seconds, maxArrivalGapNs / 1_000_000,
             (bytes * 8 / 1000 / seconds).toLong(), recoveries,

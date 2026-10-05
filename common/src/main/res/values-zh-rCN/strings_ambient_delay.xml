@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ambient_delay_title">切换延迟</string>
+    <string name="ambient_delay_hint">请输入 0–60 秒，0 表示立即切换。</string>
+    <string name="custom_number_error">请输入 %1$d–%2$d 的整数。</string>
+    <string name="ambient_delay_summary">%1$d 秒</string>
+</resources>

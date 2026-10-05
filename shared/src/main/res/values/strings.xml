@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carapp_hw_status_title">xcertplay hardware status</string>
+    <string name="carapp_hw_not_configured">Hardware transport is not configured. Board I2C needs a /dev/i2c-N path and OS/SELinux permission; CH341 needs deployed VID/PID configuration.</string>
+</resources>

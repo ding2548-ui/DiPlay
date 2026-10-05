@@ -1,0 +1,9 @@
+<resources>
+    <string name="contrib_audio_home_channel_preview_unavailable">Cannot preview Android audio stream %1$d on this device.</string>
+    <string name="contrib_audio_home_choice_summary">%1$s · %2$s</string>
+    <string name="contrib_audio_home_media_channel_label">Media audio stream</string>
+    <string name="contrib_audio_home_nav_channel_label">Navigation audio stream</string>
+    <string name="contrib_audio_home_nav_channel_note">0 = automatic routing. Values 1–20 select legacy audio stream IDs, including vendor-specific outputs where supported by the head unit. Tap a value to preview it. Changes apply on reconnect.</string>
+    <string name="contrib_audio_home_toggle_audio_focus">Audio focus</string>
+    <string name="contrib_audio_home_toggle_audio_focus_desc">CarPlay media claims audio focus. If sound disappears while enabled (some head units handle focus badly), turn it off. Changes apply on reconnect.</string>
+</resources>

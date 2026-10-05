@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ambient_delay_title">Transition delay</string>
+    <string name="ambient_delay_hint">Enter 0–60 seconds. Zero switches immediately.</string>
+    <string name="custom_number_error">Enter an integer from %1$d to %2$d.</string>
+    <string name="ambient_delay_summary">%1$d s</string>
+</resources>

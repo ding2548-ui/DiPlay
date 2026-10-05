@@ -42,6 +42,9 @@ class SafeAreaEditorView(context: Context) : View(context) {
     private var sourceWidth = 0
     private var sourceHeight = 0
     private var activeEdge: Edge? = null
+    var interactive = true
+    var dimOutside = true
+    var onRectChanged: ((SafeAreaRect) -> Unit)? = null
 
     init {
         isClickable = true
@@ -49,7 +52,7 @@ class SafeAreaEditorView(context: Context) : View(context) {
 
     fun setRect(value: SafeAreaRect, sourceWidthPixels: Int, sourceHeightPixels: Int) {
         require(sourceWidthPixels > 0 && sourceHeightPixels > 0) {
-            "源尺寸必须为正数"
+            "Source dimensions must be positive"
         }
         sourceWidth = sourceWidthPixels
         sourceHeight = sourceHeightPixels
@@ -95,24 +98,30 @@ class SafeAreaEditorView(context: Context) : View(context) {
         val right = safe.right.toFloat()
         val bottom = safe.bottom.toFloat()
 
+        if (dimOutside) {
         canvas.drawRect(0f, 0f, width, top, dimPaint)
         canvas.drawRect(0f, bottom, width, height, dimPaint)
         canvas.drawRect(0f, top, left, bottom, dimPaint)
         canvas.drawRect(right, top, width, bottom, dimPaint)
+        }
 
         canvas.drawRect(left, top, right, bottom, borderPaint)
-        canvas.drawLine(left, 0f, left, height, linePaint)
-        canvas.drawLine(right, 0f, right, height, linePaint)
-        canvas.drawLine(0f, top, width, top, linePaint)
-        canvas.drawLine(0f, bottom, width, bottom, linePaint)
+        // Keep strokes visible even when a boundary is at the canvas edge.
+        val inset = minOf(linePaint.strokeWidth / 2f, width / 2f, height / 2f)
+        canvas.drawLine(left.coerceIn(inset, width - inset), 0f, left.coerceIn(inset, width - inset), height, linePaint)
+        canvas.drawLine(right.coerceIn(inset, width - inset), 0f, right.coerceIn(inset, width - inset), height, linePaint)
+        canvas.drawLine(0f, top.coerceIn(inset, height - inset), width, top.coerceIn(inset, height - inset), linePaint)
+        canvas.drawLine(0f, bottom.coerceIn(inset, height - inset), width, bottom.coerceIn(inset, height - inset), linePaint)
 
-        drawLabel(canvas, "x=${safe.left}", left + 8f * density, top + 20f * density)
-        drawLabel(canvas, "x=${safe.right}", right + 8f * density, bottom - 8f * density)
-        drawLabel(canvas, "y=${safe.top}", left + 8f * density, top - 8f * density)
-        drawLabel(canvas, "y=${safe.bottom}", right - 88f * density, bottom + 20f * density)
+        val source = currentRectForSource() ?: safe
+        drawLabel(canvas, "x=${source.left}", left + 8f * density, top + 20f * density)
+        drawLabel(canvas, "x=${source.right}", right + 8f * density, bottom - 8f * density)
+        drawLabel(canvas, "y=${source.top}", left + 8f * density, top - 8f * density)
+        drawLabel(canvas, "y=${source.bottom}", right - 88f * density, bottom + 20f * density)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!interactive) return false
         val safe = rect ?: return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -133,6 +142,7 @@ class SafeAreaEditorView(context: Context) : View(context) {
                         sourceHeight,
                     )
                 }
+                currentRectForSource()?.let { onRectChanged?.invoke(it) }
                 invalidate()
                 return true
             }

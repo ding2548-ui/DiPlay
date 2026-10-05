@@ -14,20 +14,7 @@ object AirPlayInfoPlist {
     private const val STREAM_TYPE_ALT_SCREEN = 111
     private const val DISPLAY_FEATURE_KNOBS = 0x02
     private const val DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH = 0x08
-
-    /**
-     * AirPlay feature flags. Published in two places that iOS cross-checks:
-     *
-     *  - the `features` key of the `_airplay._tcp` Bonjour TXT record (discovery), and
-     *  - the `features` key of this `/info` response (after connecting).
-     *
-     * `0x615653aee2` is `0x61 << 32 | 0x5653aee2`, so it carries the 64-bit bits Apple's
-     * `AirPlayCommon.h` names, notably `kAirPlayFeature_Car` (bit 32, "Car support") and
-     * `kAirPlayFeature_UnifiedBonjour` (bit 30). `AIRPLAY_FEATURES_TXT` renders it with Apple's
-     * own `<low32>,<high32>` split so the high word reaches iOS; a whole-value first field would
-     * silently drop every bit above 31, including `kAirPlayFeature_Car`.
-     */
-    const val CARPLAY_FEATURES = 0x615653aee2L
+    private const val CARPLAY_FEATURES = 0x615653aee2L
     private const val CARPLAY_AUDIO_FEATURES = 0x10004540a00L
     private val CARPLAY_FEATURES_NO_AUDIO = CARPLAY_FEATURES and CARPLAY_AUDIO_FEATURES.inv()
 
@@ -37,6 +24,10 @@ object AirPlayInfoPlist {
     private const val PRIORITY_NICE_TO_HAVE = 100
     private const val CONSTRAINT_ANYTIME = 100
 
+    /** Discovery and /info must describe the same receiver capabilities. */
+    fun features(config: AirPlayConfig): Long =
+        if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES
+
     fun build(config: AirPlayConfig): Map<String, Any?> {
         val displays = arrayListOf<Any?>(
             displayEntry(config.main, STREAM_TYPE_MAIN_SCREEN, MAIN_UUID),
@@ -45,7 +36,7 @@ object AirPlayInfoPlist {
 
         val info = linkedMapOf<String, Any?>(
             "sourceVersion" to config.sourceVersion,
-            "features" to if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES,
+            "features" to features(config),
             "statusFlags" to 4L,
             "model" to config.model,
             "manufacturer" to config.manufacturer,
@@ -60,11 +51,6 @@ object AirPlayInfoPlist {
         if (!config.disableAudioOutput) {
             info["audioLatencies"] = audioLatencies()
             info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone)
-        }
-        if (config.videoInCar) {
-            // The iPhone tears down a session that enables videoPlayback without this key.
-            val legacy = if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES
-            info["videoPlaybackInfo"] = VideoInCar.info(legacy, VideoInCar.allowed)
         }
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
@@ -87,6 +73,11 @@ object AirPlayInfoPlist {
             }
         }
         if (config.hevc) info["hevcInfo"] = emptyMap<String, Any?>()
+        if (config.videoInCar) {
+            // The iPhone tears down a session that enables videoPlayback without this key.
+            val legacy = features(config)
+            info["videoPlaybackInfo"] = VideoInCar.info(legacy, VideoInCar.allowed)
+        }
         return info
     }
 
@@ -161,6 +152,28 @@ object AirPlayInfoPlist {
         )
     }
 
+    /**
+     * viewAreaStatusBarEdge values, as CarPlay Simulator's StatusBarEdge (automatic, bottom, driver) and as
+     * seen on a Tang with iOS 27: 1 puts the dock at the bottom, 2 on the driver's side.
+     */
+    const val DOCK_EDGE_BOTTOM = 1
+    const val DOCK_EDGE_DRIVER_SIDE = 2
+    private const val VIEW_AREA_ANIMATION_MILLIS = 300
+
+    /**
+     * updateViewArea for the main screen. Seen on a Tang with iOS 27: the iPhone acts on it only with an
+     * animation duration and the adjacent areas, the arguments CarPlaySDK's ViewAreaUpdate takes.
+     */
+    fun viewAreaCommand(index: Int, areaCount: Int): Map<String, Any?> = linkedMapOf(
+        "type" to "updateViewArea",
+        "params" to linkedMapOf(
+            "uuid" to MAIN_UUID,
+            "viewAreaIndex" to index,
+            "animationDurationMillis" to VIEW_AREA_ANIMATION_MILLIS,
+            "adjacentViewAreas" to (0 until areaCount).filter { it != index },
+        ),
+    )
+
     private fun displayEntry(display: AirPlayDisplayConfig, type: Int, uuid: String): Map<String, Any?> {
         val widthPhysical = AirPlayDisplaySettings.sanitizeReportedPhysicalMm(
             display.widthPhysicalMm ?: AirPlayDisplaySettings.DEFAULT_WIDTH_PHYSICAL_MM,
@@ -181,29 +194,49 @@ object AirPlayInfoPlist {
             "heightPixels" to display.heightPixels,
             "widthPhysical" to widthPhysical,
             "heightPhysical" to heightPhysical,
-            "features" to (DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH or DISPLAY_FEATURE_KNOBS),
+            "features" to (display.features ?: (DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH or DISPLAY_FEATURE_KNOBS)),
             "primaryInputDevice" to display.primaryInputDevice,
         )
 
-        entry["viewAreas"] = listOf(areaDict(display))
-        entry["initialViewArea"] = 0
+        // Several areas let the car move CarPlay between them (another dock edge, the head unit's split
+        // screen) with updateViewArea, without reconnecting.
+        val areas = display.viewAreas?.takeIf { it.isNotEmpty() }
+        entry["viewAreas"] = areas?.map { areaDict(display, it) } ?: listOf(areaDict(display))
+        entry["initialViewArea"] = if (areas == null) 0 else display.initialViewArea.coerceIn(0, areas.lastIndex)
+        if (areas != null && areas.size > 1) entry["viewAreaTransitionControl"] = true
         if (display.initialUrl != null) entry["initialURL"] = display.initialUrl
         return entry
     }
 
-    private fun areaDict(display: AirPlayDisplayConfig): Map<String, Any?> {
+    private fun areaDict(display: AirPlayDisplayConfig, area: AirPlayViewArea? = null): Map<String, Any?> {
         // The session SETUP response enables "viewAreas", so /info must always describe one.
-        // A display without custom insets uses the full panel for both the view and safe areas.
-        val view = display.viewArea ?: AirPlayInsets()
+        // A display without custom insets uses the full panel for both the view and safe areas; an
+        // explicit area replaces the display's view insets and clips its safe area.
         val width = display.widthPixels
         val height = display.heightPixels
+        val view = area?.let {
+            AirPlayInsets(top = it.originY, bottom = height - it.originY - it.height,
+                left = it.originX, right = width - it.originX - it.width)
+        } ?: display.viewArea ?: AirPlayInsets()
         val result = linkedMapOf<String, Any?>(
             "widthPixels" to (width - view.left - view.right),
             "heightPixels" to (height - view.top - view.bottom),
             "originXPixels" to view.left,
             "originYPixels" to view.top,
         )
-        val safe = display.safeArea ?: AirPlayInsets()
+        area?.dockEdge?.let { result["viewAreaStatusBarEdge"] = it }
+        val displaySafe = display.safeArea ?: AirPlayInsets()
+        val clipped = if (area == null) displaySafe else AirPlayInsets(
+            top = maxOf(displaySafe.top, view.top),
+            bottom = maxOf(displaySafe.bottom, view.bottom),
+            left = maxOf(displaySafe.left, view.left),
+            right = maxOf(displaySafe.right, view.right),
+        )
+        // A valid saved mapping can lie wholly outside a smaller view area. In that case the
+        // intersection is empty: use this area's bounds instead of advertising negative/zero sizes.
+        val safe = if (area != null &&
+            (clipped.left + clipped.right >= width || clipped.top + clipped.bottom >= height)
+        ) view else clipped
         val safeArea = linkedMapOf<String, Any?>(
             "widthPixels" to (width - safe.left - safe.right),
             "heightPixels" to (height - safe.top - safe.bottom),

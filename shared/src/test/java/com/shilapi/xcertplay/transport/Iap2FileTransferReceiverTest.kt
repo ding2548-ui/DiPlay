@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.transport
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Iap2FileTransferReceiverTest {
@@ -23,12 +24,30 @@ class Iap2FileTransferReceiverTest {
     fun rejectsOversizedUnsupportedAndTruncatedTransfers() {
         val receiver = Iap2FileTransferReceiver(maximumArtworkBytes = 4)
 
-        assertArrayEquals(byteArrayOf(1, 2), receiver.accept(setup(1, 5)).replies.single())
-        assertArrayEquals(byteArrayOf(2, 2), receiver.accept(setup(2, 3, type = 7)).replies.single())
+        val oversized = receiver.accept(setup(1, 5))
+        assertArrayEquals(byteArrayOf(1, 2), oversized.replies.single())
+        assertEquals(0, oversized.completed?.bytes?.size)
+        val unsupported = receiver.accept(setup(2, 3, type = 7))
+        assertArrayEquals(byteArrayOf(2, 2), unsupported.replies.single())
+        assertNull(unsupported.completed)
+        assertNull(receiver.accept(byteArrayOf(4, 4)).completed)
         receiver.accept(setup(3, 4))
         val truncated = receiver.accept(data(3, 0x40, byteArrayOf(1, 2)))
         assertArrayEquals(byteArrayOf(3, 2), truncated.replies.single())
-        assertNull(truncated.completed)
+        assertEquals(3, truncated.completed?.id)
+        assertEquals(0, truncated.completed?.bytes?.size)
+    }
+
+    @Test
+    fun aSenderCancelClearsOnlyAPendingArtworkTransfer() {
+        val receiver = Iap2FileTransferReceiver()
+        receiver.accept(setup(5, 4))
+
+        val cancelled = receiver.accept(data(5, 0x02, ByteArray(0)))
+        assertTrue(cancelled.replies.isEmpty())
+        assertEquals(5, cancelled.completed?.id)
+        assertEquals(0, cancelled.completed?.bytes?.size)
+        assertNull(receiver.accept(data(5, 0x02, ByteArray(0))).completed)
     }
 
     @Test

@@ -1,7 +1,7 @@
 name: Android checks
 on:
   push:
-    branches: [main, leapmotor]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -11,198 +11,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - name: Reject credential files in public source
         run: python3 scripts/check_public_tree.py
-      # The MFi accessory identity is deliberately absent from the public tree. When the
-      # repository secrets are present they are written to a temporary directory outside the
-      # checkout and selected with the documented DIPLAY_AUTH_ASSETS_DIR input, so the APK can
-      # carry a runtime identity without any credential entering the repository.
-      - name: Materialize runtime authentication assets
-        env:
-          IDENTITY_B64: ${{ secrets.DIPLAY_IDENTITY_PK8_B64 }}
-          CERTIFICATE_B64: ${{ secrets.DIPLAY_CERTIFICATE_P7B_B64 }}
-        run: |
-          set -euo pipefail
-          if [ -z "${IDENTITY_B64:-}" ] || [ -z "${CERTIFICATE_B64:-}" ]; then
-            echo "Runtime authentication secrets are unavailable; building without an identity."
-            exit 0
-          fi
-          AUTH_DIR="$RUNNER_TEMP/auth-assets"
-          mkdir -p "$AUTH_DIR/offline-mfi"
-          printf '%s' "$IDENTITY_B64" | base64 -d > "$AUTH_DIR/offline-mfi/identity.pk8"
-          printf '%s' "$CERTIFICATE_B64" | base64 -d > "$AUTH_DIR/offline-mfi/certificate.p7b"
-          chmod 600 "$AUTH_DIR/offline-mfi/"*
-          ls -l "$AUTH_DIR/offline-mfi"
-          echo "DIPLAY_AUTH_ASSETS_DIR=$AUTH_DIR" >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '25'
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
-      - uses: gradle/actions/setup-gradle@v6
-      # Every build stamps itself so an exported diagnostic report can be traced back to the
-      # exact commit that produced its APK. The number is the workflow run number, which
-      # increases monotonically, so "2.0（07）" always means a later build than "2.0（06）".
-      - name: Stamp the build number
-        run: |
-          set -euo pipefail
-          echo "DIPLAY_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          echo "debug versionName will be stamped 2.0（${GITHUB_RUN_NUMBER}）"
-      # Lint and the unit tests report on the source but must not stop the APK step below.
-      - name: Unit tests and lint
-        continue-on-error: true
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug --stacktrace
-      - name: Source-only debug APK
-        run: ./gradlew :mobile:assembleDebug --stacktrace
-      - name: Verify debug APK manifest
-        if: always()
-        run: |
-          set -euo pipefail
-          APK=$(ls mobile/build/outputs/apk/debug/*.apk | head -1)
-          echo "APK: $APK"
-          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
-          "$AAPT2" dump badging "$APK" | grep -E "^package:|^minSdkVersion:|^targetSdkVersion:|^application-label:|^application: " || true
-          unzip -l "$APK" | grep -E "offline-mfi" || echo "offline-mfi assets: absent"
-          echo "--- build stamp ---"
-          "$AAPT2" dump badging "$APK" | grep -o "versionName='[^']*'" || true
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests, lint and source-only debug build
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug --stacktrace
       - name: Test reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: |
             shared/build/reports/tests/
             common/build/reports/tests/
             mobile/build/reports/lint-results-debug.html
-      - name: Debug APK
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: diplay-debug-apk
-          path: mobile/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
+            samples/home/build/reports/tests/
+            samples/home/build/reports/lint-results-debug.html
+            samples/maphost/build/reports/lint-results-debug.html
 
-  # Signed release APK published to GitHub Releases. The signing key never enters the
-  # repository: it rides in the same secrets pattern as the MFi identity (base64 →
-  # $RUNNER_TEMP) and is selected through the ANDROID_KEYSTORE_* inputs the Gradle file
-  # already documents. Missing secrets degrade this job to a clean skip.
-  release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-      - name: Reject credential files in public source
-        run: python3 scripts/check_public_tree.py
-      - name: Materialize runtime authentication assets
-        env:
-          IDENTITY_B64: ${{ secrets.DIPLAY_IDENTITY_PK8_B64 }}
-          CERTIFICATE_B64: ${{ secrets.DIPLAY_CERTIFICATE_P7B_B64 }}
-        run: |
-          set -euo pipefail
-          if [ -z "${IDENTITY_B64:-}" ] || [ -z "${CERTIFICATE_B64:-}" ]; then
-            echo "Runtime authentication secrets are unavailable; building without an identity."
-            exit 0
-          fi
-          AUTH_DIR="$RUNNER_TEMP/auth-assets"
-          mkdir -p "$AUTH_DIR/offline-mfi"
-          printf '%s' "$IDENTITY_B64" | base64 -d > "$AUTH_DIR/offline-mfi/identity.pk8"
-          printf '%s' "$CERTIFICATE_B64" | base64 -d > "$AUTH_DIR/offline-mfi/certificate.p7b"
-          chmod 600 "$AUTH_DIR/offline-mfi/"*
-          ls -l "$AUTH_DIR/offline-mfi"
-          echo "DIPLAY_AUTH_ASSETS_DIR=$AUTH_DIR" >> "$GITHUB_ENV"
-      - name: Restore the fixed release signing key
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "${KEYSTORE_B64:-}" ]; then
-            echo "Release signing secrets are unavailable; skipping the release job."
-            echo "DIPLAY_RELEASE_ENABLED=false" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          KEYSTORE="$RUNNER_TEMP/release.jks"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$KEYSTORE"
-          chmod 600 "$KEYSTORE"
-          {
-            echo "DIPLAY_RELEASE_ENABLED=true"
-            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE"
-            echo "ANDROID_KEYSTORE_PASSWORD=$STORE_PASSWORD"
-            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
-            echo "ANDROID_KEY_PASSWORD=${KEY_PASSWORD:-$STORE_PASSWORD}"
-          } >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v6
+      # Verification-build addition: expose the debug APK as a workflow artifact so the
+      # hot-spot behaviour can be installed and tested on the head unit. Application source
+      # is untouched by this step.
+      - name: Upload debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          distribution: temurin
-          java-version: '25'
-      - uses: android-actions/setup-android@v4
-        with:
-          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
-      - uses: gradle/actions/setup-gradle@v6
-      - name: Stamp the build number
-        run: |
-          set -euo pipefail
-          echo "DIPLAY_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          echo "release versionName will be stamped 2.0（${GITHUB_RUN_NUMBER}）"
-      - name: Signed release APK
-        if: env.DIPLAY_RELEASE_ENABLED == 'true'
-        run: ./gradlew :mobile:assembleRelease --stacktrace
-      - name: Verify release APK manifest and signature
-        if: env.DIPLAY_RELEASE_ENABLED == 'true'
-        run: |
-          set -euo pipefail
-          APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
-          echo "APK: $APK"
-          # Exact path: `ls` on the build-tools root lists directory contents, not the dirs.
-          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
-          "$TOOLS/aapt2" dump badging "$APK" | grep -E "^package:|^minSdkVersion:|^targetSdkVersion:|^application-label:|^application: "
-          echo "--- build stamp ---"
-          "$TOOLS/aapt2" dump badging "$APK" | grep -o "versionName='[^']*'"
-          # ABI audit: every bundled .so must stay armeabi-v7a, or the 64-bit-capable head
-          # unit installs the app as arm64 and lwIP becomes unloadable (run-119 lesson).
-          echo "--- native libs ---"
-          unzip -l "$APK" | grep "lib/" || echo "no bundled libs"
-          unzip -l "$APK" | grep -E "offline-mfi" || echo "offline-mfi assets: absent"
-          echo "--- signature ---"
-          "$TOOLS/apksigner" verify --print-certs "$APK" | head -8
-      - name: Release APK artifact
-        if: env.DIPLAY_RELEASE_ENABLED == 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: diplay-release-apk-${{ github.ref_name == 'leapmotor' && 'leapmotor' || 'BYD' }}
-          path: mobile/build/outputs/apk/release/*.apk
-          if-no-files-found: warn
-      - name: Publish GitHub release
-        if: env.DIPLAY_RELEASE_ENABLED == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
-          VARIANT="BYD"
-          if [ "${GITHUB_REF_NAME}" = "leapmotor" ]; then VARIANT="leapmotor"; fi
-          TAG="v2.0-${GITHUB_RUN_NUMBER}"
-          NAME="DiPlay-2.0-${GITHUB_RUN_NUMBER}-${VARIANT}.apk"
-          cp "$APK" "$NAME"
-          # The status page describes the current whole; the change log has to describe THIS
-          # build, so the commit message is appended automatically (a hand-written page alone
-          # ends up identical on every release).
-          {
-            cat RELEASE_NOTES.md
-            echo
-            echo "---"
-            echo
-            echo "## 本次构建（2.0（${GITHUB_RUN_NUMBER}）· ${VARIANT}）"
-            echo
-            git log -1 --pretty='%B'
-          } > "$RUNNER_TEMP/diplay-notes.md"
-          gh release create "$TAG" "$NAME" \
-            --title "DiPlay 2.0（${GITHUB_RUN_NUMBER}）· ${VARIANT}" \
-            --notes-file "$RUNNER_TEMP/diplay-notes.md"
+          name: psa-verify-debug-apk
+          path: mobile/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

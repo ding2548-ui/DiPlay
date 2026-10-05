@@ -41,6 +41,7 @@ import com.shilapi.xcertplay.airplay.VideoInCar
 import com.shilapi.xcertplay.host.R
 import java.util.Locale
 import androidx.media3.ui.R as Media3R
+import kotlin.math.roundToInt
 
 /**
  * The car's own player for iOS 27 video in car (see [CarPlayVideo]). Full screen over CarPlay, which
@@ -341,7 +342,7 @@ class CarPlayVideoActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
 
     private companion object {
         const val TAG = "DiPlay-Video"

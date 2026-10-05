@@ -7,6 +7,9 @@ data class CarPlayVideoLayout(val left: Float, val top: Float, val width: Float,
 
     companion object {
         fun fit(canvasWidth: Int, canvasHeight: Int, viewWidth: Int, viewHeight: Int): CarPlayVideoLayout {
+            if (canvasWidth <= 0 || canvasHeight <= 0 || viewWidth <= 0 || viewHeight <= 0) {
+                return CarPlayVideoLayout(0f, 0f, viewWidth.coerceAtLeast(0).toFloat(), viewHeight.coerceAtLeast(0).toFloat())
+            }
             val scale = minOf(viewWidth.toFloat() / canvasWidth, viewHeight.toFloat() / canvasHeight)
             val width = canvasWidth * scale
             val height = canvasHeight * scale

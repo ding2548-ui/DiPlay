@@ -64,6 +64,26 @@ class BydStandaloneSessionTest {
         assertNotNull(BydStandalonePackets.guidance(2, 0, 16777214))
     }
 
+    @Test fun switchingToLyricsClearsThePreviousArrowsBeforePublishingText() {
+        val r = Rig()
+        r.session.update(2, 0, 500, "Road")
+        r.events.clear()
+        r.session.showText("Song")
+        assertEquals(listOf(BydStandalonePackets.clear(), "pending=false", "pending=true",
+            BydStandalonePackets.start(), BydStandalonePackets.text("Song")), r.events)
+        r.events.clear()
+        r.session.showText("Song")
+        assertTrue(r.events.isEmpty())
+        r.session.clear()
+        assertEquals(listOf(BydStandalonePackets.clear(), "pending=false"), r.events)
+    }
+
+    @Test fun lyricsJournalFailureCannotStartHardwareOutput() {
+        val r = Rig().apply { journalFails = true }
+        assertThrows(IllegalStateException::class.java) { r.session.showText("Song") }
+        assertTrue(r.events.isEmpty())
+    }
+
     @Test fun failedGuidanceAfterStartSendsEndAndNextUpdateStartsAgain() {
         val r = Rig()
         r.failPacket = BydStandalonePackets.guidance(2, 0, 500)

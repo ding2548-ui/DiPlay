@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="custom_resolution_hint">أدخل نسبة من 30 إلى 160. يؤدي التطبيق إلى إعادة اتصال CarPlay.</string>
+    <string name="resolution_number_error">أدخل عددًا صحيحًا من %1$d إلى %2$d.</string>
+    <string name="custom_resolution_summary">%1$d%%</string>
+    <string name="resolution_reset_defaults">استعادة القيمة الافتراضية</string>
+    <string name="resolution_canvas_unsupported" formatted="false">لا تستطيع وحدة القيادة هذه فك ترميز الدقة المكبّرة. ستُستخدم دقة 100%.</string>
+</resources>

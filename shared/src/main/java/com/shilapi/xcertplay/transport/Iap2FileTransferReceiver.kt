@@ -40,8 +40,8 @@ class Iap2FileTransferReceiver(
             OPCODE_SETUP -> setup(id, datagram)
             OPCODE_DATA -> data(id, flags, datagram)
             OPCODE_CANCEL -> {
-                pending.remove(id)
-                Outcome()
+                if (pending.remove(id) == null) return Outcome()
+                Outcome(completed = Iap2ArtworkTransfer(id, ByteArray(0)))
             }
             else -> Outcome()
         }
@@ -55,9 +55,8 @@ class Iap2FileTransferReceiver(
         if (datagram.size < VERSION_2_SETUP_BYTES) return Outcome(replies = listOf(cancel(id)))
         val size = readU64(datagram, SIZE_OFFSET)
         val type = readU16(datagram, FILE_TYPE_OFFSET)
-        if (size < 0 || size > maximumArtworkBytes || type != NOW_PLAYING_ARTWORK_TYPE) {
-            return Outcome(replies = listOf(cancel(id)))
-        }
+        if (type != NOW_PLAYING_ARTWORK_TYPE) return Outcome(replies = listOf(cancel(id)))
+        if (size < 0 || size > maximumArtworkBytes) return rejected(id)
         if (size == 0L) {
             return Outcome(
                 replies = listOf(start(id), success(id)),
@@ -74,20 +73,23 @@ class Iap2FileTransferReceiver(
         val count = datagram.size - HEADER_BYTES
         if (count > transfer.expectedBytes - transfer.output.size()) {
             pending.remove(id)
-            return Outcome(replies = listOf(cancel(id)))
+            return rejected(id)
         }
         transfer.output.write(datagram, HEADER_BYTES, count)
         val last = flags and FLAG_LAST != 0
         if (!last && transfer.output.size() < transfer.expectedBytes) return Outcome()
         pending.remove(id)
         if (transfer.output.size() != transfer.expectedBytes) {
-            return Outcome(replies = listOf(cancel(id)))
+            return rejected(id)
         }
         return Outcome(
             replies = listOf(success(id)),
             completed = Iap2ArtworkTransfer(id, transfer.output.toByteArray()),
         )
     }
+
+    // An empty completion clears the art, so a refused cover does not leave the previous song's.
+    private fun rejected(id: Int) = Outcome(replies = listOf(cancel(id)), completed = Iap2ArtworkTransfer(id, ByteArray(0)))
 
     private fun start(id: Int) = byteArrayOf(id.toByte(), OPCODE_START.toByte())
 

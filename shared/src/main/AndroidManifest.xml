@@ -25,9 +25,17 @@
         android:required="false" />
 
     <queries>
+        <package android:name="com.byd.carsettings" />
+        <package android:name="com.byd.appmgr" />
+        <package android:name="com.byd.deviceinfo" />
+        <package android:name="com.byd.service" />
+        <intent>
+            <action android:name="android.settings.WIFI_SETTINGS" />
+        </intent>
         <package android:name="com.byd.clusterdebug" />
         <package android:name="com.ts.car.someip.service" />
         <package android:name="com.byd.amapservice" />
+        <package android:name="com.byd.automap" />
         <intent>
             <action android:name="com.android.settings.WIFI_TETHER_SETTINGS" />
         </intent>

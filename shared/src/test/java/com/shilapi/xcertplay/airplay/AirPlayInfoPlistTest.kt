@@ -230,4 +230,88 @@ class AirPlayInfoPlistTest {
             .toSet()
         assertEquals(setOf(100, 101, 102), types)
     }
+
+    private fun mainDisplay(areas: List<AirPlayViewArea>?, initial: Int = 0, safeArea: AirPlayInsets? = null): Map<*, *> {
+        val info = AirPlayInfoPlist.build(
+            AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:02",
+                sourceVersion = "366.0",
+                main = AirPlayDisplayConfig(widthPixels = 2560, heightPixels = 1440, safeArea = safeArea,
+                    viewAreas = areas, initialViewArea = initial),
+            ),
+        )
+        return (info["displays"] as List<*>).single() as Map<*, *>
+    }
+
+    @Test
+    fun withoutAreasTheWholeScreenIsOneAreaWithoutAnEdge() {
+        val display = mainDisplay(areas = null)
+        val area = (display["viewAreas"] as List<*>).single() as Map<*, *>
+        assertFalse(area.containsKey("viewAreaStatusBarEdge"))
+        assertFalse(display.containsKey("viewAreaTransitionControl"))
+        assertEquals(0, display["initialViewArea"])
+    }
+
+    @Test
+    fun areasCarryTheirRectangleDockEdgeAndAClippedSafeArea() {
+        val display = mainDisplay(
+            areas = listOf(
+                AirPlayViewArea(2560, 1440, dockEdge = AirPlayInfoPlist.DOCK_EDGE_DRIVER_SIDE),
+                AirPlayViewArea(1270, 1208, dockEdge = AirPlayInfoPlist.DOCK_EDGE_BOTTOM),
+            ),
+            initial = 1,
+            safeArea = AirPlayInsets(top = 10, left = 20),
+        )
+        val areas = (display["viewAreas"] as List<*>).map { it as Map<*, *> }
+        assertEquals(listOf(2, 1), areas.map { it["viewAreaStatusBarEdge"] })
+        assertEquals(1270, areas[1]["widthPixels"])
+        assertEquals(1208, areas[1]["heightPixels"])
+        assertEquals(0, areas[1]["originXPixels"])
+        val safe = areas[1]["safeArea"] as Map<*, *>
+        assertEquals(20, safe["originXPixels"])
+        assertEquals(10, safe["originYPixels"])
+        assertEquals(1270 - 20, safe["widthPixels"])
+        assertEquals(1208 - 10, safe["heightPixels"])
+        assertEquals(1, display["initialViewArea"])
+        assertEquals(true, display["viewAreaTransitionControl"])
+    }
+
+    @Test
+    fun viewAreaCommandCarriesAnimationAndTheOtherAreas() {
+        val command = AirPlayInfoPlist.viewAreaCommand(1, areaCount = 2)
+        assertEquals("updateViewArea", command["type"])
+        val params = command["params"] as Map<*, *>
+        assertEquals(AirPlayInfoPlist.MAIN_UUID, params["uuid"])
+        assertEquals(1, params["viewAreaIndex"])
+        assertEquals(300, params["animationDurationMillis"])
+        assertEquals(listOf(0), params["adjacentViewAreas"])
+        assertEquals(listOf(0, 1, 3), (AirPlayInfoPlist.viewAreaCommand(2, areaCount = 4)["params"] as Map<*, *>)["adjacentViewAreas"])
+    }
+
+    @Test
+    fun aSavedMappingOutsideTheSplitAreaUsesItsBoundsWithoutChangingTheFullArea() {
+        val split = AirPlayViewArea(1270, 1208)
+        // The first mapping lies to the right, the second below, and the third only touches the edge.
+        for (mapping in listOf(
+            SafeAreaRect(1280, 0, 2560, 1440),
+            SafeAreaRect(0, 1300, 2560, 1440),
+            SafeAreaRect(1270, 0, 2560, 1440),
+        )) {
+            val insets = AirPlaySafeArea.toInsets(mapping, 2560, 1440, 2560, 1440)
+            val display = mainDisplay(listOf(AirPlayViewArea(2560, 1440), split), safeArea = insets)
+            val areas = (display["viewAreas"] as List<*>).map { it as Map<*, *> }
+            val fullSafe = areas[0]["safeArea"] as Map<*, *>
+            assertEquals(mapping.width, fullSafe["widthPixels"])
+            assertEquals(mapping.height, fullSafe["heightPixels"])
+            assertEquals(mapping.left, fullSafe["originXPixels"])
+            assertEquals(mapping.top, fullSafe["originYPixels"])
+            val splitSafe = areas[1]["safeArea"] as Map<*, *>
+            assertEquals(split.width, splitSafe["widthPixels"])
+            assertEquals(split.height, splitSafe["heightPixels"])
+            assertEquals(split.originX, splitSafe["originXPixels"])
+            assertEquals(split.originY, splitSafe["originYPixels"])
+        }
+    }
 }

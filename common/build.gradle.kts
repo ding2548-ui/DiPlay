@@ -10,7 +10,7 @@ android {
     }
 
     defaultConfig {
-        minSdk = 24
+        minSdk = 28
     }
 
     compileOptions {
@@ -24,12 +24,8 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
-    }
-
-    lint {
-        // INSTALL_PACKAGES is a signature-protected permission granted by the car's
-        // platform signature; lint cannot know the app is platform-signed.
-        disable += "ProtectedPermissions"
+        // The UI suite covers several SDKs and locale-specific resource sandboxes.
+        unitTests.all { it.maxHeapSize = "1g" }
     }
 }
 
@@ -49,4 +45,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("org.mockito:mockito-core:5.20.0")
+    testImplementation(libs.jmdns)
 }

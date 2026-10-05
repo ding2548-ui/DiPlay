@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="contrib_audio_home_channel_preview_unavailable">На цьому пристрої не можна прослухати аудіопотік Android %1$d.</string>
+    <string name="contrib_audio_home_choice_summary">%1$s · %2$s</string>
+    <string name="contrib_audio_home_media_channel_label">Аудіопотік мультимедіа</string>
+    <string name="contrib_audio_home_nav_channel_label">Аудіопотік навігації</string>
+    <string name="contrib_audio_home_nav_channel_note">0 = автоматичне спрямування. Значення 1–20 — старі ідентифікатори аудіопотоків Android, які головний пристрій може спрямовувати на виходи автомобіля. Торкніться значення, щоб прослухати. Зміни набудуть чинності після повторного підключення.</string>
+    <string name="contrib_audio_home_toggle_audio_focus">Аудіофокус</string>
+    <string name="contrib_audio_home_toggle_audio_focus_desc">Мультимедіа CarPlay отримує аудіофокус. Якщо звук зникає, коли цю функцію ввімкнено (деякі головні пристрої погано обробляють аудіофокус), вимкніть її. Зміни набудуть чинності після повторного підключення.</string>
+</resources>

@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.media
 
 /**
- * Jitter buffer for CarPlay music. Wireless CarPlay delivers audio over the same Wi-Fi link as
+ * Jitter buffer for streams mapped to the media channel. Wireless CarPlay delivers audio over the same Wi-Fi link as
  * video; radio gaps of several hundred milliseconds are normal, so music needs a buffer that
  * outlasts them. Calls, Siri and navigation prompts keep the small low-latency buffer.
  */
@@ -18,12 +18,12 @@ object MediaAudioBuffer {
     data class Plan(val trackBufferBytes: Int, val startBytes: Int)
 
     /** AudioTrack capacity and the amount to queue before play() for one output stream. */
-    fun plan(audioType: String, sampleRate: Int, channels: Int, minBufferBytes: Int, mediaMillis: Int): Plan {
+    fun plan(isMedia: Boolean, sampleRate: Int, channels: Int, minBufferBytes: Int, mediaMillis: Int): Plan {
         val lowLatency = Plan(
             trackBufferBytes = maxOf(minBufferBytes * 4, MIN_TRACK_BUFFER_BYTES),
             startBytes = maxOf(minBufferBytes, MIN_START_BUFFER_BYTES),
         )
-        if (audioType != "media") return lowLatency
+        if (!isMedia) return lowLatency
         val bytesPerSecond = sampleRate.toLong() * channels.coerceIn(1, 2) * 2
         val start = (bytesPerSecond * sanitize(mediaMillis) / 1000).toInt()
         val capacity = (bytesPerSecond * (sanitize(mediaMillis) + HEADROOM_MILLIS) / 1000).toInt()
