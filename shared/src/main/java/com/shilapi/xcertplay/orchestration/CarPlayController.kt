@@ -54,6 +54,7 @@ import com.shilapi.xcertplay.network.MdnsSniffer
 import com.shilapi.xcertplay.network.PhoneProbe
 import com.shilapi.xcertplay.network.P2pResetRequiredException
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
+import com.shilapi.xcertplay.network.WirelessHotspotBackend
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
 import com.shilapi.xcertplay.network.WirelessHotspotBackend
 import com.shilapi.xcertplay.network.WirelessHotspotManager
@@ -1184,15 +1185,26 @@ class CarPlayController(
             // a v4-only list is ignored too). On the external-Wi-Fi route the car is a plain
             // station client, so this link-local dial is normal LAN traffic with no tether
             // firewall in the way — that is the whole point of the route.
+            //
+            // The car's OWN hotspot is the opposite: upstream 0.2.8 ran 20-24 fps there by
+            // advertising IPv4 only (manualHotspotHostAddress prefers a non-link-local IPv4),
+            // while our fe80-only list never got dialled — the tether's inbound IPv6 is what
+            // the netmgrd mangle rules drop. So on the car hotspot the IPv4-first list
+            // (advertisedAddresses is ordered IPv4 before IPv6) is the dialable one.
             val linkLocalV6 = (hostAddress as? Inet6Address)
                 ?.takeIf { it.isLinkLocalAddress }
                 ?.hostAddress?.substringBefore('%')
+            val ipAddresses = if (hotspotInfo.backend == WirelessHotspotBackend.MANUAL_HOTSPOT) {
+                advertisedAddresses
+            } else {
+                listOfNotNull(linkLocalV6).ifEmpty { advertisedAddresses }
+            }
             val endpoint = Iap2WirelessCarPlayEndpoint(
                 ssid = hotspotInfo.ssid,
                 passphrase = hotspotInfo.passphrase,
                 channel = hotspotInfo.channel,
                 security = hotspotInfo.security,
-                ipAddresses = listOfNotNull(linkLocalV6).ifEmpty { advertisedAddresses },
+                ipAddresses = ipAddresses,
                 airPlayPort = listenerPort,
                 deviceIdentifier = deviceIdentifier,
                 publicKey = identity.publicKeyHex,
@@ -2059,7 +2071,7 @@ class CarPlayController(
         if (hotspotMode == WirelessHotspotMode.MANUAL &&
             com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) == false
         ) {
-            throw IOException("The car hotspot is off. Turn it on in the car settings and connect again.")
+            throw IOException("车机热点已关闭。请先在车机设置中打开热点，然后重新连接。")
         }
         val manager: WirelessHotspotManager = when (hotspotMode) {
             WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(

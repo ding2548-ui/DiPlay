@@ -596,15 +596,18 @@ class DiPlayActivity : ComponentActivity() {
         })
     }
 
-    // Wi-Fi Direct is the default link. The car's own hotspot is an alternative when Wi-Fi Direct is unstable.
-    // The runtime config rejects manual mode without valid credentials, so it is only saved together with them.
-    private fun wirelessLinkControls(parent: LinearLayout) {        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
+    // The car's own hotspot is the default wireless link (2026-10-05): upstream 0.2.8 proves the
+    // route works with IPv4 advertised, and it needs no router. Wi-Fi Direct and external Wi-Fi
+    // remain selectable. The runtime config rejects manual mode without valid credentials, so it
+    // is only saved together with them.
+    private fun wirelessLinkControls(parent: LinearLayout) {
+        val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
         val carHotspot = mode == WirelessHotspotMode.MANUAL || mode == WirelessHotspotMode.EXTERNAL_WIFI
-        val options = arrayOf("Wi-Fi Direct · 默认", "车机热点", "外部 Wi-Fi · 车机与手机同一网络")
+        val options = arrayOf("车机热点 · 默认", "Wi-Fi Direct", "外部 Wi-Fi · 车机与手机同一网络")
         val currentIndex = when (mode) {
-            WirelessHotspotMode.MANUAL -> 1
+            WirelessHotspotMode.MANUAL -> 0
             WirelessHotspotMode.EXTERNAL_WIFI -> 2
-            else -> 0
+            else -> 1
         }
         val control = button("无线方式 · ${options[currentIndex]}", false) {}
         control.setOnClickListener {
@@ -613,8 +616,8 @@ class DiPlayActivity : ComponentActivity() {
                 .setSingleChoiceItems(options, selection) { _, index -> selection = index }
                 .setPositiveButton(if (CarPlayBackgroundSession.hasSession()) "应用并重连" else "保存") { _, _ ->
                     val target = when (selection) {
-                        0 -> WirelessHotspotMode.WIFI_P2P
-                        1 -> WirelessHotspotMode.MANUAL
+                        0 -> WirelessHotspotMode.MANUAL
+                        1 -> WirelessHotspotMode.WIFI_P2P
                         else -> WirelessHotspotMode.EXTERNAL_WIFI
                     }
                     val liveSsid = currentStationSsid()
@@ -642,7 +645,7 @@ class DiPlayActivity : ComponentActivity() {
         // connection on; "自动" keeps the previous behaviour. Only meaningful for Wi-Fi Direct.
         wifiDirectChannelControl(parent)
         if (!carHotspot) {
-            parent.addView(label("DiPlay 会为 iPhone 自建 Wi-Fi Direct 网络。", 14, MUTED).apply {
+            parent.addView(label("Wi-Fi Direct 模式：DiPlay 会为 iPhone 自建无线网络。", 14, MUTED).apply {
                 setPadding(0, 0, 0, dp(18))
             })
             return
@@ -666,6 +669,13 @@ class DiPlayActivity : ComponentActivity() {
         }
         val ssid = storedSsid()
         val password = storedPassword()
+        if (mode == WirelessHotspotMode.MANUAL) {
+            parent.addView(label(
+                "车机热点模式：连接时 iPhone 会自动加入下方车机热点。使用前请先在车机设置中打开热点，" +
+                    "热点名称和密码必须与车机热点设置完全一致。",
+                14, MUTED,
+            ).apply { setPadding(0, dp(4), 0, dp(18)) })
+        }
         parent.addView(button("热点名称 · $ssid", false) {
             textInput("车机热点名称", ssid, secret = false) { value ->
                 hotspotError(value, password)?.let { toast(it); return@textInput }
