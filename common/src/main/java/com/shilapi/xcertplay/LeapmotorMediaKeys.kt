@@ -51,8 +51,8 @@ internal object LeapmotorMediaProtocol {
             // Our own "pause the stock player" command travels on the same car actions; it carries
             // a self marker so it never comes back to us as a key press.
             if (
-                root.optString(CarPlayAudioOwnership.SELF_MARKER_KEY) ==
-                CarPlayAudioOwnership.SELF_MARKER_VALUE
+                root.optString(SELF_MARKER_KEY) ==
+                SELF_MARKER_VALUE
             ) {
                 return@runCatching null
             }
@@ -72,6 +72,9 @@ internal object LeapmotorMediaProtocol {
  * logged and dropped.
  */
 internal object LeapmotorMediaKeys {
+    /** Marks our own "pause the stock player" command so it never loops back as a key press. */
+    private const val SELF_MARKER_KEY = "src"
+    private const val SELF_MARKER_VALUE = "diplay"
     private const val TAG = "DiPlay-MediaKeys"
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -205,7 +208,7 @@ internal object LeapmotorMediaKeys {
                 val marked = runCatching {
                     val text = payload?.let { String(it, 2, (it.size - 2).coerceAtLeast(0), Charsets.UTF_8) }
                         ?: ""
-                    text.contains("\"${CarPlayAudioOwnership.SELF_MARKER_KEY}\":\"${CarPlayAudioOwnership.SELF_MARKER_VALUE}\"")
+                    text.contains("\"${SELF_MARKER_KEY}\":\"${SELF_MARKER_VALUE}\"")
                 }.getOrDefault(false)
                 report(
                     if (marked) "media key ignored: self-marked command action=$actionName"

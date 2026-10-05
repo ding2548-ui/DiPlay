@@ -11,6 +11,8 @@ internal fun CarPlaySize.localizedLabel(context: Context): String = context.getS
     CarPlaySize.LARGE -> R.string.option_size_large
     CarPlaySize.MEDIUM -> R.string.option_size_medium
     CarPlaySize.SMALL -> R.string.option_size_small
+    CarPlaySize.HIDPI_2X -> R.string.option_size_hidpi_2x
+    CarPlaySize.HIDPI_3X -> R.string.option_size_hidpi_3x
 })
 
 internal fun DiLink51ClusterLayout.Theme.localizedLabel(context: Context): String = context.getString(when (this) {

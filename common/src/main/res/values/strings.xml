@@ -419,6 +419,8 @@
     <string name="option_size_large">Large</string>
     <string name="option_size_medium">Medium</string>
     <string name="option_size_small">Small</string>
+    <string name="option_size_hidpi_2x">HiDPI 2x</string>
+    <string name="option_size_hidpi_3x">HiDPI 3x</string>
     <string name="option_theme_scenario">Scenario · side map</string>
     <string name="option_theme_map">Map · full map</string>
     <string name="option_theme_simple">Simple · side map</string>

@@ -41,4 +41,29 @@ object CarPlayMediaButton {
         KEYCODE_BYD_AUTO_MEDIA_PLAY_PAUSE -> PLAY_PAUSE
         else -> null
     }
+
+    /**
+     * Whether [action] is a press of a physical wheel key. The car re-uses its media bus for
+     * housekeeping commands and echoes; those must never reach CarPlay as key presses.
+     * (Ported from the Leapmotor fork's CarPlayButton.)
+     */
+    fun isWheelAction(action: String?): Boolean = when (action?.trim()?.lowercase()) {
+        "nextone", "next", "nexttrack" -> true
+        "preone", "previous", "prev", "previoustrack" -> true
+        "playpause", "pauseplay", "toggleplay", "toggleplaypause" -> true
+        else -> false
+    }
+
+    /**
+     * Leapmotor steering-wheel commands from the car's `car.meter.music.BROADCAST` JSON payload
+     * (`data.action`), mapped to the CarPlay press. Unknown commands return null.
+     */
+    fun forLeapmotorAction(action: String?): Int? = when (action?.trim()?.lowercase()) {
+        "nextone", "next", "nexttrack" -> NEXT
+        "preone", "previous", "prev", "previoustrack" -> PREVIOUS
+        "playpause", "pauseplay", "toggleplay", "toggleplaypause" -> PLAY_PAUSE
+        "play" -> PLAY
+        "pause", "stop" -> PAUSE
+        else -> null
+    }
 }
