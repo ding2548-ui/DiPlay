@@ -71,10 +71,11 @@ internal object LeapmotorMediaProtocol {
  * up; [controller] is set on attach and cleared on detach, and presses outside a session are
  * logged and dropped.
  */
+/** Marks our own "pause the stock player" command so it never loops back as a key press. */
+private const val SELF_MARKER_KEY = "src"
+private const val SELF_MARKER_VALUE = "diplay"
+
 internal object LeapmotorMediaKeys {
-    /** Marks our own "pause the stock player" command so it never loops back as a key press. */
-    private const val SELF_MARKER_KEY = "src"
-    private const val SELF_MARKER_VALUE = "diplay"
     private const val TAG = "DiPlay-MediaKeys"
 
     private val mainHandler = Handler(Looper.getMainLooper())
