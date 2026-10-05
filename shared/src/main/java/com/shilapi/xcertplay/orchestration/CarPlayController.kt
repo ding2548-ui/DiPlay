@@ -54,7 +54,6 @@ import com.shilapi.xcertplay.network.MdnsSniffer
 import com.shilapi.xcertplay.network.PhoneProbe
 import com.shilapi.xcertplay.network.P2pResetRequiredException
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
-import com.shilapi.xcertplay.network.WirelessHotspotBackend
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
 import com.shilapi.xcertplay.network.WirelessHotspotManager
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
@@ -989,6 +988,18 @@ class CarPlayController(
             val mfi = mfiSession?.client
                 ?: throw IOException("MFi coprocessor client is unavailable")
             val hotspotInfo = startWirelessHotspot(generation)
+            // 0.2.12 readiness gate (addressPolicy=IPv4_only): the phone dials the advertised
+            // address, and on the car-hotspot route that must be an IPv4 the tether interface
+            // actually holds. An interface without one means the AP is not really up yet —
+            // fail with guidance instead of advertising an address nobody can dial.
+            if (
+                config.wirelessHotspotMode == WirelessHotspotMode.MANUAL &&
+                hotspotInfo.hostAddress !is Inet4Address
+            ) {
+                throw IOException(
+                    "车机热点未就绪（热点接口缺少 IPv4 地址）。请确认车机热点已打开，稍等几秒后重新连接。",
+                )
+            }
             // From here on a verdict is meaningful, so teardown may report one.
             wirelessRunReachedHotspot = true
             if (isStaleWirelessRun(generation)) {
@@ -1191,26 +1202,15 @@ class CarPlayController(
                 Iap2WirelessLinkRole.RUNTIME_TUNNEL,
                 linkWirelessIdentification,
             )
-            // LIVI (f-io/LIVI), the working reference implementation, puts ONLY the link-local
-            // IPv6 in 0x4301's wireless ip_address list — the iPhone dials it directly on the
-            // interface it joined with (phone-side pcap: a v4-first list is never dialled, and
-            // a v4-only list is ignored too). On the external-Wi-Fi route the car is a plain
-            // station client, so this link-local dial is normal LAN traffic with no tether
-            // firewall in the way — that is the whole point of the route.
-            //
-            // The car's OWN hotspot is the opposite: upstream 0.2.8 ran 20-24 fps there by
-            // advertising IPv4 only (manualHotspotHostAddress prefers a non-link-local IPv4),
-            // while our fe80-only list never got dialled — the tether's inbound IPv6 is what
-            // the netmgrd mangle rules drop. So on the car hotspot the IPv4-first list
-            // (advertisedAddresses is ordered IPv4 before IPv6) is the dialable one.
-            val linkLocalV6 = (hostAddress as? Inet6Address)
-                ?.takeIf { it.isLinkLocalAddress }
-                ?.hostAddress?.substringBefore('%')
-            val ipAddresses = if (hotspotInfo.backend == WirelessHotspotBackend.MANUAL_HOTSPOT) {
-                advertisedAddresses
-            } else {
-                listOfNotNull(linkLocalV6).ifEmpty { advertisedAddresses }
-            }
+            // Address policy (upstream 0.2.11/0.2.12 parity): advertise the scored best host
+            // address FIRST, followed by the remaining addresses of the interface, deduplicated.
+            // The old LIVI-style fe80-only list is dead — upstream itself dropped it: 0.2.8 ran
+            // the car hotspot on IPv4 alone (20-24 fps on this very head unit), 0.2.11 went back
+            // to a single best address (`listOf(hostAddressText)`, IPv4 preferred by
+            // interfaceScore), and 0.2.12 made it "primary + rest" with an explicit
+            // addressPolicy=IPv4_only readiness gate. A fe80-only list on the car hotspot was
+            // never dialled: the tether's inbound IPv6 is what the netmgrd mangle rules drop.
+            val ipAddresses = (listOf(hostAddressText) + advertisedAddresses).distinct()
             val endpoint = Iap2WirelessCarPlayEndpoint(
                 ssid = hotspotInfo.ssid,
                 passphrase = hotspotInfo.passphrase,
