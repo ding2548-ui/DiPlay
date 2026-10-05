@@ -203,20 +203,6 @@ class CarPlayController(
     private val permissionGrant = AtomicBoolean(false)
     private val availabilityPollGeneration = AtomicInteger(0)
     private var permissionPollGeneration = 0
-    private var reenumerationAttempts = 0
-
-    /**
-     * True once this bring-up has driven the phone through the vendor re-enumeration request.
-     *
-     * A CarPlay USB configuration that is already present when a *new* session starts is a leftover
-     * from the previous one: its bulk endpoints stay bound to the closed connection, so the USBMUX
-     * handshake never gets a version reply and the bring-up freezes until the 60 s handshake
-     * timeout. Every observed session that reused such a configuration failed; every session that
-     * re-enumerated first succeeded. So a configuration is only trusted once this run has caused it.
-     */
-    private var reenumerationPerformed = false
-    /** Device node handed to the vendor request; a different node means a real re-enumeration. */
-    private var reenumerationSourceDeviceName: String? = null
     private var lastReportedStatus: CarPlayStatus? = null
     private var mfiResetLogged = false
 
@@ -234,8 +220,6 @@ class CarPlayController(
      * request" until the cable is physically re-plugged.
      */
     @Volatile private var wiredUsbSession: Iap2UsbSession? = null
-    /** Failed wired opens since the last success; drives the last-resort re-enumeration. */
-    @Volatile private var wiredOpenFailures = 0
     @Volatile private var csm: Iap2Session? = null
     @Volatile private var activeSession: AirPlaySession? = null
     // Ported from upstream 0.2.7: the iPhone's media playback state, fed by iAP2 NowPlayingUpdate.
@@ -1593,9 +1577,6 @@ class CarPlayController(
         diagnosticRun.incrementAndGet()
         availabilityPollGeneration.incrementAndGet()
         phase = Phase.IPHONE
-        reenumerationAttempts = 0
-        reenumerationPerformed = false
-        reenumerationSourceDeviceName = null
         onStatus(CarPlayStatus.DiscoveringIphone)
         checkIphoneAvailability()
     }
@@ -1666,28 +1647,15 @@ class CarPlayController(
                         connectionDiagnostic(
                             "USB configuration ready=${configuration != null} " +
                                 "configurationId=${configuration?.id ?: "none"} " +
-                                "reenumerationAttempts=$reenumerationAttempts " +
-                                "reenumerationPerformed=$reenumerationPerformed " +
-                                "action=${when {
-                                    configuration != null -> "reuse-descriptors"
-                                    reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS -> "request-transition"
-                                    else -> "reject-missing-configuration"
-                                }}",
+                                "action=${if (configuration != null) "reuse-descriptors" else "reject-missing-configuration"}",
                         )
                         when {
-                            // The CarPlay configuration is (still) exposed and the last open
-                            // succeeded: open it directly. AutoKit parity — never re-enumerate
-                            // a healthy device; re-enumerating invalidated the grant and cost a
-                            // second permission dialog on every cable plug (run-146 report).
-                            // The old endpoint-staleness hang was the missing teardown close,
-                            // fixed separately (v2.0-84); reopen + setConfiguration is safe.
-                            configuration != null && wiredOpenFailures == 0 -> openDataPaths(result.device)
-                            // Either the iPhone is not in CarPlay USB mode (the Apple vendor
-                            // request makes it switch, which re-enumerates by design), or a
-                            // previous open failed (stale-state last-resort recovery). The 144
-                            // auto-grant window covers the resulting permission prompt.
-                            reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS ->
-                                beginReenumeration(result.device)
+                            // The CarPlay configuration is exposed: open it directly. AutoKit
+                            // parity — never re-enumerate; a re-enumeration invalidates the USB
+                            // grant and cost a second permission dialog on every cable plug
+                            // (run-146 report). Reopening + setConfiguration is safe now that
+                            // teardown releases every endpoint (fixed in v2.0-84).
+                            configuration != null -> openDataPaths(result.device)
                             else -> fail(
                                 IphoneUsbException.Protocol(
                                     "iPhone did not expose a complete CarPlay USB configuration",
@@ -1732,50 +1700,6 @@ class CarPlayController(
         mainHandler.postDelayed(check, PERMISSION_POLL_INTERVAL_MILLIS)
     }
 
-    private fun beginReenumeration(device: UsbDevice) {
-        phase = Phase.REENUMERATION
-        reenumerationAttempts += 1
-        reenumerationPerformed = true
-        connectionDiagnostic("USB transition requested count=$reenumerationAttempts")
-        // Remember which device node we asked the phone to leave. Only a *different* node proves
-        // the re-enumeration really happened; reusing the same node is the stale state that makes
-        // the USBMUX handshake time out.
-        reenumerationSourceDeviceName = device.deviceName
-        onStatus(CarPlayStatus.SelectingConfiguration)
-        iphoneHost.requestCarPlayReenumerationAsync(device, executor) { transition ->
-            when (transition) {
-                IphoneUsbHost.TransitionResult.ReenumerationRequested -> {
-                    onStatus(CarPlayStatus.WaitingForReenumeration)
-                    // Do not depend on ACTION_USB_DEVICE_ATTACHED alone: some Android 7 builds miss
-                    // the broadcast when the phone comes back quickly, and the bring-up then sits
-                    // idle until the 120 s permission timeout with the phone already re-attached.
-                    scheduleReenumerationPoll()
-                }
-                is IphoneUsbHost.TransitionResult.Failed -> fail(transition.error)
-            }
-        }
-    }
-
-    /** Backstop for a missed USB attach broadcast while waiting for a new device node. */
-    private fun scheduleReenumerationPoll() {
-        val generation = availabilityPollGeneration.get()
-        mainHandler.postDelayed(
-            {
-                if (closed || phase != Phase.REENUMERATION) return@postDelayed
-                if (generation != availabilityPollGeneration.get()) return@postDelayed
-                val replacement = iphoneHost.discover()
-                    .firstOrNull { it.deviceName != reenumerationSourceDeviceName }
-                if (replacement != null) {
-                    debugLog("wired re-enumerated iPhone appeared; requesting USB access")
-                    requestIphonePermission(replacement)
-                } else {
-                    scheduleReenumerationPoll()
-                }
-            },
-            REENUMERATION_POLL_INTERVAL_MILLIS,
-        )
-    }
-
     private fun onIphoneAttached(device: UsbDevice) {
         when (phase) {
             Phase.REENUMERATION, Phase.IPHONE -> {
@@ -1810,7 +1734,6 @@ class CarPlayController(
         iphoneHost.openIap2UsbSessionAsync(device, executor) { result ->
             when (result) {
                 is IphoneUsbHost.Iap2SessionResult.Connected -> {
-                    wiredOpenFailures = 0
                     // Publish the pipe before touching the phone: everything past this point can
                     // block for the full USBMUX handshake timeout, and teardown has to be able to
                     // release it even when `mux` is still unset.
@@ -1829,12 +1752,7 @@ class CarPlayController(
                         if (wiredUsbSession === result.session) wiredUsbSession = null
                     }
                 }
-                is IphoneUsbHost.Iap2SessionResult.Failed -> {
-                    // A failed open (e.g. the USBMUX handshake hang) may indicate stale USB
-                    // state; the next attach is allowed to re-enumerate as last-resort recovery.
-                    wiredOpenFailures++
-                    fail(result.error)
-                }
+                is IphoneUsbHost.Iap2SessionResult.Failed -> fail(result.error)
             }
         }
     }
@@ -2025,7 +1943,6 @@ class CarPlayController(
             // reconstructed by diffing this log against a known-good one.
             debugLog(
                 "wired bring-up verdict=failed stage=$phase " +
-                    "reenumerated=$reenumerationPerformed attempts=$reenumerationAttempts " +
                     "reason=${error.message ?: error.javaClass.simpleName}",
             )
             debugLog("wired bring-up failed", error)
@@ -2882,12 +2799,10 @@ class CarPlayController(
         private const val LOCATION_CONTROL_LOOP_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L
         private const val PERMISSION_POLL_INTERVAL_MILLIS = 500L
         /** Backstop cadence for a missed USB attach broadcast after re-enumeration. */
-        private const val REENUMERATION_POLL_INTERVAL_MILLIS = 400L
         private const val PERMISSION_POLL_TIMEOUT_MILLIS = 120_000L
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
-        private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val AUTO_GRANT_POLL_ATTEMPTS = 6
         private const val AUTO_GRANT_POLL_MILLIS = 400L
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
