@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.hud
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
