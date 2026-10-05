@@ -3945,6 +3945,10 @@ class CarPlayHostActivity : ComponentActivity() {
         controller = next
         updateClusterMapShown()
         CarPlayMediaKeys.attach(this, next)
+        LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
+        LeapmotorMediaKeys.attach(this, next)
+        LeapmotorGearMonitor.onDiagnostic = { message -> appendLog(message) }
+        LeapmotorGearMonitor.attach(this, next)
         if (airPlayConfig.videoInCar) CarPlayVideo.attach(this, next)
         val display = CarPlaySessionDisplay(
             airPlayConfig.main.widthPixels, airPlayConfig.main.heightPixels,
@@ -4288,6 +4292,8 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldController = controller
         val oldSink = sink
         CarPlayMediaKeys.detach(oldController)
+        LeapmotorMediaKeys.detach(oldController)
+        LeapmotorGearMonitor.detach(oldController)
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         controller = null
         sink = null
@@ -4434,6 +4440,8 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldController = controller
         val oldSink = sink
         CarPlayMediaKeys.detach(oldController)
+        LeapmotorMediaKeys.detach(oldController)
+        LeapmotorGearMonitor.detach(oldController)
         CarPlayBackgroundSession.clear(oldController)
         controller = null
         sink = null

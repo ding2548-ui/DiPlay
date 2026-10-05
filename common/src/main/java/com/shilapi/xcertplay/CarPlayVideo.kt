@@ -54,7 +54,8 @@ internal object CarPlayVideo : CarPlayVideoListener {
         next.videoListener = this
     }
 
-    override fun readParked(): Boolean? = appContext?.let(BydNavigationOutputs::parked)
+    // Leapmotor gates in-car video on N (the CAN broadcast has no P reading).
+    override fun readParked(): Boolean? = com.shilapi.xcertplay.LeapmotorGearMonitor.videoAllowed()
 
     override fun onVideoAllowedChanged(allowed: Boolean) {
         if (!allowed) main.post { closePlayer("the car left P") }
