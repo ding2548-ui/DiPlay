@@ -482,6 +482,22 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Persist any uncaught crash to files/logs/crash.txt: the exported diagnostic report is
+        // written by the live process and never captures the stack that killed it.
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                val dir = File(applicationContext.filesDir, "logs")
+                dir.mkdirs()
+                File(dir, "crash.txt").appendText(
+                    "==== " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(java.util.Date()) +
+                        " thread=" + thread.name + " ====\n" +
+                        java.io.StringWriter().also { throwable.printStackTrace(java.io.PrintWriter(it)) }.toString() +
+                        "\n",
+                )
+            }
+            previous?.uncaughtException(thread, throwable)
+        }
         NavigationWidgetUpdater.attach(applicationContext)
         CenterMapOverlay.requestShow = ::showCenterMap
         MapMirrors.sink = mirrorSink
