@@ -18,6 +18,7 @@ import android.widget.TextView
 import java.security.MessageDigest
 
 /** Parked, finite probe of stock IPC. No shell, socket, SDK privilege or helper. */
+@SuppressLint("NewApi") // debug-only demo, firmware-gated to Android 13
 class StandaloneHudDemoActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var status: TextView
