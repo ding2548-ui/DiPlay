@@ -56,6 +56,7 @@ import com.shilapi.xcertplay.network.P2pResetRequiredException
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
 import com.shilapi.xcertplay.network.WirelessHotspotBackend
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
+import com.shilapi.xcertplay.network.WirelessStartupPolicy
 import com.shilapi.xcertplay.network.WirelessHotspotManager
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import com.shilapi.xcertplay.transport.BluetoothRfcommDuplexStream
@@ -1128,6 +1129,9 @@ class CarPlayController(
                 },
             )
             bonjour = bonjourClient
+            // PSA hotspot-ipv4 parity: re-check the interface/address chosen at start right
+            // before anything is published — a flapping hotspot must not advertise a dead address.
+            startedHotspot?.validateReady()
             bonjourClient.start()
             debugLog(
                 "wireless Bonjour services started mode=interface " +
@@ -2134,13 +2138,17 @@ class CarPlayController(
                 channel = 0,
                 security = config.manualHotspotSecurity,
                 onDiagnostic = ::debugLog,
+                isCancelled = { isStaleWirelessRun(generation) },
             )
         }
         hotspot = manager
-        val timeoutMillis = if (hotspotMode == WirelessHotspotMode.WIFI_P2P) {
-            WIFI_P2P_START_TIMEOUT_MILLIS
-        } else {
-            HOTSPOT_START_TIMEOUT_MILLIS
+        val timeoutMillis = when (hotspotMode) {
+            // PSA hotspot-ipv4 parity: the manual hotspot waits inside the manager until the AP
+            // interface holds a dialable IPv4 (the IPv4 handout by netd can lag the AP by a few
+            // seconds), bounded by the same 15 s ready deadline.
+            WirelessHotspotMode.MANUAL -> WirelessStartupPolicy.HOTSPOT_READY_MILLIS
+            WirelessHotspotMode.WIFI_P2P -> WIFI_P2P_START_TIMEOUT_MILLIS
+            else -> HOTSPOT_START_TIMEOUT_MILLIS
         }
         return try {
             manager.start(timeoutMillis)

@@ -11,7 +11,7 @@ enum class WirelessHotspotBackend(val label: String) {
     EXTERNAL_WIFI("外部 Wi-Fi"),
 }
 
-/** The live Wi-Fi credentials and interface details for one wireless CarPlay hotspot. */
+/** The live Wi-Fi credentials and interface details for a wireless CarPlay network. */
 class WirelessHotspotInfo(
     val ssid: String,
     val passphrase: String,
@@ -23,6 +23,10 @@ class WirelessHotspotInfo(
     val hostAddress: InetAddress?,
     val bandLabel: String,
     val backend: WirelessHotspotBackend,
+    /** Addresses on the selected interface that discovery and TCP must both serve. */
+    val hostAddresses: List<InetAddress> = listOfNotNull(hostAddress),
+    /** Wi-Fi AP hint for 0x5703; independent of the receiver's AirPlay identity in [bssid]. */
+    val accessPointBssid: ByteArray? = null,
 ) {
     override fun toString(): String =
         "WirelessHotspotInfo(backend=${backend.label}, ssid='$ssid', " +
@@ -31,27 +35,29 @@ class WirelessHotspotInfo(
             "hostAddress=$hostAddress, bandLabel='$bandLabel')"
 }
 
-/** Owns one Android Wi-Fi group and all resources needed to keep it alive. */
+/** Prepares a wireless network and owns only the resources acquired by this manager. */
 interface WirelessHotspotManager : Closeable {
     /**
-     * Starts a hotspot and waits up to [timeoutMillis] for its live configuration and AP
-     * interface. Implementations must not be called on the main thread.
+     * Creates or attaches to a wireless network and waits up to [timeoutMillis] for its live
+     * configuration and interface. Implementations must not be called on the main thread.
      */
     fun start(timeoutMillis: Long): WirelessHotspotInfo
 
-    /**
-     * How many devices have joined the group, or null when that cannot be determined.
-     *
-     * This separates two failures that are otherwise indistinguishable in the log: "the phone
-     * never joined our Wi-Fi network" (count stays 0 — the credentials, band or channel we sent in
-     * `0x5703` were not usable) and "the phone joined but never opened the AirPlay connection"
-     * (count >= 1 — the network is fine, so the fault is in Bonjour/AirPlay). Without this the two
-     * look identical, because in both cases `airplay connection accepted from` never appears.
-     */
-    fun joinedClientCount(): Int? = null
+    /** 发布之前确认本轮选定的接口和地址仍可用。 */
+    fun validateReady() {}
 
     /** The authenticated wireless session has rendered CarPlay; AP creation alone is insufficient. */
     fun onCarPlayConfirmed() {}
+
+    /** Counts reported by the framework, when available; never contains station identities. */
+    fun connectionDiagnosticSnapshot(): String = "association=not_exposed"
+
+    /**
+     * How many devices have joined the group, or null when that cannot be determined. Kept from
+     * the previous fork state: it separates "the phone never joined our Wi-Fi" (0) from "joined
+     * but AirPlay never opened" (>= 1), which otherwise look identical in the log.
+     */
+    fun joinedClientCount(): Int? = null
 }
 
 /**
@@ -107,15 +113,10 @@ internal fun observedManualHotspotChannel(
     connectionFrequencyMHz: Int?,
     scanFrequencyMHz: Int?,
     apFrequencyMHz: Int?,
-    configuredChannel: Int = 0,
 ): Int {
     if (apChannel > 0) return apChannel
     connectionFrequencyMHz?.let(::wifiFrequencyMhzToChannel)?.let { return it }
     scanFrequencyMHz?.let(::wifiFrequencyMhzToChannel)?.let { return it }
     apFrequencyMHz?.let(::wifiFrequencyMhzToChannel)?.let { return it }
-    // Android 7 through 9 cannot observe an "auto" hotspot channel through public APIs. The
-    // channel the deployment configured in the car settings is the only remaining answer, and it
-    // is correct whenever the AP honours it.
-    if (configuredChannel > 0) return configuredChannel
     return 0
 }
