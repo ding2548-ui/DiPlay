@@ -86,7 +86,11 @@ class StandaloneHudDemoActivity : Activity() {
             "This test is restricted to the inspected firmware"
         }
         val info = packageManager.getPackageInfo(target.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        check(info.longVersionCode == 10601004L) { "Different stock receiver version" }
+        // minSdk 25: longVersionCode is API 28; versionCode is sufficient on this head unit.
+        @Suppress("DEPRECATION") val versionCode: Long =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode
+            else info.versionCode.toLong()
+        check(versionCode == 10601004L) { "Different stock receiver version" }
         check(info.applicationInfo!!.flags and ApplicationInfo.FLAG_SYSTEM != 0)
         val certs = info.signingInfo!!.apkContentsSigners
         check(certs.size == 1 && MessageDigest.getInstance("SHA-256").digest(certs[0].toByteArray())
