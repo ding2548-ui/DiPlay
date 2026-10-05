@@ -623,9 +623,11 @@ class DiPlayActivity : ComponentActivity() {
                     val liveSsid = currentStationSsid()
                     when {
                         target == mode -> Unit
-                        selection == 0 -> applyWirelessLink(WirelessHotspotMode.WIFI_P2P)
-                        hotspotError(storedSsid(), storedPassword()) == null ->
-                            applyWirelessLink(target)
+                        // Car hotspot: the mode applies immediately; credentials can be filled
+                        // afterwards (the SSID is auto-read from the system, and the connect
+                        // dialog guides the user when they are still missing).
+                        selection == 0 -> applyWirelessLink(WirelessHotspotMode.MANUAL)
+                        selection == 1 -> applyWirelessLink(WirelessHotspotMode.WIFI_P2P)
                         // External Wi-Fi never needs a typed password (the car is already a
                         // station member); fill the name from the live station connection so the
                         // user is not forced through the credential dialog.
@@ -838,9 +840,11 @@ class DiPlayActivity : ComponentActivity() {
     private fun connect(wireless: Boolean) {
         if (setupError != null) { toast(setupError!!); return }
         if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
-        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) != com.shilapi.xcertplay.orchestration.WirelessHotspotMode.WIFI_P2P) {
-            // Encrypted external Wi-Fi requires a password before connecting: without it the
-            // iPhone is told the wrong security and every attempt stalls in discovery retries.
+        if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == com.shilapi.xcertplay.orchestration.WirelessHotspotMode.EXTERNAL_WIFI) {
+            // External Wi-Fi only: the station probe reads the network the car joined. The car
+            // hotspot route reads its credentials from the hotspot settings instead — probing
+            // here overwrote the user's hotspot name with the station SSID and stalled every
+            // attempt (run-153 report).
             val probe = com.shilapi.xcertplay.network.ExternalWifiSecurityProbe.probe(this)
             if (probe != null) {
                 if (storedSsid() != probe.ssid) saveHotspotCredentials(probe.ssid, storedPassword())

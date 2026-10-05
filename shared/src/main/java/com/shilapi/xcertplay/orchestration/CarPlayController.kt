@@ -207,6 +207,17 @@ class CarPlayController(
     private var configurationTransitions = 0
     /** Device node handed to the transition request; a different node proves the switch. */
     private var transitionSourceDeviceName: String? = null
+
+    /**
+     * Reuse-descriptor opens are the zero-dialog path, but they deadlock when the iPhone still
+     * carries the previous iAP2 link state (run-149 report). The watchdog below blocks reuse for
+     * a while after such a stall, so the retry goes through the mode transition instead; the
+     * block auto-expires so the next cable cycle tries the zero-dialog path again. This ROM's
+     * "always" grant does NOT cover re-enumerated nodes, so every avoided transition avoids a
+     * dialog.
+     */
+    @Volatile private var wiredReuseBlockedUntil = 0L
+    private var wiredWatchdogPending = false
     private var lastReportedStatus: CarPlayStatus? = null
     private var mfiResetLogged = false
 
@@ -305,6 +316,8 @@ class CarPlayController(
                 }
             }
             activeSession = session
+            wiredReuseBlockedUntil = 0L
+            wiredWatchdogPending = false
             wirelessAirPlayConnections.incrementAndGet()
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
@@ -1662,28 +1675,30 @@ class CarPlayController(
                     Phase.REENUMERATION, Phase.IPHONE -> {
                         val configuration = IphoneCarPlayConfiguration.find(result.device)
                         val firstGrant = phase == Phase.IPHONE
+                        val reuseAllowed =
+                            android.os.SystemClock.elapsedRealtime() >= wiredReuseBlockedUntil
                         connectionDiagnostic(
                             "USB configuration ready=${configuration != null} " +
                                 "configurationId=${configuration?.id ?: "none"} " +
                                 "transitions=$configurationTransitions " +
+                                "reuseAllowed=$reuseAllowed " +
                                 "action=${when {
                                     !firstGrant && configuration != null -> "open-transitioned-device"
+                                    configuration != null && reuseAllowed -> "open-descriptors"
                                     configurationTransitions < MAX_CONFIGURATION_TRANSITIONS -> "request-carplay-mode"
                                     else -> "reject-missing-configuration"
                                 }}",
                         )
                         when {
-                            // EVERY bring-up must run on a FRESH iPhone iAP2 link. Opening the
-                            // data paths on the device while it still carries the previous
-                            // link state deadlocks: the peer keeps its old sequence numbers,
-                            // the surface handshake (SYNCHRONIZE/MFi/0x4300/artwork) all pass,
-                            // and then the phone never starts AirPlay (run-149 report — every
-                            // reuse-descriptors session stalls while the transitioned session
-                            // at attempt=5 ran at 53 fps). So the FIRST grant of each bring-up
-                            // always drives the mode transition; the re-enumerated node comes
-                            // back with a fresh link, and the system "always" grant covers its
-                            // permission with no second dialog (the 2.4 s window below absorbs
-                            // the grant landing).
+                            // The device already offers the CarPlay configuration and reuse is
+                            // not blocked: open it directly — zero re-enumeration, zero dialogs
+                            // (the AutoKit experience). A stale iAP2 link state is caught by the
+                            // AirPlay watchdog below, which blocks reuse for this cable cycle.
+                            firstGrant && configuration != null && reuseAllowed ->
+                                openDataPaths(result.device)
+                            // First grant but reuse is blocked (a previous reuse stalled): the
+                            // mode transition restarts the phone's iAP2 stack. The toggle costs
+                            // two re-enumerations and their dialogs — only paid after a stall.
                             firstGrant && configurationTransitions < MAX_CONFIGURATION_TRANSITIONS ->
                                 beginCarPlayModeTransition(result.device)
                             // The node the transition re-enumerated in: fresh link, open it.
@@ -1766,6 +1781,33 @@ class CarPlayController(
      * The new node returns through [onIphoneAttached] / the poll below; the permission window
      * auto-grants it when "always" was ticked, so a returning user plugs in with zero dialogs.
      */
+    /**
+     * Catches the reuse-descriptor stall: the surface handshake (SYNCHRONIZE/MFi/0x4300/artwork)
+     * all pass, but the phone — still carrying the previous iAP2 link state — never starts
+     * AirPlay. After a quiet period the session is failed, the retry goes through the mode
+     * transition (whose re-enumerated node opens cleanly), and reuse is blocked for this cable
+     * cycle so the retry does not loop on the same dead path.
+     */
+    private fun armWiredAirplayWatchdog() {
+        if (wiredWatchdogPending) return
+        wiredWatchdogPending = true
+        val generation = diagnosticRun.get()
+        mainHandler.postDelayed({
+            wiredWatchdogPending = false
+            if (closed || activeSession != null) return@postDelayed
+            // A newer bring-up re-armed its own watchdog; this stale tick must not fail it.
+            if (generation != diagnosticRun.get()) return@postDelayed
+            if (phase != Phase.CONTROL && phase != Phase.DATAPATHS) return@postDelayed
+            debugLog(
+                "wired reuse watchdog: no AirPlay session within " +
+                    "${WIRED_AIRPLAY_WATCHDOG_MILLIS}ms; blocking reuse for this cable cycle",
+            )
+            wiredReuseBlockedUntil =
+                android.os.SystemClock.elapsedRealtime() + WIRED_REUSE_BLOCK_MILLIS
+            fail(IphoneUsbException.Protocol("wired reuse produced no AirPlay session"))
+        }, WIRED_AIRPLAY_WATCHDOG_MILLIS)
+    }
+
     private fun beginCarPlayModeTransition(device: UsbDevice) {
         phase = Phase.REENUMERATION
         configurationTransitions += 1
@@ -1808,6 +1850,7 @@ class CarPlayController(
         debugLog("wired opening iPhone USB data paths")
         onStatus(CarPlayStatus.SelectingConfiguration)
         onStatus(CarPlayStatus.OpeningDataPaths)
+        if (config.transport == CarPlayTransport.WIRED) armWiredAirplayWatchdog()
         iphoneHost.openIap2UsbSessionAsync(device, executor) { result ->
             when (result) {
                 is IphoneUsbHost.Iap2SessionResult.Connected -> {
@@ -2883,6 +2926,8 @@ class CarPlayController(
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val MAX_CONFIGURATION_TRANSITIONS = 2
         private const val TRANSITION_POLL_INTERVAL_MILLIS = 400L
+        private const val WIRED_AIRPLAY_WATCHDOG_MILLIS = 15_000L
+        private const val WIRED_REUSE_BLOCK_MILLIS = 120_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val AUTO_GRANT_POLL_ATTEMPTS = 6
