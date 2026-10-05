@@ -2090,8 +2090,11 @@ class CarPlayController(
                 ssid = config.manualHotspotSsid
                     ?: throw IOException("Manual hotspot SSID is not configured"),
                 passphrase = config.manualHotspotPassphrase.orEmpty(),
-                band = config.manualHotspotBand,
-                channel = config.manualHotspotChannel,
+                // Channel 0 = auto: observed from the connection/scan/AP configuration at
+                // start time (0.2.8 connected fine with channelKnown=false). A stale stored
+                // channel must never force a mismatch against the live hotspot.
+                band = com.shilapi.xcertplay.orchestration.ManualHotspotBand.AUTO,
+                channel = 0,
                 security = config.manualHotspotSecurity,
                 onDiagnostic = ::debugLog,
             )

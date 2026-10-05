@@ -642,8 +642,9 @@ class DiPlayActivity : ComponentActivity() {
         }
         parent.addView(control, matchButton(0, 60)); parent.addView(space(12))
         // Wi-Fi Direct preferred channel (upstream 0.2.11): remembered and used from the next
-        // connection on; "自动" keeps the previous behaviour. Only meaningful for Wi-Fi Direct.
-        wifiDirectChannelControl(parent)
+        // connection on; "自动" keeps the previous behaviour. Only meaningful for Wi-Fi Direct —
+        // the car hotspot reports channel 0 (auto) like 0.2.8, which connected fine that way.
+        if (mode == WirelessHotspotMode.WIFI_P2P) wifiDirectChannelControl(parent)
         if (!carHotspot) {
             parent.addView(label("Wi-Fi Direct 模式：DiPlay 会为 iPhone 自建无线网络。", 14, MUTED).apply {
                 setPadding(0, 0, 0, dp(18))
@@ -667,17 +668,25 @@ class DiPlayActivity : ComponentActivity() {
                 else -> externalHint = "已自动填入当前 Wi-Fi：$stored（开放网络可不填密码，加密网络必须填写密码；iPhone 需与车机在同一 Wi-Fi）。"
             }
         }
-        val ssid = storedSsid()
+        var ssid = storedSsid()
         val password = storedPassword()
         if (mode == WirelessHotspotMode.MANUAL) {
+            // Zero-input parity with 0.2.8: its manual hotspot run was configReadable=true —
+            // the same WifiManager.getWifiApConfiguration read this helper does. Only the name
+            // can be auto-filled; Android never hands back the hotspot passphrase, so that
+            // stays a one-time user entry.
+            if (ssid.isEmpty()) readSystemHotspotSsid()?.let { system ->
+                saveHotspotCredentials(system, password)
+                ssid = system
+                toast("已自动填入车机热点名称：$system，请确认后填写热点密码")
+            }
             parent.addView(label(
                 "车机热点模式：连接时 iPhone 会自动加入下方车机热点。使用前请先在车机设置中打开热点，" +
                     "热点名称和密码必须与车机热点设置完全一致。",
                 14, MUTED,
             ).apply { setPadding(0, dp(4), 0, dp(18)) })
         }
-        parent.addView(button("热点名称 · $ssid", false) {
-            textInput("车机热点名称", ssid, secret = false) { value ->
+        parent.addView(button("热点名称 · $ssid", false) {            textInput("车机热点名称", ssid, secret = false) { value ->
                 hotspotError(value, password)?.let { toast(it); return@textInput }
                 saveHotspotCredentials(value, password)
                 render()
@@ -703,39 +712,36 @@ class DiPlayActivity : ComponentActivity() {
             return
         }
         parent.addView(space(12))
-        // The iAP2 0x5703/0x4301 payloads carry this channel to the iPhone. Android 7 cannot
-        // observe the hotspot channel through public APIs, so an unset channel means the payloads
-        // say 0 — an invalid value the iPhone rejects. It MUST match the real hotspot channel.
-        val channel = AirPlayPersistence.loadManualHotspotChannel(this)
-        parent.addView(button(
-            "热点信道 · ${if (channel == 0) "0（未设置，无法连接）" else channel.toString()}",
-            false,
-        ) {
-            textInput("车机热点信道（须与车机热点实际信道一致，2.4G 常用 1/6/11）", channel.toString(), secret = false) { value ->
-                val parsed = value.trim().toIntOrNull()
-                if (parsed == null || parsed !in 0..196) {
-                    toast("信道必须为 0 或 1-196")
-                    return@textInput
-                }
-                AirPlayPersistence.saveManualHotspotChannel(this, parsed)
-                AirPlayPersistence.saveManualHotspotBand(
-                    this,
-                    when {
-                        parsed == 0 -> com.shilapi.xcertplay.orchestration.ManualHotspotBand.AUTO
-                        parsed <= 13 -> com.shilapi.xcertplay.orchestration.ManualHotspotBand.GHZ_2_4
-                        else -> com.shilapi.xcertplay.orchestration.ManualHotspotBand.GHZ_5
-                    },
-                )
-                render()
-            }
-        }, matchButton(0, 60))
-        parent.addView(label("请先在车机设置中打开热点，并在此填入相同的名称、密码与信道（信道须与车机热点设置一致，填 0 无法连接）。iPhone 会加入该网络以使用 CarPlay。更改在下次连接时生效。", 14, MUTED).apply {
-            setPadding(0, dp(8), 0, dp(18))
-        })
+        // Channel 0 = auto: the hotspot channel is observed at connection time (connection info,
+        // scan results, or the AP configuration when the system exposes it). Upstream 0.2.8
+        // connected with channelKnown=false / channel=0 — no manual channel entry, no mismatch
+        // failures. The old manual channel field (with its "0 无法连接" warning) is gone.
+        parent.addView(label(
+            "车机热点模式：iPhone 将自动加入车机热点。请先在车机设置中打开热点；" +
+                "下方名称与密码须与车机热点设置完全一致。更改在下次连接时生效。",
+            14, MUTED,
+        ).apply { setPadding(0, dp(8), 0, dp(18)) })
     }
 
     private fun storedSsid() = AirPlayPersistence.loadManualHotspotSsid(this)
     private fun storedPassword() = AirPlayPersistence.loadManualHotspotPassphrase(this)
+
+    /**
+     * Reads the car's own hotspot name through the same reflective
+     * `WifiManager.getWifiApConfiguration` path upstream 0.2.8 used (configReadable=true on this
+     * head unit). Returns null when the system hides the configuration.
+     */
+    @Suppress("PrivateApi")
+    private fun readSystemHotspotSsid(): String? = runCatching {
+        val wifi = getSystemService(WifiManager::class.java) ?: return null
+        val configuration = WifiManager::class.java
+            .getMethod("getWifiApConfiguration")
+            .invoke(wifi) as? android.net.wifi.WifiConfiguration
+            ?: return null
+        val raw = configuration.SSID ?: return null
+        val ssid = raw.removePrefix("\"").removeSuffix("\"").trim()
+        ssid.takeUnless { it.isBlank() }
+    }.getOrNull()
 
     /** The SSID the car's station is joined to right now, or null when not on a network. */
     private fun currentStationSsid(): String? {

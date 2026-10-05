@@ -3042,14 +3042,20 @@ class CarPlayHostActivity : ComponentActivity() {
         // the activity (the "flash back to the main page" of v2.0-65). Surface it as guidance.
         val config = runCatching { createRuntimeConfig() }.getOrElse { error ->
             appendLog("启动配置无效：${error.message}")
+            // The guidance must match the wireless mode the user actually chose: the car
+            // hotspot needs its own name/password, not the external-Wi-Fi station check.
+            val detail = when {
+                error.message?.contains("manualHotspot", ignoreCase = true) == true ->
+                    "车机热点模式：请先到 DiPlay 设置 → 无线连接，填写车机热点名称与密码" +
+                        "（须与车机热点设置完全一致），并确认车机热点已打开。\n"
+                else ->
+                    "外部 Wi-Fi 模式：请确认手机已连接外部 Wi-Fi。\n" +
+                        "如需校验网络名称或连接其他网络，到 DiPlay 设置 → 无线连接 填写名称与密码。\n"
+            }
             runOnUiThread {
                 android.app.AlertDialog.Builder(this)
                     .setTitle("无法启动 CarPlay")
-                    .setMessage(
-                        "外部 Wi-Fi 模式：请确认手机已连接外部 Wi-Fi。\n" +
-                            "如需校验网络名称或连接其他网络，到 DiPlay 设置 → 无线连接 填写名称与密码。\n" +
-                            "（${error.message}）",
-                    )
+                    .setMessage(detail + "（${error.message}）")
                     .setPositiveButton("知道了", null)
                     .show()
             }
