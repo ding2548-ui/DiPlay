@@ -1650,26 +1650,33 @@ class CarPlayController(
                 when (phase) {
                     Phase.REENUMERATION, Phase.IPHONE -> {
                         val configuration = IphoneCarPlayConfiguration.find(result.device)
+                        val firstGrant = phase == Phase.IPHONE
                         connectionDiagnostic(
                             "USB configuration ready=${configuration != null} " +
                                 "configurationId=${configuration?.id ?: "none"} " +
                                 "transitions=$configurationTransitions " +
-                                "action=${if (configuration != null) "reuse-descriptors" else "request-carplay-mode"}",
+                                "action=${when {
+                                    !firstGrant && configuration != null -> "open-transitioned-device"
+                                    configurationTransitions < MAX_CONFIGURATION_TRANSITIONS -> "request-carplay-mode"
+                                    else -> "reject-missing-configuration"
+                                }}",
                         )
                         when {
-                            // The CarPlay configuration is exposed: open it directly. AutoKit
-                            // parity — never re-enumerate a device that already offers the
-                            // configuration; a re-enumeration invalidates the USB grant and
-                            // cost a second permission dialog on every cable plug (run-146
-                            // report). Reopening + setConfiguration is safe now that teardown
-                            // releases every endpoint (fixed in v2.0-84).
+                            // EVERY bring-up must run on a FRESH iPhone iAP2 link. Opening the
+                            // data paths on the device while it still carries the previous
+                            // link state deadlocks: the peer keeps its old sequence numbers,
+                            // the surface handshake (SYNCHRONIZE/MFi/0x4300/artwork) all pass,
+                            // and then the phone never starts AirPlay (run-149 report — every
+                            // reuse-descriptors session stalls while the transitioned session
+                            // at attempt=5 ran at 53 fps). So the FIRST grant of each bring-up
+                            // always drives the mode transition; the re-enumerated node comes
+                            // back with a fresh link, and the system "always" grant covers its
+                            // permission with no second dialog (the 2.4 s window below absorbs
+                            // the grant landing).
+                            firstGrant && configurationTransitions < MAX_CONFIGURATION_TRANSITIONS ->
+                                beginCarPlayModeTransition(result.device)
+                            // The node the transition re-enumerated in: fresh link, open it.
                             configuration != null -> openDataPaths(result.device)
-                            // The iPhone is still in its default USB mode. Entry into the
-                            // CarPlay configuration REQUIRES the Apple vendor request, and iOS
-                            // re-enumerates whenever it changes configuration — this is the
-                            // protocol, not the removed redundancy. The system auto-grants the
-                            // new node once "always" was ticked, and the 2.4 s permission
-                            // window below covers the grant landing.
                             configurationTransitions < MAX_CONFIGURATION_TRANSITIONS ->
                                 beginCarPlayModeTransition(result.device)
                             else -> fail(
@@ -1749,6 +1756,7 @@ class CarPlayController(
      * auto-grants it when "always" was ticked, so a returning user plugs in with zero dialogs.
      */
     private fun beginCarPlayModeTransition(device: UsbDevice) {
+        phase = Phase.REENUMERATION
         configurationTransitions += 1
         transitionSourceDeviceName = device.deviceName
         connectionDiagnostic("USB CarPlay mode transition requested count=$configurationTransitions")
