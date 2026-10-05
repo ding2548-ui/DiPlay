@@ -682,17 +682,9 @@ class DiPlayActivity : ComponentActivity() {
                 ssid = system
                 toast("已自动填入车机热点名称：$system，请确认后填写热点密码")
             }
-            // Step-by-step guidance (0.2.12 style): each step is actionable, and the name step
-            // shows what was actually read from the system so a mismatch is visible at once.
-            val nameStep = if (ssid.isEmpty()) {
-                "① 在车机设置中打开热点，并在下方填写与车机热点一致的热点名称"
-            } else {
-                "① 在车机设置中打开热点（热点名称：$ssid，已自动读取）"
-            }
             parent.addView(label(
-                "车机热点模式 · 共 2 步：\n" +
-                    "$nameStep\n" +
-                    "② 在下方填写热点密码，然后点击“连接手机”。iPhone 将自动加入车机热点。",
+                "车机热点模式：连接时 iPhone 会自动加入下方车机热点。使用前请先在车机设置中打开热点，" +
+                    "热点名称和密码必须与车机热点设置完全一致。",
                 14, MUTED,
             ).apply { setPadding(0, dp(4), 0, dp(18)) })
         }

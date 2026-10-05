@@ -54,6 +54,7 @@ import com.shilapi.xcertplay.network.MdnsSniffer
 import com.shilapi.xcertplay.network.PhoneProbe
 import com.shilapi.xcertplay.network.P2pResetRequiredException
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
+import com.shilapi.xcertplay.network.WirelessHotspotBackend
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
 import com.shilapi.xcertplay.network.WirelessHotspotManager
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
@@ -988,10 +989,9 @@ class CarPlayController(
             val mfi = mfiSession?.client
                 ?: throw IOException("MFi coprocessor client is unavailable")
             val hotspotInfo = startWirelessHotspot(generation)
-            // 0.2.12 readiness gate (addressPolicy=IPv4_only): the phone dials the advertised
-            // address, and on the car-hotspot route that must be an IPv4 the tether interface
-            // actually holds. An interface without one means the AP is not really up yet —
-            // fail with guidance instead of advertising an address nobody can dial.
+            // Readiness gate for the car hotspot (PSA parity): the phone dials the advertised
+            // address, so the hotspot interface must actually hold an IPv4 before anything is
+            // advertised. Without it the session stalls in endless retries.
             if (
                 config.wirelessHotspotMode == WirelessHotspotMode.MANUAL &&
                 hotspotInfo.hostAddress !is Inet4Address
@@ -1023,12 +1023,8 @@ class CarPlayController(
                 )
             }
             val hostAddressText = hostAddressText(hostAddress)
-            // Single-address policy (the PSA hotspot-ipv4 source, matching upstream 0.2.11):
-            // the AirPlay listener, the Bonjour record and the 0x4301 payload all use this ONE
-            // scored address. A mixed v4+v6 list is never dialled by the iPhone (phone-side
-            // pcap), and a fe80-only list dies behind the tether's IPv6 mangle rules — one
-            // correct address beats a list of candidates. The 155 build advertised the whole
-            // interface family list and the wireless session stalled in endless retries.
+            // Single-address policy (PSA hotspot-ipv4 parity): one scored address is advertised
+            // everywhere — the listener bind, Bonjour and 0x4301. See the endpoint below.
             val advertisedAddresses = listOf(hostAddressText)
             debugLog(
                 "wireless interface addresses iface=${hotspotInfo.interfaceName ?: "unknown"} " +
@@ -1110,9 +1106,9 @@ class CarPlayController(
                 config = advertisedAirPlayConfig,
                 identity = identity,
                 advertisedHost = hostAddress.hostAddress,
-                // Publish the SAME single scored address that 0x4301 advertises — the listener,
-                // Bonjour and the endpoint must never disagree about the address (extra
-                // families only produced addresses the phone would not dial).
+                // Bonjour publishes the SAME single scored address that 0x4301 carries — the
+                // listener, the record and the endpoint must never disagree about the address
+                // (extra families only produced addresses the phone would not dial).
                 advertisedHosts = emptyList(),
                 // Bind discovery and its connect probe to the same AP/address family as AirPlay.
                 // The car hotspot previously used system NSD, which could resolve another interface
@@ -1204,17 +1200,17 @@ class CarPlayController(
                 Iap2WirelessLinkRole.RUNTIME_TUNNEL,
                 linkWirelessIdentification,
             )
-            // Single-address policy (the PSA hotspot-ipv4 source, matching upstream 0.2.11):
-            // exactly ONE scored address goes into 0x4301. 155 advertised a primary+rest list
-            // and the iPhone never dialled it — a mixed v4+v6 list is ignored, and the old
-            // fe80-only variant died behind the tether's IPv6 mangle rules.
-            val ipAddresses = listOf(hostAddressText)
+            // Single-address policy, taken from the PSA hotspot-ipv4 source: 0x4301 carries
+            // EXACTLY ONE address — the scored hostAddressText (interfaceScore prefers the
+            // hotspot's IPv4). The iPhone never dials a mixed v4+v6 list (phone-side pcap),
+            // a fe80-only list dies behind the tether's IPv6 mangle rules, and 155's
+            // primary+rest list stalled the same way. One correct address, nothing else.
             val endpoint = Iap2WirelessCarPlayEndpoint(
                 ssid = hotspotInfo.ssid,
                 passphrase = hotspotInfo.passphrase,
                 channel = hotspotInfo.channel,
                 security = hotspotInfo.security,
-                ipAddresses = ipAddresses,
+                ipAddresses = listOf(hostAddressText),
                 airPlayPort = listenerPort,
                 deviceIdentifier = deviceIdentifier,
                 publicKey = identity.publicKeyHex,
@@ -2520,6 +2516,20 @@ class CarPlayController(
      * risks it trying that and giving up, so the routable address goes first and IPv6 stays as a
      * fallback for a peer that negotiated IPv6.
      */
+    private fun hostAddressTexts(interfaceName: String?, preferred: String): List<String> {
+        val addresses = interfaceName
+            ?.let { name -> runCatching { NetworkInterface.getByName(name) }.getOrNull() }
+            ?.let { nic -> Collections.list(nic.inetAddresses) }
+            .orEmpty()
+        val candidates = listOf(
+            addresses.filterIsInstance<Inet4Address>()
+                .firstOrNull { !it.isLoopbackAddress }?.hostAddress,
+            addresses.filterIsInstance<Inet6Address>()
+                .firstOrNull { !it.isLoopbackAddress }?.hostAddress?.substringBefore('%'),
+        ).filterNotNull().filter { it.isNotBlank() }
+        return (candidates + preferred).distinct()
+    }
+
     /** Report-safe label for an address literal; the address itself is redacted from reports. */
     private fun familyLabel(addressText: String): String = when {
         addressText.startsWith("fe80:", ignoreCase = true) -> "IPv6-linklocal"
