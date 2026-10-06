@@ -79,9 +79,12 @@ class IphoneUsbHost(
      * authorised for every USB device and the system never shows the permission dialog. It is a
      * `signature|privileged` permission, so a platform-signed build gets it straight from the
      * manifest while an ordinary build silently does not — which is why this is worth reporting.
+     *
+     * Spelled out rather than taken from [android.Manifest.permission]: MANAGE_USB is @hide in the
+     * framework, so the constant is not in the compile SDK and referencing it fails the build.
      */
     val manageUsbGranted: Boolean
-        get() = appContext.checkSelfPermission(android.Manifest.permission.MANAGE_USB) ==
+        get() = appContext.checkSelfPermission(MANAGE_USB_PERMISSION) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
 
     sealed class PermissionRequest {
@@ -468,6 +471,9 @@ class Iap2UsbSession internal constructor(
     private companion object {
         const val USBMUX_READ_CHUNK_BYTES = 65_536
         const val CANCEL_DRAIN_TIMEOUT_MILLIS = 1_000L
+
+        /** @hide in the framework, so it has to be spelled out; see [manageUsbGranted]. */
+        const val MANAGE_USB_PERMISSION = "android.permission.MANAGE_USB"
     }
 }
 
