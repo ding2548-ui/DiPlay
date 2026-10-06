@@ -296,7 +296,7 @@ class WifiP2pGroupManager(
         if (removeGroup && activeChannel != null) {
             removeGroupBlocking(activeChannel)
         }
-        activeChannel?.close()
+        closeChannel(activeChannel)
         activeThread?.quitSafely()
     }
 
@@ -550,9 +550,18 @@ class WifiP2pGroupManager(
         val wifi = appContext.getSystemService(WifiManager::class.java)
         val fiveGhzSupported = runCatching { wifi?.is5GHzBandSupported }.getOrNull()
         val wifiEnabled = runCatching { wifi?.isWifiEnabled }.getOrNull()
-        val locationEnabled = runCatching {
-            appContext.getSystemService(LocationManager::class.java)?.isLocationEnabled
-        }.getOrNull()
+        val locationEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching { appContext.getSystemService(LocationManager::class.java)?.isLocationEnabled }.getOrNull()
+        } else {
+            // LocationManager.isLocationEnabled is API 28; runCatching would not contain the
+            // NoSuchMethodError on this API 25 unit, so ask the legacy providers instead.
+            runCatching {
+                appContext.getSystemService(LocationManager::class.java)
+                    ?.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                    appContext.getSystemService(LocationManager::class.java)
+                        ?.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }.getOrNull()
+        }
         val required = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES
             else Manifest.permission.ACCESS_FINE_LOCATION
         val granted = appContext.checkSelfPermission(required) == PackageManager.PERMISSION_GRANTED
@@ -656,8 +665,19 @@ class WifiP2pGroupManager(
         if (removeGroup && failedChannel != null) {
             removeGroupBlocking(failedChannel)
         }
-        failedChannel?.close()
+        closeChannel(failedChannel)
         failedThread?.quitSafely()
+    }
+
+    /**
+     * `WifiP2pManager.Channel.close()` is API 27. On Android 7 the channel had no close method at
+     * all, so calling it raises NoSuchMethodError and takes the process down; the looper quit below
+     * is what actually released the channel there.
+     */
+    private fun closeChannel(channel: WifiP2pManager.Channel?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return
+        if (channel != null) runCatching { channel.close() }
+            .onFailure { Log.w(TAG, "Wi-Fi P2P channel close failed", it) }
     }
 
     private fun removeGroupBlocking(channel: WifiP2pManager.Channel, expectedName: String? = observedCreatedName ?: requestedName) {

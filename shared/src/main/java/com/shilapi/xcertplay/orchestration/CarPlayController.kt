@@ -1095,6 +1095,10 @@ class CarPlayController(
         }
     }
 
+    // The Bluetooth adapter is only reached after the wireless bring-up confirmed it is enabled,
+    // and the API 31+ BLUETOOTH_CONNECT constant does not exist on this API 25 head unit. Each
+    // helper below degrades to "no device" rather than failing the connection.
+    @SuppressLint("MissingPermission")
     private fun runWireless(generation: Int) {
         try {
             debugLog("wireless bring-up generation=$generation starting")
