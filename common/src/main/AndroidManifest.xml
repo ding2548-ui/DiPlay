@@ -10,8 +10,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- In-app updates: the platform signature grants silent PackageInstaller sessions on the car. -->
-    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
+    <!-- In-app updates: the platform signature grants silent PackageInstaller sessions on the car.
+         INSTALL_PACKAGES is a system permission; a platform-signed build is exactly the case it
+         is meant for, and it is what lets the updater install without a system installer dialog. -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Optional: the dashboard map as a card over the home screen. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
