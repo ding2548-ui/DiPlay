@@ -109,15 +109,28 @@ class CarPlayVpnService : VpnService() {
                 .setBlocking(true)
             // Only this app's own link-local traffic needs the TUN. Covering every app swallowed
             // other apps' link-local IPv6 whenever the wired VPN was up. The allowlist API was
-            // renamed between SDK levels: addAllowedPackage on the Android 7 car, which is the
-            // only name its VpnService.Builder carries, addAllowedApplication on newer stacks.
-            // The version test picks the one that exists there, so a rejection still surfaces as
-            // itself instead of being wrapped by reflection.
-            @Suppress("DEPRECATION")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                builder.addAllowedApplication(packageName)
-            } else {
-                builder.addAllowedPackage(packageName)
+            // renamed between SDK levels: the Android 7 head unit only has addAllowedPackage,
+            // while the SDK this module compiles against has dropped that name in favour of
+            // addAllowedApplication. Neither can be called directly, so try the old name first
+            // and unwrap InvocationTargetException so a rejected allowlist still surfaces as the
+            // platform exception it is - the caller must see it, not a reflection wrapper.
+            val allowlisted = runCatching {
+                Builder::class.java.getMethod("addAllowedPackage", String::class.java)
+                    .invoke(builder, packageName)
+            }.recoverCatching { failure ->
+                try {
+                    Builder::class.java.getMethod("addAllowedApplication", String::class.java)
+                        .invoke(builder, packageName)
+                } catch (application: java.lang.reflect.InvocationTargetException) {
+                    throw application.cause ?: application
+                }
+            }
+            if (allowlisted.isFailure) {
+                val cause = allowlisted.exceptionOrNull()
+                // A missing method on both sides would leave the VPN scoped to every app, which is
+                // exactly what this allowlist exists to prevent, so refuse instead of continuing.
+                if (cause is NoSuchMethodException) throw IOException("VPN allowlist is unavailable", cause)
+                throw cause as? Exception ?: IOException("VPN allowlist failed", cause)
             }
             val tunFd = builder.establish()
                 ?: throw IOException("VpnService.establish returned null")
