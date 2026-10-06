@@ -2410,6 +2410,14 @@ class CarPlayController(
             return attachVpn(ncm, hostMac)
         }
         return try {
+            // A previous session's native stack is released only by close(). Reconnecting without
+            // that made LwipNative.start() fail with "USB IPv6 socket error errno=16" (EBUSY), and
+            // the lwIP path then stayed dead until the transport was switched by hand — report 192
+            // shows two of those at 21:36:55 and 21:37:17, right after the first session died.
+            lwip?.let { stale ->
+                lwip = null
+                runCatching { stale.close() }
+            }
             val session = LwipSessionNetwork(
                 ncm,
                 { message -> debugLog(message) },

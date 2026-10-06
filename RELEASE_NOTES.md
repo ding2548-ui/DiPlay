@@ -10,7 +10,8 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 - **无线 CarPlay**（外部 Wi-Fi 方案）：iAP2 全链路正常，出画面、可交互。
 - **有线 CarPlay 的 USB / iAP2 控制通道**：设备发现、重枚举、配对、NCM 数据通路、
   MFi 认证、`0x4300` / `0x4301` 全部通过。
-- **有线 CarPlay 进 CarPlay 界面**：lwIP 通路的地址通告与中继已通，手机能连上、能进界面。
+- **有线 CarPlay 出画面**：lwIP 与 VPN **两条通路都能进界面并出画面**（192 报告实测
+  `Video: first frame rendered`，`shown=24.6fps` / `26.0fps`，音频 `audioType=media` 也通了）。
 - **界面汉化**、零跑档位识别、方向盘按键、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
 - **方控学习**（设置 → 方控学习）：按一次车上的键绑定到 上一首 / 下一首 / 播放 / 暂停 / 播放暂停；
   未学习的键一律忽略。另有「监听方控广播日志」，按 action 记录最近 12 条方控广播，点选即绑定。
@@ -19,22 +20,39 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 ## 🔴 暂不可用
 
-- **有线 CarPlay 出画面（灰屏）**。上一版报告的两个根因都已修，**待真机复测**：
+- **有线 CarPlay 出画面**：lwIP 与 VPN **两条通路都已出画面**（192 报告：`Video: first frame
+  rendered`，`shown=24.6fps` / `26.0fps`），灰屏与「VPN 进不去」都已解决。
+- **有线会话稳定性**：192 报告里每次断开都是同一行 `Invalid NTB16 short-packet pad`，
+  15～63 秒一次。已修（第 12 条）。
+- **断线后的重试卡死**：lwIP 通路断线后重建报 `USB IPv6 socket error errno=16`（EBUSY），
+  只能手动切模式才恢复。已修（第 13 条）。
+- **方控压制原厂音乐**：音频归属已生效（`media keys active focusGranted=true session=true`），
+  但 192 报告里**没有任何一次按键记录**，所以「原厂也同时切歌」还无法定论 —— 见下。
 
-  | 症状 | 根因 | 本版 |
-  |---|---|---|
-  | lwIP 模式进得了界面但**灰屏** | 事件通道中继被 `Connection refused`（环回地址族不一致） | 已修（第 9 条） |
-  | 关闭 lwIP 走 VPN **直接进不去** | `attach()` 抛 `Invalid argument`（API 25 平台拒收，Android 16 同一份包正常） | 已改（第 10 条） |
-  | 方控不压制原厂音乐，两边同时切歌播放 | 音频归属在 API 25 上是死代码，从未申请焦点 | 已修（第 11 条） |
+## 🔴 暂不可用
 
-  复测时报告里应出现（缺哪条就说明对应那步没走通）：
-  - lwIP：`airplay event connection accepted from ...` → `airplay video event ready` →
-    `Video recovery: requested keyframe sent=true` → `Video: first frame rendered`
-  - VPN：成功则 `vpn tun established variant=... address=fe80::2` 且
-    `airplay listener ready family=IPv6 port=7000 bind=...`；失败则 `attach failed stage=...`
-    加每个 `vpn establish variant=... rejected ...`
-  - 方控：`media keys active focusGranted=true session=true`，之后每次按键一行
-    `media key source=... action=... -> CarPlay ... sent=true`
+| 症状 | 现状 | 待办 |
+|---|---|---|
+| 车载自建热点无线连不上 | 热点起得来（wlan0 / IPv4 / Bonjour 已起），但手机不接入，`FIRST_TCP_TIMEOUT` | 已知硬件限制，见下 |
+| 方控切歌时原厂也切歌并同时播放 | 焦点/会话已拿到，但日志里没有按键记录 | **需要一份「连着的时候按方控」的日志** |
+
+**方控这一条为什么要日志**：192 报告里 `media key ...`（两条路都会记）**一次都没出现**，
+而音频是走 CarPlay 的（`Audio: ready audioType=media`）。若下次日志仍然是「按了键但
+DiPlay 一行都没有，CarPlay 却切了歌」，那就说明按键根本没经过 DiPlay —— 最可能是
+车机把方向盘键交给原厂/蓝牙媒体通路，再由 AVRCP 通知 iPhone 切歌（同一个 iPhone，
+所以 CarPlay 界面也跟着变，声音还从蓝牙出来一遍）。那种情况下要修的是**手机的车机蓝牙
+音频链路**（零跑线用 `BluetoothAudioHandoff` 断开 A2DP/HFP 档位解决），不是按键转发。
+
+复测时报告里应出现（缺哪条就说明对应那步没走通）：
+- lwIP：`airplay event connection accepted from ...` → `airplay video event ready` →
+  `Video recovery: requested keyframe sent=true` → `Video: first frame rendered`
+- VPN：成功则 `vpn tun established variant=... address=fe80::2` 且
+  `airplay listener ready family=IPv6 port=7000 bind=...`；失败则 `attach failed stage=...`
+  加每个 `vpn establish variant=... rejected ...`
+- 稳定性：整场**不再出现** `Invalid NTB16 short-packet pad`；`AirPlay session ended` 只在
+  真正拔线时出现
+- 方控：`media keys active focusGranted=true session=true`，之后每次按键一行
+  `media key source=... action=... -> CarPlay ... sent=true`
 
 ## ⚠️ 已知限制
 
@@ -168,6 +186,23 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
       去重窗口的键也从「原始 action」改成「CarPlay 按钮」，
       因为同一按在两条路上的名字不同（广播叫 `nextOne`，媒体会话叫 `next`）。
     - 按 §58，**没有**恢复「发 pause 广播压制原厂播放器」那一招（车机会回声导致 CarPlay 自己被暂停）。
+
+12. **有线会话 15～63 秒必断：NCM 的「短包填充字节」被当成致命错误。**
+    `NcmUsbBridge.drainFrames()` 原本按 `wBlockLength % 512 == 0` 认定这一块后面**必须**跟一个
+    0x00 填充字节，否则 `failSession("Invalid NTB16 short-packet pad")` —— 而 `failSession`
+    会把整个 NCM 桥标记为 `DeviceUnavailable`，于是整个 AirPlay 会话被拆掉重连。
+    问题在于**填充字节属于 USB 传输，不属于 NTB 块**：主机只在一个传输的长度正好是端点
+    maxPacketSize 整数倍时才补一个 0x00，而这里的接收缓冲会把同一个传输里的多块拼在一起，
+    于是「512 对齐的块」后面紧跟的其实是下一块的开头（NTB16 头以 `'N'` 开头，非 0）→ 误判。
+    192 报告里**每一次断开**（lwIP 与 VPN 都是）就是这一行，间隔 15s / 3s / 40s / 63s / 32s。
+    现改为：512 对齐时，后面那个字节是 0 就当作填充跳掉，不是 0 就不动它（留给下一轮解析）。
+
+13. **lwIP 断线后重建报 EBUSY，只能手动切模式才恢复。**
+    `LwipNative.start()` 在旧的原生栈没释放时抛 `USB IPv6 socket error errno=16`（EBUSY，
+    文案在 `libdiplay_lwip.so` 里）。而 `attachLwip()` 重建会话前**没有关闭上一个
+    `LwipSessionNetwork`** —— 只在 attach 失败时才关，会话正常结束的路径不会关。
+    192 报告 21:36:55 与 21:37:17 两次 EBUSY，此后 lwIP 一直是死的，直到手动切到 VPN。
+    现改为在 `attachLwip()` 建新会话前先关掉旧的那个。
 
 ---
 

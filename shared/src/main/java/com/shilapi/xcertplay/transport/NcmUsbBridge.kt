@@ -180,11 +180,19 @@ class NcmUsbBridge internal constructor(
             }
             val blockLength = readU16(buffered, 8)
             if (blockLength < 28) throw failSession("Invalid NTB16 block length $blockLength")
-            val padded = blockLength % USB_PACKET_SIZE == 0
-            val wireLength = blockLength + if (padded) 1 else 0
-            if (bufferedSize < wireLength) return
-            if (padded && buffered[blockLength].toInt() != 0) {
-                throw failSession("Invalid NTB16 short-packet pad")
+            if (bufferedSize < blockLength) return
+            // The short-packet pad belongs to the USB transfer, not to the block: the host appends a
+            // single zero byte only when the transfer length is an exact multiple of the endpoint's
+            // max packet size, and one buffer here can carry several blocks from one transfer. So a
+            // zero byte after a 512-aligned block is the pad and is stepped over, while anything else
+            // is the next block (an NTB16 header starts with 'N') and must not be consumed.
+            // Demanding the pad unconditionally killed the whole session with "Invalid NTB16
+            // short-packet pad": in report 192 every single wired disconnect, lwIP and VPN alike, was
+            // that one line, 15 s to 63 s into the session.
+            var wireLength = blockLength
+            if (blockLength % USB_PACKET_SIZE == 0) {
+                if (bufferedSize == blockLength) return
+                if (buffered[blockLength].toInt() == 0) wireLength += 1
             }
             for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
             val remaining = bufferedSize - wireLength
