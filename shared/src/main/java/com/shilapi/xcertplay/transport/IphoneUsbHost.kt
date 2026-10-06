@@ -333,6 +333,9 @@ class IphoneUsbHost(
         private const val CARPLAY_CONFIGURATION_INDEX = 0x0004
         private const val VENDOR_RESPONSE_LENGTH = 1
         private const val CONTROL_TRANSFER_TIMEOUT_MILLIS = 1_000
+
+        /** @hide in the framework, so it has to be spelled out; see [manageUsbGranted]. */
+        private const val MANAGE_USB_PERMISSION = "android.permission.MANAGE_USB"
     }
 
 }
@@ -471,9 +474,6 @@ class Iap2UsbSession internal constructor(
     private companion object {
         const val USBMUX_READ_CHUNK_BYTES = 65_536
         const val CANCEL_DRAIN_TIMEOUT_MILLIS = 1_000L
-
-        /** @hide in the framework, so it has to be spelled out; see [manageUsbGranted]. */
-        const val MANAGE_USB_PERMISSION = "android.permission.MANAGE_USB"
     }
 }
 
