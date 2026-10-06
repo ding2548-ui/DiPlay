@@ -28,15 +28,13 @@ android {
             buildCommit?.let { sha -> "0.2.12（$run-$sha）" } ?: "0.2.12（$run）"
         } ?: "0.2.12"
 
-        // The APK ABI is decided HERE, in the app module: shared's abiFilters only control its own
-        // externalNativeBuild, and bundled AARs ship their own arm64/x86 .so files, which made the
-        // 64-bit-capable head unit install the app as arm64 - a 64-bit process cannot load the
-        // v7a-only libdiplay_lwip.so, so LwipNative.available would be false and the lwIP wired
-        // transport would silently fall back to the VPN. Pinning every merged native library to
-        // v7a keeps the whole process 32-bit.
-        ndk {
-            abiFilters.add("armeabi-v7a")
-        }
+        // The ABI is deliberately NOT pinned. Pinning it to armeabi-v7a was done so the v7a-only
+        // libdiplay_lwip.so could load, but it forces the whole process to 32 bits — and the car's
+        // own hotspot stopped accepting the phone as soon as the APK stopped shipping arm64-v8a.
+        // Report 840 (178, 64-bit) and report 402 (194, 32-bit) bring the hotspot up identically
+        // and then differ exactly there: tcpAccepted=1 against tcpAccepted=0. lwIP is not wanted
+        // anyway, and attachLwip() already falls back to the VPN transport when
+        // LwipNative.available is false, so ship every ABI and let the head unit install arm64.
     }
 
 

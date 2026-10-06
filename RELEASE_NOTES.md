@@ -34,7 +34,7 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 | 症状 | 现状 | 待办 |
 |---|---|---|
 | **外置 Wi-Fi / 同一局域网** | 193 被**我自己改坏**了（见第 14 条），本版修回 | 复测 |
-| 车载自建热点无线连不上 | 热点起得来、iAP2 认证通过，但手机不拨 7000 | 见下 |
+| 车载自建热点无线连不上 | 热点起得来、iAP2 认证通过，但手机不拨 7000 | 本版恢复 64 位 ABI 验证（第 17 条） |
 | 方控切歌时原厂也切歌并同时播放 | 焦点/会话已拿到，但日志里没有按键记录 | **需要一份「连着的时候按方控」的日志** |
 
 **外置 Wi-Fi 这条是我上一版的回归，先说清楚**：193 报告（402）里每一次无线尝试都是
@@ -72,11 +72,12 @@ AirPlay 监听也绑上了（`airplay listener ready family=IPv4`），但手机
 - **CI 不再跑 lint 与单元测试**，只出 release 包（原先的 check job 太慢）。
   这意味着 lint 这道「防止 API 26+ 调用混进 API 25 构建」的自动防线没有了，
   改运行时代码时请手动跑一次 `python D:\Launcher\kotlin_static_check.py <改动的 .kt 文件>`。
-- **有线默认走 VPN/NCM**，lwIP 要手动开（见第 15 条）。lwIP 模式的已知缺陷：
+- **有线默认走 VPN/NCM**，lwIP 要手动开（见第 15 条），而且**本版在 arm64 进程里根本用不了**
+  （见第 17 条，`LwipNative.available=false`，自动回退 VPN）。lwIP 模式的已知缺陷：
   出画面但**没有声音**；**手动断开后必须重启应用**才能再次连上；整体不如 VPN 稳。
-  这些是 lwIP 通路自身的问题，本版未修 —— 默认不用它。
 - **车载自建热点无线仍连不上**（热点起得来、iAP2 通过，手机不拨 7000）。
-  无线可用方案仍是**外置 Wi-Fi / 同一局域网**。
+  本版恢复了 178 的 ABI（64 位）来验证这一点，见第 17 条。
+  无线可用方案仍是**外置 Wi-Fi / 同一局域网**（已确认可用）。
 - 开无线 CarPlay 时车机自身没有网络（msm8953 单射频，不支持 STA+GO 并发）。
 
 ---
@@ -241,6 +242,32 @@ AirPlay 监听也绑上了（`airplay listener ready family=IPv4`），但手机
     （`NTB16 block without the expected pad byte; accepting a ZLP terminator`）。
     注释里写明了机制：Apple 用单个 0x00 填充让传输以短包结束，而 Android 7 会把它变成
     **ZLP**，`readChunk()` 会丢掉 ZLP —— 所以那个字节常常根本不存在。
+
+17. **恢复 APK 的 ABI（arm64-v8a 回来了），lwIP 在本机因此不可用。**
+    178 之后为了 lwIP 那个 v7a-only 的 `libdiplay_lwip.so`，把 APK 钉成只有 `armeabi-v7a`
+    （`shared/build.gradle` 的 abiFilters **加上** `mobile/build.gradle.kts` 的 `ndk.abiFilters`），
+    于是整个进程变成 **32 位**。而 178 那份热点日志（报告 840）是 **64 位**、
+    版本行 `0.2.12-hud-test`（debug 口味）。
+
+    两份日志的**应用侧热点启动序列逐行一致**：同一个 `Manual hotspot` 后端、同一个 wlan0、
+    同样绑 7000、同样起了 Bonjour、同样通过 iAP2 把 endpoint 发给手机
+    （`wireless endpoint addressCount=1 family=IPv4 port=7000`）。差别只在最后一步：
+    178 `tcpAccepted=1 firstTcpAfterStartMs=780`（试了两次都成功），194 `tcpAccepted=0`。
+
+    现恢复 178 的配置：`shared/build.gradle` 的 abiFilters 恢复
+    `'arm64-v8a', 'armeabi-v7a', 'x86_64'`、`APP_PLATFORM` 恢复 `android-28`，
+    并删掉 `mobile/build.gradle.kts` 里那个 `ndk { abiFilters.add("armeabi-v7a") }`。
+    CI 的校验步骤改成**断言 APK 里必须有 `lib/arm64-v8a/`**，以后看 CI 日志就知道 ABI。
+
+    **lwIP 怎么处理**：代码保留。在 arm64 进程里 `libdiplay_lwip.so` 根本加载不了，
+    `LwipNative.available=false` → `attachLwip()` 自动回退到 VPN 通路（这条回退本来就有），
+    设置页也会显示「不可用」。效果等同于关掉 lwIP 模式，但不用删代码 ——
+    万一 ABI 不是热点那件事的原因，还能退回来。确认之后再决定是否彻底删除。
+
+    **一句实话**：我没有**证明**是 ABI 导致的。178 与现在同时变了两个变量
+    （ABI 32/64 位、以及 debug→release 口味与包名后缀 `.hudtest` 的移除）。
+    本版先动 ABI（顺带满足「关掉 lwIP」），复测就能把这两个变量分开：
+    热点回来了 = ABI；还是不行 = 下一个变量是包名/口味。
 
 ---
 

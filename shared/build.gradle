@@ -10,12 +10,12 @@ android {
         targetSdk = 37
 
         ndk {
-            abiFilters 'armeabi-v7a'
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
         }
 
         externalNativeBuild {
             ndkBuild {
-                arguments 'APP_PLATFORM=android-24'
+                arguments 'APP_PLATFORM=android-28'
             }
         }
 

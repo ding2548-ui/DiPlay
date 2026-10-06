@@ -91,10 +91,15 @@ jobs:
           echo "APK: $APK"
           TOOLS="$ANDROID_HOME/build-tools/36.0.0"
           "$TOOLS/aapt2" dump badging "$APK" | grep -E "^package:|^minSdkVersion:|^targetSdkVersion:|^application-label:"
-          # The car unit is Android 7 (API 25) with a 64-bit-capable SoC: an arm64 process cannot
-          # load a v7a-only native library, so every bundled .so has to stay armeabi-v7a.
+          # The car unit is Android 7 (API 25) on a 64-bit SoC, and the APK must ship arm64-v8a.
+          # Pinning it to armeabi-v7a forced the whole process to 32 bits, and the car's own hotspot
+          # stopped accepting the phone in exactly that configuration (report 840, 64-bit: ok;
+          # report 402, 32-bit: no TCP). lwIP's v7a-only libdiplay_lwip.so is simply not loadable in
+          # an arm64 process, which attachLwip() already handles by falling back to the VPN transport.
           echo "--- native libs ---"
           unzip -l "$APK" | grep "lib/" || echo "no bundled libs"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/" \
+            || { echo "::error::the release APK does not ship arm64-v8a"; exit 1; }
           unzip -l "$APK" | grep -E "offline-mfi" || echo "offline-mfi assets: absent"
           echo "--- signature ---"
           "$TOOLS/apksigner" verify --print-certs "$APK" | head -8
