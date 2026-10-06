@@ -102,9 +102,14 @@ class WifiP2pGroupManager(
 
     @SuppressLint("MissingPermission")
     override fun start(timeoutMillis: Long): WirelessHotspotInfo {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            throw IOException("Wi-Fi P2P credentials require Android 10 (API 29) or newer")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            throw IOException("Wi-Fi P2P requires Android 7 (API 24) or newer")
         }
+        // Android 10 added explicit group credentials and the group operating frequency. On
+        // Android 7 through 9 only the original createGroup overload exists, so the platform
+        // chooses the SSID, passphrase and channel and startup follows legacyPlan() instead.
+        // Gating on Q here would leave this head unit with no working wireless backend at all:
+        // LocalOnlyHotspot is API 26+, so Wi-Fi Direct is the only option below that.
         check(Looper.myLooper() != Looper.getMainLooper()) {
             "WifiP2pGroupManager.start must not run on the main thread"
         }
@@ -173,6 +178,10 @@ class WifiP2pGroupManager(
             val creation = P2pStartupRecovery.create(
                 stationFrequency = stationFrequency,
                 preferred = preferred?.request,
+                // Below API 29 there is no WifiP2pConfig, so no frequency can be requested and the
+                // whole preference plan is meaningless: one default attempt is all the API allows.
+                planOverride = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) null
+                else P2pStartupRecovery.legacyPlan(),
                 preferredChannel = preferredChannel,
                 beforeRetry = {
                     ensureStartActive(attempt)
@@ -188,7 +197,7 @@ class WifiP2pGroupManager(
                 request = { selection ->
                     ensureStartActive(attempt)
                     if (remainingNanos(deadlineNanos) == 0L) throw IOException("Wi-Fi Direct startup timed out")
-                    val config = if (selection.mode == P2pCreationMode.SYSTEM_DEFAULT) null else {
+                    val config = if (selection.mode != P2pCreationMode.SYSTEM_DEFAULT) {
                         P2pConfigBuildDiagnostics.build(Build.VERSION.SDK_INT, selection, diagnostic) {
                             val builder = WifiP2pConfig.Builder()
                                 .setNetworkName(credentials.ssid)
@@ -196,6 +205,8 @@ class WifiP2pGroupManager(
                             builder.setGroupOperatingFrequency(requireNotNull(selection.frequencyMHz))
                             builder.build()
                         }
+                    } else {
+                        null
                     }
                     if (config != null && !ownership.edit().putString("owned_ssid", credentials.ssid).commit()) {
                         throw IOException("Could not record Wi-Fi P2P group ownership")
@@ -216,7 +227,15 @@ class WifiP2pGroupManager(
                     val usingRemembered = preferred?.request == selection
                     if (usingRemembered) synchronized(stateLock) { rememberedAttempt = preferred }
                     try {
-                        p2pManager.createGroup(p2pChannel, config, createActionListener(attempt, request))
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            p2pManager.createGroup(p2pChannel, config, createActionListener(attempt, request))
+                        } else {
+                            // createGroup(Channel, WifiP2pConfig, ActionListener) is API 29. Android 7
+                            // through 9 only have the original overload, where the platform generates
+                            // the group SSID, passphrase and channel.
+                            @Suppress("DEPRECATION")
+                            p2pManager.createGroup(p2pChannel, createActionListener(attempt, request))
+                        }
                         awaitGroupCreated(attempt, request, deadlineNanos, timeoutMillis)
                     } catch (failure: P2pCreateRejected) {
                         if (usingRemembered && failure.reason == WifiP2pManager.ERROR && preferred != null) {

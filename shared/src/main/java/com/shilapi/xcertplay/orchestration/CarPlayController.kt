@@ -2041,12 +2041,17 @@ class CarPlayController(
 
     private fun startWirelessHotspot(generation: Int): WirelessHotspotInfo {
         val readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
-        val hotspotMode = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-            config.wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P
-        ) {
-            WirelessHotspotMode.LOCAL_ONLY_HOTSPOT
-        } else {
-            config.wirelessHotspotMode
+        // Android 10+ can choose the Wi-Fi Direct group SSID, passphrase and frequency directly.
+        // Android 8/9 cannot, so a LocalOnlyHotspot is preferred there. Android 7/7.1 have neither:
+        // LocalOnlyHotspot only exists from API 26, so the legacy Wi-Fi Direct group - platform
+        // chosen credentials and an unreported channel - is the only wireless option. Rewriting
+        // WIFI_P2P to LOCAL_ONLY_HOTSPOT below Q would therefore leave this head unit with no
+        // working backend at all.
+        val hotspotMode = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> config.wirelessHotspotMode
+            config.wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P -> WirelessHotspotMode.WIFI_P2P
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> WirelessHotspotMode.LOCAL_ONLY_HOTSPOT
+            else -> WirelessHotspotMode.WIFI_P2P
         }
         if (com.shilapi.xcertplay.network.CarHotspotSettings.shouldEnable(
                 appContext, config.transport == CarPlayTransport.WIRELESS, hotspotMode,
