@@ -40,6 +40,10 @@ internal class SessionLogFile(val file: File) : Closeable {
     companion object {
         const val MAX_BYTES = 512 * 1024L
         private val ARCHIVE_NAMES = listOf("previous.log") + (2..7).map { "previous-$it.log" }
-        val REPORT_NAMES = ARCHIVE_NAMES.reversed() + "diplay.log"
+        // "crash.txt" is written by the uncaught-exception handler in CarPlayHostActivity.onCreate.
+        // The report itself is produced by a live process, so without this the stack that killed
+        // the session never reaches the exported file — reading the logs is then the only way to
+        // see how far the previous attempt got.
+        val REPORT_NAMES = ARCHIVE_NAMES.reversed() + "diplay.log" + "crash.txt"
     }
 }

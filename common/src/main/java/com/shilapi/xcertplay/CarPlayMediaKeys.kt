@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -58,6 +59,15 @@ internal object CarPlayMediaKeys {
     private var artwork: Bitmap? = null
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
     private var placeholder: Bitmap? = null
+
+    /**
+     * Android 7's focus API has no [AudioFocusRequest], so the pre-26 overload needs a separate
+     * listener object. It shares the focus-loss handling with the modern path.
+     */
+    private val legacyFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        Log.i(TAG, "audio focus change=$change")
+        if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
+    }
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
@@ -144,9 +154,11 @@ internal object CarPlayMediaKeys {
     // keys. When CarPlay starts playing again it becomes the car's media source again, as any player
     // would; only the start counts, so a car source picked while the iPhone plays on is not undone.
     private fun regainFocusLocked() {
-        val request = focusRequest ?: return
         if (focusHeld) return
         val audio = appContext?.getSystemService(AudioManager::class.java) ?: return
+        // focusRequest is null on Android 7, where start() already took the legacy focus; there is
+        // nothing to re-request and the session keeps the focus it has.
+        val request = focusRequest ?: return
         focusHeld = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         Log.i(TAG, "audio focus regained=$focusHeld")
     }
@@ -161,20 +173,38 @@ internal object CarPlayMediaKeys {
 
     private fun start(context: Context) {
         val audio = context.getSystemService(AudioManager::class.java)
-        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build(),
-            )
-            .setOnAudioFocusChangeListener({ change ->
-                Log.i(TAG, "audio focus change=$change")
-                // Only a permanent loss moves the car's media keys elsewhere; transient losses come back.
-                if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
-            }, mainHandler)
-            .build()
-        val granted = audio?.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        // AudioFocusRequest and requestAudioFocus(AudioFocusRequest) are API 26. On this API 25 head
+        // unit the class does not exist, so building one throws NoSuchMethodError — an Error, not a
+        // RuntimeException, which would take the process down. Android 7 has only the legacy focus
+        // overload, so use that instead and keep the session alive.
+        val request = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
+                .setOnAudioFocusChangeListener({ change ->
+                    Log.i(TAG, "audio focus change=$change")
+                    // Only a permanent loss moves the car's media keys elsewhere; transient losses come back.
+                    if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
+                }, mainHandler)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            null
+        }
+        val granted = if (request != null) {
+            audio?.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            @Suppress("DEPRECATION")
+            audio?.requestAudioFocus(
+                legacyFocusListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN,
+            ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
         focusRequest = request
         focusHeld = granted
         session = MediaSession(context, "DiPlay CarPlay").apply {
@@ -197,7 +227,16 @@ internal object CarPlayMediaKeys {
         nowPlaying = CarPlayNowPlaying()
         artwork = null
         artworkCache.clear()
-        focusRequest?.let { request -> appContext?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request) }
+        // On Android 7 focus was taken through the legacy overload, so it is abandoned by listener;
+        // abandonAudioFocusRequest only exists from API 26.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { request ->
+                appContext?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            appContext?.getSystemService(AudioManager::class.java)?.abandonAudioFocus(legacyFocusListener)
+        }
         focusRequest = null
         focusHeld = false
     }

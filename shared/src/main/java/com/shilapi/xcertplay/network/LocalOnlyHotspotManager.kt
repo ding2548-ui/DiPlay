@@ -176,6 +176,13 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
      * the returned channel as the advertised fallback when no live radio reading exists.
      */
     private fun requestHotspot(callback: WifiManager.LocalOnlyHotspotCallback): Int? {
+        // WifiManager.startLocalOnlyHotspot is API 26. This head unit is API 25, where the method
+        // does not exist and calling it raises NoSuchMethodError — an Error, so it would kill the
+        // process instead of failing this attempt. Fail like the other unsupported-firmware paths
+        // do, so the caller can report "choose Wi-Fi Direct or Car hotspot".
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            throw IOException("Local-only hotspot needs Android 8.0 (API 26); this unit is API ${Build.VERSION.SDK_INT}")
+        }
         // Android 13's service accepts a custom LOHS configuration from target-33+ callers
         // with Nearby devices permission. BYD's Android 12 builds expose the same entry
         // point but return a 2.4 GHz hotspot regardless of the requested band (observed

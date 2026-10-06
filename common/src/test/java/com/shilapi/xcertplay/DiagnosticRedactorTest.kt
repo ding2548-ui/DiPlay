@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
 import java.nio.file.Files
 
 class DiagnosticRedactorTest {
@@ -104,7 +105,11 @@ class DiagnosticRedactorTest {
                     it.append("password=secret")
                 }
             }
-            val history = SessionLogFile.REPORT_NAMES.map { folder.resolve(it).readText() }
+            // REPORT_NAMES also lists crash.txt, which only exists once a session has actually
+            // crashed, so read what is there rather than assuming every name is present.
+            val history = SessionLogFile.REPORT_NAMES.mapNotNull {
+                folder.resolve(it).takeIf(File::isFile)?.readText()
+            }
             assertEquals(8, folder.listFiles()!!.size)
             assertTrue(history.first().contains("session=2"))
             assertTrue(history.last().contains("session=9"))

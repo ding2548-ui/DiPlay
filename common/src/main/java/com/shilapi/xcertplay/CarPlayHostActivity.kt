@@ -3980,7 +3980,18 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         try {
-            startForegroundService(Intent(this, DiPlaySessionService::class.java))
+            val sessionService = Intent(this, DiPlaySessionService::class.java)
+            // startForegroundService is API 26. This head unit is API 25, where the method does not
+            // exist at all: calling it throws NoSuchMethodError, which is an Error and therefore
+            // slips past the catch below, killing the process during "preparing CarPlay". Android 7
+            // starts the service directly and the service calls startForeground itself, so the
+            // foreground contract still holds.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(sessionService)
+            } else {
+                @Suppress("DEPRECATION")
+                startService(sessionService)
+            }
             next.start()
         } catch (error: RuntimeException) {
             appendLog("Connection could not start: ${error.javaClass.simpleName}")

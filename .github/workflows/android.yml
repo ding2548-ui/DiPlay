@@ -42,7 +42,11 @@ jobs:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests, lint and source-only debug build
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug --stacktrace
+        # :common and :shared carry the runtime code and are the modules that minSdk 25 actually
+        # affects. They were missing here, so an API 26 call in common reached the API 25 head
+        # unit as a NoSuchMethodError at runtime. Lint is the only thing standing between a
+        # lowered minSdk and that class of crash: keep every module's lintDebug here.
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :shared:lintDebug :common:lintDebug :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug --stacktrace
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,19 +54,10 @@ jobs:
           name: test-reports
           path: |
             shared/build/reports/tests/
+            shared/build/reports/lint-results-debug.html
             common/build/reports/tests/
+            common/build/reports/lint-results-debug.html
             mobile/build/reports/lint-results-debug.html
             samples/home/build/reports/tests/
             samples/home/build/reports/lint-results-debug.html
             samples/maphost/build/reports/lint-results-debug.html
-
-      # Verification-build addition: expose the debug APK as a workflow artifact so the
-      # hot-spot behaviour can be installed and tested on the head unit. Application source
-      # is untouched by this step.
-      - name: Upload debug APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: psa-verify-debug-apk
-          path: mobile/build/outputs/apk/debug/*.apk
-          if-no-files-found: error

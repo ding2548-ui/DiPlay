@@ -74,18 +74,30 @@ internal class AudioFocusCoordinator(
     private fun refreshRequest() {
         val primary = active.values.maxByOrNull { it.channel.focusPriority() }
         if (primary == null) {
-            request?.let { manager?.abandonAudioFocusRequest(it) }
-            request = null
-            requestedChannel = null
+            abandonFocusRequest()
             return
         }
         if (request != null && requestedChannel == primary.channel) return
-        request?.let { manager?.abandonAudioFocusRequest(it) }
+        abandonFocusRequest()
         val gain = when (primary.channel) {
             AudioChannel.MEDIA -> AudioManager.AUDIOFOCUS_GAIN
             AudioChannel.PHONE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
             AudioChannel.ASSISTANT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             AudioChannel.NAVIGATION -> return
+        }
+        // AudioFocusRequest is API 26. This head unit is API 25, where the class does not exist and
+        // building one throws NoSuchMethodError — an Error, not a RuntimeException, so it would take
+        // the whole process down the first time audio starts. Android 7 only has the legacy focus
+        // API, and CarPlay audio plays without it, so play on rather than die.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            requestedChannel = primary.channel
+            val legacy = @Suppress("DEPRECATION") manager?.requestAudioFocus(
+                listener, AudioManager.STREAM_MUSIC, gain,
+            )
+            val line = "Audio: legacy focus requested channel=${primary.channel} gain=$gain granted=$legacy api=${Build.VERSION.SDK_INT} activeTracks=${active.size}"
+            Log.i(TAG, line)
+            runCatching { report(line) }
+            return
         }
         val next = AudioFocusRequest.Builder(gain)
             .setAudioAttributes(primary.attributes)
@@ -97,6 +109,18 @@ internal class AudioFocusCoordinator(
         val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result activeTracks=${active.size}"
         Log.i(TAG, line)
         runCatching { report(line) }
+    }
+
+    /** Drops any focus this sink holds, through whichever API the running platform provides. */
+    private fun abandonFocusRequest() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            request?.let { manager?.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            manager?.abandonAudioFocus(listener)
+        }
+        request = null
+        requestedChannel = null
     }
 
     private fun setVolume(volume: Float) {
