@@ -1981,8 +1981,17 @@ class CarPlayController(
 
             val mfi = mfiSession?.client
                 ?: throw IphoneUsbException.DeviceUnavailable("MFi coprocessor client is unavailable")
+            // lwIP owns its own link-local address (EUI-64 derived from the netif MAC), and that
+            // address is the only one the stack answers neighbour discovery for. Advertising the
+            // static config.linkLocal while the wired transport runs on lwIP points the iPhone at
+            // an address this host does not hold: its NDP never resolves and it never opens the
+            // AirPlay TCP connection, even though the listener and the relay are both up.
+            // The VPN transport does hold config.linkLocal (attach adds it to the tun), so the
+            // fallback keeps that path working unchanged.
+            val advertisedLinkLocal =
+                lwip?.localAddress()?.hostAddress?.substringBefore('%') ?: config.linkLocal
             val endpoint = Iap2WiredCarPlayEndpoint(
-                ipv6Addresses = listOf(config.linkLocal),
+                ipv6Addresses = listOf(advertisedLinkLocal),
                 airPlayPort = (if (config.wiredLwip) LWIP_LISTEN_PORT else vpnService?.boundPort())
                     ?: airPlayConfig.port,
                 publicKey = identity.publicKeyHex,

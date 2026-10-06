@@ -1,87 +1,21 @@
-name: Android checks
+name: DiPlay PSA release
 on:
   push:
-    branches: [main]
+    branches: [main, psa-verify]
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: Reject credential files in public source
-        run: python3 scripts/check_public_tree.py
-      # Runtime authentication (MFi identity) packaged into the APK assets, then staged to
-      # noBackupFilesDir by DiPlayBootstrap at first launch. Skips cleanly when secrets are absent.
-      - name: Restore local authentication assets
-        env:
-          IDENTITY_B64: ${{ secrets.DIPLAY_IDENTITY_PK8_B64 }}
-          CERTIFICATE_B64: ${{ secrets.DIPLAY_CERTIFICATE_P7B_B64 }}
-        run: |
-          set -euo pipefail
-          if [ -z "${IDENTITY_B64:-}" ] || [ -z "${CERTIFICATE_B64:-}" ]; then
-            echo "Runtime authentication secrets are unavailable; building without an identity."
-            exit 0
-          fi
-          AUTH_DIR="$RUNNER_TEMP/auth-assets"
-          mkdir -p "$AUTH_DIR/offline-mfi"
-          printf '%s' "$IDENTITY_B64" | base64 -d > "$AUTH_DIR/offline-mfi/identity.pk8"
-          printf '%s' "$CERTIFICATE_B64" | base64 -d > "$AUTH_DIR/offline-mfi/certificate.p7b"
-          chmod 600 "$AUTH_DIR/offline-mfi/"*
-          ls -l "$AUTH_DIR/offline-mfi"
-          echo "DIPLAY_AUTH_ASSETS_DIR=$AUTH_DIR" >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests, lint and source-only debug build
-        # :common and :shared carry the runtime code and are the modules that minSdk 25 actually
-        # affects. They were missing here, so an API 26 call in common reached the API 25 head
-        # unit as a NoSuchMethodError at runtime. Lint is the only thing standing between a
-        # lowered minSdk and that class of crash: keep every module's lintDebug here.
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :shared:lintDebug :common:lintDebug :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug --stacktrace
-      - name: Standalone debug APK
-        # assembleDebug alone is the identity-free source build. The car unit needs the MFi
-        # identity that the step above restored, and it has to come out of the workflow or
-        # there is nothing to install.
-        run: ./gradlew :mobile:assembleStandaloneDebug --stacktrace
-      - name: Verify the packaged identity
-        run: |
-          set -euo pipefail
-          APK=$(ls mobile/build/outputs/apk/debug/*.apk | head -1)
-          unzip -l "$APK" | grep -q 'assets/offline-mfi/identity.pk8'
-          unzip -l "$APK" | grep -q 'assets/offline-mfi/certificate.p7b'
-          echo "identity.pk8 and certificate.p7b are packaged in $APK"
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-apk
-          path: mobile/build/outputs/apk/debug/*.apk
-      - name: Test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports
-          path: |
-            shared/build/reports/tests/
-            shared/build/reports/lint-results-debug.html
-            common/build/reports/tests/
-            common/build/reports/lint-results-debug.html
-            mobile/build/reports/lint-results-debug.html
-            samples/home/build/reports/tests/
-            samples/home/build/reports/lint-results-debug.html
-            samples/maphost/build/reports/lint-results-debug.html
-
   # Platform-signed release APK. The key never enters the repository: it rides in the same
   # secrets pattern as the MFi identity (base64 -> $RUNNER_TEMP) and is selected through the
   # ANDROID_KEYSTORE_* inputs the Gradle file documents. Missing secrets skip the job cleanly.
+  #
+  # The old "check" job (unit tests + lint on five modules + three assembleDebug tasks) was
+  # removed on request: it roughly tripled the wall clock. Keep in mind that
+  # :shared:lintDebug / :common:lintDebug were the only automated guard against an API 26+ call
+  # leaking into this API 25 build, so when touching runtime code run
+  # `python D:\Launcher\kotlin_static_check.py <changed .kt files>` locally before pushing.
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -170,3 +104,33 @@ jobs:
         with:
           name: release-apk
           path: mobile/build/outputs/apk/release/*.apk
+      # Publishes to GitHub Releases so the APK is reachable without signing in to Actions.
+      # RELEASE_NOTES.md is the standing status page; the commit message is appended so the
+      # release page also says what changed in this build.
+      - name: Publish to GitHub Releases
+        if: env.DIPLAY_RELEASE_ENABLED == 'true' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
+          TAG="v0.2.12-${GITHUB_RUN_NUMBER}"
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          {
+            if [ -f RELEASE_NOTES.md ]; then
+              cat RELEASE_NOTES.md
+            else
+              printf 'DiPlay 0.2.12（%s）\n' "$GITHUB_RUN_NUMBER"
+            fi
+            echo
+            echo '---'
+            echo
+            echo '### 本次改动'
+            echo
+            git log -1 --pretty='%B'
+          } > "$NOTES"
+          gh release create "$TAG" "$APK" \
+            --title "DiPlay 0.2.12（${GITHUB_RUN_NUMBER}）· PSA" \
+            --notes-file "$NOTES" \
+            --target "$GITHUB_SHA"
+          echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"

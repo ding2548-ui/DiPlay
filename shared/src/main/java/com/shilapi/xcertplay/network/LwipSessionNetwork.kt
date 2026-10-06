@@ -295,7 +295,13 @@ class LwipSessionNetwork(
 
     private fun relay(client: TcpSocket, targetPort: Int) {
         runCatching {
-            java.net.Socket("127.0.0.1", targetPort).apply { tcpNoDelay = true }.use { local ->
+            // The AirPlay listener is bound to InetAddress.getLoopbackAddress(), which resolves to
+            // ::1 on this platform, so the relay has to dial the same family. A literal "127.0.0.1"
+            // never reaches an IPv6-bound socket: the phone's connection would be accepted by the
+            // lwIP listener and then dropped here with "Connection refused". The UDP relay below
+            // already dials getLoopbackAddress().
+            java.net.Socket(java.net.InetAddress.getLoopbackAddress(), targetPort)
+                .apply { tcpNoDelay = true }.use { local ->
                 client.use { remote ->
                     val upstream = thread {
                         runCatching { remote.input.copyTo(local.getOutputStream(), RELAY_CHUNK_BYTES) }
