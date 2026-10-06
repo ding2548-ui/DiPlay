@@ -554,12 +554,12 @@ class WifiP2pGroupManager(
             runCatching { appContext.getSystemService(LocationManager::class.java)?.isLocationEnabled }.getOrNull()
         } else {
             // LocationManager.isLocationEnabled is API 28; runCatching would not contain the
-            // NoSuchMethodError on this API 25 unit, so ask the legacy providers instead.
+            // NoSuchMethodError on this API 25 unit, so ask the legacy providers instead. They
+            // answer Boolean?, which the || below cannot take, hence the comparisons.
+            val manager = appContext.getSystemService(LocationManager::class.java)
             runCatching {
-                appContext.getSystemService(LocationManager::class.java)
-                    ?.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                    appContext.getSystemService(LocationManager::class.java)
-                        ?.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                manager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true ||
+                    manager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true
             }.getOrNull()
         }
         val required = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES
