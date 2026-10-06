@@ -9,6 +9,7 @@
 // Leapmotor car-control broadcasts (identified by their action string).
 package com.shilapi.xcertplay
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -134,8 +135,11 @@ internal object LearnedWheelKeys {
                 handleMediaButton(intent)
             }
         }
+        // Media button broadcasts come from the system, so the receiver is exported. The flag
+        // overload only exists from Android 13 and passing it on API 25 would itself raise
+        // NoSuchMethodError, hence the plain call below that version.
+        @SuppressLint("UnspecifiedRegisterReceiverFlag")
         runCatching {
-            // Media button broadcasts come from the system, hence exported.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
             } else {
@@ -494,8 +498,10 @@ internal object LearnedWheelKeys {
                 }
             }
         }
+        // Car bus broadcasts arrive from another process, so the receiver is exported; the flag
+        // overload is Android 13+, see the media button receiver above.
+        @SuppressLint("UnspecifiedRegisterReceiverFlag")
         runCatching {
-            // The car bus broadcasts these actions from another process, hence exported.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
             } else {

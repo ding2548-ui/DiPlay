@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -63,9 +64,11 @@ internal object LeapmotorGearMonitor {
             }
         }
         val filter = IntentFilter(RESPONSE_ACTION)
-        // The CAN server broadcasts this action, so the receiver must be exported; from Android 14
-        // the flag is mandatory. Lint only folds the version test when the call is made in the two
-        // branches directly, which is the same shape the USB hosts use.
+        // The CAN server broadcasts this action, so the receiver is exported. The flag overload of
+        // registerReceiver only exists from Android 13; on this API 25 head unit passing the flag
+        // would be a NoSuchMethodError of its own, so the two-argument call stays for older
+        // platforms and lint is silenced for the whole block rather than for the branch.
+        @SuppressLint("UnspecifiedRegisterReceiverFlag")
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
