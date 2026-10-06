@@ -157,7 +157,11 @@ class WifiP2pGroupManager(
                 callbackThread = thread
             }
 
-            logP2pState(attempt, p2pChannel)
+            // requestP2pState only exists from API 29; the group state is diagnostic, so older
+            // platforms simply do not report it.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                logP2pState(attempt, p2pChannel)
+            }
             // Preferences disappear on reinstall, but the scoped namespace survives.
             val existing = requestGroupInfo(attempt, p2pChannel, REQUEST_POLL_NANOS, requireResponse = true)
             diagnostic("Wi-Fi P2P existingGroup=${existing != null}")
@@ -198,6 +202,11 @@ class WifiP2pGroupManager(
                     ensureStartActive(attempt)
                     if (remainingNanos(deadlineNanos) == 0L) throw IOException("Wi-Fi Direct startup timed out")
                     val config = if (selection.mode != P2pCreationMode.SYSTEM_DEFAULT) {
+                        // WifiP2pConfig is API 29. This branch cannot be taken below that: below
+                        // Q the plan is legacyPlan(), which only ever yields SYSTEM_DEFAULT, so
+                        // the mode test above is false and create() is never invoked. Lint cannot
+                        // follow that through the plan override, hence the waiver on the lambda.
+                        @SuppressLint("NewApi")
                         P2pConfigBuildDiagnostics.build(Build.VERSION.SDK_INT, selection, diagnostic) {
                             val builder = WifiP2pConfig.Builder()
                                 .setNetworkName(credentials.ssid)
@@ -422,19 +431,25 @@ class WifiP2pGroupManager(
                 throw IOException("Wi-Fi P2P device became a group client instead of owner")
             }
 
-            val networkName = group.networkName?.takeIf { it.isNotBlank() }
+            // WifiP2pGroup.networkName / passphrase / frequency are API 29. Android 7 reports the
+            // SSID as a String field and the passphrase as a byte array on the same object, and it
+            // never reports a frequency at all, so each value is read reflectively with a null
+            // fallback rather than calling a method that does not exist.
+            val networkName = group.reflectiveString("networkName")?.takeIf { it.isNotBlank() }
             if (credentials != null && networkName != null && networkName != credentials.ssid) {
                 throw IOException("Wi-Fi Direct returned an unexpected group")
             }
-            val passphrase = group.passphrase?.takeIf { it.isNotBlank() }
+            val passphrase = group.reflectiveString("passphrase")?.takeIf { it.isNotBlank() }
+                ?: group.reflectivePassphrase()
                 ?: credentials?.passphrase
             val interfaceName = group.getInterface()?.takeIf { it.isNotBlank() }
-            val frequencyMHz = group.frequency
-            val channelNumber = wifiFrequencyMhzToChannel(frequencyMHz)
+            // The legacy group never reports a frequency, so the iPhone has to discover the AP by
+            // scanning; the endpoint advertises channel 0 (unknown) in that case.
+            val frequencyMHz = group.reflectiveInt("frequency") ?: 0
+            val channelNumber = if (frequencyMHz > 0) wifiFrequencyMhzToChannel(frequencyMHz) else 0
             if (
                 networkName == null || passphrase == null ||
                 interfaceName == null ||
-                frequencyMHz <= 0 ||
                 channelNumber == null
             ) {
                 lastReason = "incomplete group details frequencyMHz=$frequencyMHz"
@@ -606,6 +621,38 @@ class WifiP2pGroupManager(
         ensureStartActive(attempt)
         diagnostic("Wi-Fi P2P frameworkState=${result.get() ?: "unknown"}")
     }
+
+    /**
+     * Reads a WifiP2pGroup String field. From API 29 it is a real getter; on Android 7 the same
+     * value is only reachable as a field, and the field name differs for the passphrase.
+     */
+    private fun WifiP2pGroup.reflectiveString(getter: String): String? {
+        runCatching { javaClass.getMethod(getter).invoke(this) }
+            .getOrNull()
+            ?.let { return it as? String }
+        return runCatching {
+            @Suppress("UNCHECKED_CAST")
+            javaClass.getField(getter).get(this) as? String
+        }.getOrNull()
+    }
+
+    /** The API 29 passphrase getter returns String; the legacy field is a byte array. */
+    private fun WifiP2pGroup.reflectivePassphrase(): String? {
+        runCatching { javaClass.getMethod("passphrase").invoke(this) }
+            .getOrNull()
+            ?.let { return it as? String }
+        val bytes = runCatching {
+            @Suppress("UNCHECKED_CAST")
+            javaClass.getField("passphrase").get(this) as? ByteArray
+        }.getOrNull() ?: return null
+        if (bytes.isEmpty()) return null
+        val text = String(bytes, Charsets.UTF_8)
+        return text.takeIf { it.isNotBlank() }
+    }
+
+    private fun WifiP2pGroup.reflectiveInt(getter: String): Int? =
+        runCatching { javaClass.getMethod(getter).invoke(this) as? Int }.getOrNull()
+            ?: runCatching { javaClass.getField(getter).getInt(this) }.getOrNull()
 
     private fun interfaceHardwareAddress(interfaceName: String): String? =
         networkInterface(interfaceName)
