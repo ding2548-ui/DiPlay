@@ -90,7 +90,11 @@ jobs:
           APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
           echo "APK: $APK"
           TOOLS="$ANDROID_HOME/build-tools/36.0.0"
-          "$TOOLS/aapt2" dump badging "$APK" | grep -E "^package:|^minSdkVersion:|^targetSdkVersion:|^application-label:"
+          "$TOOLS/aapt2" dump badging "$APK" | grep -E "^package:|^minSdkVersion:|^targetSdkVersion:|^application-label:|^uses-permission:"
+          # The USB permission dialog is suppressed by holding MANAGE_USB, and whether the manifest
+          # merge kept a hidden permission is not visible anywhere else, so assert it here.
+          "$TOOLS/aapt2" dump badging "$APK" | grep -q "android.permission.MANAGE_USB" \
+            || { echo "::error::the release APK does not declare android.permission.MANAGE_USB"; exit 1; }
           # The car unit is Android 7 (API 25) on a 64-bit SoC, and the APK must ship arm64-v8a.
           # Pinning it to armeabi-v7a forced the whole process to 32 bits, and the car's own hotspot
           # stopped accepting the phone in exactly that configuration (report 840, 64-bit: ok;
