@@ -464,12 +464,13 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
         val ssid = validateSsid(configuration.SSID)
         val security = mapWifiConfigurationSecurity(configuration)
         val passphrase = validatePassphrase(security, unquote(configuration.preSharedKey))
-        val bssid = configuration.BSSID?.let {
+        val bssid: ByteArray? = configuration.BSSID?.let {
             // MacAddress is API 28. Below that the platform still reports the BSSID as text, so
-            // parse the six hex pairs directly instead of calling a method that does not exist.
+            // parse the six hex pairs directly into the same bytes instead of calling a method that
+            // does not exist on this head unit. Both paths therefore hand back raw bytes.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 try {
-                    MacAddress.fromString(it)
+                    MacAddress.fromString(it).toByteArray()
                 } catch (failure: IllegalArgumentException) {
                     throw IOException("LocalOnlyHotspot reported an invalid BSSID: $it", failure)
                 }
@@ -484,8 +485,8 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
             passphrase = passphrase,
             security = security,
             channel = channel,
-            bssid = bssid?.toString(),
-            bssidBytes = bssid?.toByteArray(),
+            bssid = bssid?.toMacAddressString(),
+            bssidBytes = bssid,
             bandLabel = readWifiConfigurationBandLabel(configuration, channel),
         )
     }

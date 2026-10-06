@@ -24,19 +24,23 @@ internal object HotspotJoinCapability {
         fun unregister(callback: IInterface)
     }
 
-    fun read(wifi: Any): Snapshot? = try {
+    fun read(wifi: Any): Snapshot? {
+        // The transaction behind this probe needs Parcel.enforceNoDataAvail (API 33); below that it
+        // raises NoSuchMethodError, which the catch below cannot contain.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
-        @SuppressLint("BlockedPrivateApi")
-        val callbackType = Class.forName("android.net.wifi.ISoftApCallback")
-        @SuppressLint("BlockedPrivateApi")
-        val register = wifi.javaClass.getMethod("registerSoftApCallback", callbackType)
-        @SuppressLint("BlockedPrivateApi")
-        val unregister = wifi.javaClass.getMethod("unregisterSoftApCallback", callbackType)
-        read(object : Registration {
-            override fun register(callback: IInterface) { register.invoke(wifi, callback) }
-            override fun unregister(callback: IInterface) { unregister.invoke(wifi, callback) }
-        })
-    } catch (_: Exception) { null }
+        return try {
+            @SuppressLint("BlockedPrivateApi")
+            val callbackType = Class.forName("android.net.wifi.ISoftApCallback")
+            @SuppressLint("BlockedPrivateApi")
+            val register = wifi.javaClass.getMethod("registerSoftApCallback", callbackType)
+            @SuppressLint("BlockedPrivateApi")
+            val unregister = wifi.javaClass.getMethod("unregisterSoftApCallback", callbackType)
+            read(object : Registration {
+                override fun register(callback: IInterface) { register.invoke(wifi, callback) }
+                override fun unregister(callback: IInterface) { unregister.invoke(wifi, callback) }
+            })
+        } catch (_: Exception) { null }
+    }
 
     /** Android sends the current SoftApCapability immediately on registration, even with AP off. */
     internal fun read(registration: Registration, timeoutMillis: Long = 2_000): Snapshot? {
