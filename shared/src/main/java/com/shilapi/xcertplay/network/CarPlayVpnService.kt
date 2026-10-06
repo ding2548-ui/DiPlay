@@ -309,7 +309,8 @@ class CarPlayVpnService : VpnService() {
                     // itself), which isInternalAirPlayPeer would classify as one of our own
                     // probes, so the classification is skipped for that attachment.
                     val internalPeer = !current.loopbackRelay &&
-                        isInternalAirPlayPeer(socket.inetAddress, socket.localAddress)                    current.listenerIdentity?.let { owner ->
+                        isInternalAirPlayPeer(socket.inetAddress, socket.localAddress)
+                    current.listenerIdentity?.let { owner ->
                         current.listener.onTcpAccepted(AirPlayTcpAccepted(
                             owner, internalPeer, acceptedAtNanos,
                         ))
