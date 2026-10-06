@@ -82,7 +82,7 @@
     <string name="edit_saved_hotspot_prefix">Змінити збережену точку доступу ·\u0020</string>
     <string name="cluster_adb_multi_device">Якщо ADB показує кілька пристроїв, виконайте adb -s &lt;car-device-ID&gt; shell appops set %1$s GET_USAGE_STATS allow. Ідентифікатор можна знайти командою adb devices.</string>
     <string name="status_ready_for_prefix">Готово до підключення:\u0020</string>
-    <string name="audio_stream_unavailable">Аудіопотік типу %1$d тут недоступний (стан=%2$s)</string>
+    <string name="audio_stream_unavailable">Аудіопотік типу %1$d тут недоступний (стан=%2$d)</string>
     <string name="resolution_handshake_prefix">Роздільна здатність узгодження:\u0020</string>
     <string name="safe_area_full_screen_at">Безпечна область: увесь екран,\u0020</string>
     <string name="safe_area_mapping_summary">Безпечна область: %1$d x %2$d у точці (%3$d, %4$d) на екрані %5$d x %6$d</string>

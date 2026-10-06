@@ -81,7 +81,7 @@
     <string name="edit_saved_hotspot_prefix">Изменить сохранённую точку доступа ·\u0020</string>
     <string name="cluster_adb_multi_device">Если ADB перечисляет несколько устройств, используйте adb -s &lt;car-device-ID&gt; shell appops set %1$s GET_USAGE_STATS allow. Узнать ID можно командой adb devices.</string>
     <string name="status_ready_for_prefix">Готов к\u0020</string>
-    <string name="audio_stream_unavailable">Тип потока %1$d недоступен здесь (состояние=%2$s)</string>
+    <string name="audio_stream_unavailable">Тип потока %1$d недоступен здесь (состояние=%2$d)</string>
     <string name="resolution_handshake_prefix">Разрешение рукопожатия:\u0020</string>
     <string name="safe_area_full_screen_at">Безопасная область: полный экран \u0020</string>
     <string name="settings_android9_compat">Следующие настройки недоступны и скрыты на Android 9 (API 28):\n• Wi-Fi P2P (5 ГГц) — вместо него используется LocalOnlyHotspot.\n• Программный декодер HEVC — вместо него используется аппаратное декодирование.</string>

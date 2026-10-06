@@ -62,7 +62,15 @@ internal object LeapmotorGearMonitor {
             }
         }
         val filter = IntentFilter(RESPONSE_ACTION)
-        runCatching { application.registerReceiver(created, filter) }
+        runCatching {
+            // The CAN server broadcasts this action, so the receiver must be exported; from
+            // Android 14 the flag is mandatory and registration fails without it.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                application.registerReceiver(created, filter)
+            }
+        }
             .onSuccess {
                 receiver = created
                 report("gear monitor listening on $RESPONSE_ACTION")

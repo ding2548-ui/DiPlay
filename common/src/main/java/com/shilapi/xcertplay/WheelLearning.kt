@@ -133,7 +133,14 @@ internal object LearnedWheelKeys {
                 handleMediaButton(intent)
             }
         }
-        runCatching { application.registerReceiver(created, filter) }
+        runCatching {
+            // Media button broadcasts come from the system, hence exported.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                application.registerReceiver(created, filter)
+            }
+        }
             .onSuccess {
                 receiver = created
                 report("learned wheel listening on media buttons")
@@ -486,7 +493,14 @@ internal object LearnedWheelKeys {
                 }
             }
         }
-        runCatching { application.registerReceiver(created, filter) }
+        runCatching {
+            // The car bus broadcasts these actions from another process, hence exported.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                application.registerReceiver(created, filter)
+            }
+        }
             .onSuccess { carBusReceiver = created }
             .onFailure { report("broadcast monitor not registered: ${it.message}") }
     }

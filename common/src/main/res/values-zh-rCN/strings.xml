@@ -81,7 +81,7 @@
     <string name="edit_saved_hotspot_prefix">编辑已保存的热点 ·\u0020</string>
     <string name="cluster_adb_multi_device">如果 ADB 列出多个设备，请使用 adb -s &lt;car-device-ID&gt; shell appops set %1$s GET_USAGE_STATS allow。用 adb devices 查询 ID。</string>
     <string name="status_ready_for_prefix">已准备连接：</string>
-    <string name="audio_stream_unavailable">流类型 %1$d 在此不可用（状态=%2$s）</string>
+    <string name="audio_stream_unavailable">流类型 %1$d 在此不可用（状态=%2$d）</string>
     <string name="resolution_handshake_prefix">握手分辨率：</string>
     <string name="safe_area_full_screen_at">安全区域：全屏，</string>
     <string name="settings_android9_compat">以下设置在 Android 9（API 28）上不可用且已隐藏：\n• Wi-Fi P2P（5 GHz）— 将改用 LocalOnlyHotspot。\n• HEVC 软解码器 — 将改用硬件解码。</string>

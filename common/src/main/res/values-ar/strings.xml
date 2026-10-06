@@ -81,7 +81,7 @@
     <string name="edit_saved_hotspot_prefix">تعديل نقطة الاتصال المحفوظة ·\u0020</string>
     <string name="cluster_adb_multi_device">إذا عرض ADB عدة أجهزة، استخدم adb -s &lt;car-device-ID&gt; shell appops set %1$s GET_USAGE_STATS allow. اعثر على المعرّف عبر adb devices.</string>
     <string name="status_ready_for_prefix">جاهز لـ\u0020</string>
-    <string name="audio_stream_unavailable">نوع البث %1$d غير متاح هنا (الحالة=%2$s)</string>
+    <string name="audio_stream_unavailable">نوع البث %1$d غير متاح هنا (الحالة=%2$d)</string>
     <string name="resolution_handshake_prefix">دقة المصافحة:\u0020</string>
     <string name="safe_area_full_screen_at">المنطقة الآمنة: ملء الشاشة بحجم\u0020</string>
     <string name="settings_android9_compat">الإعدادات التالية غير متاحة ومخفية على Android 9 (API 28):\n• Wi-Fi P2P (5 GHz) — يُستخدم LocalOnlyHotspot بدلاً منه.\n• مفكّك HEVC البرمجي — يُستخدم فك الترميز العتادي بدلاً منه.</string>

@@ -81,7 +81,7 @@
     <string name="edit_saved_hotspot_prefix">Editar punto de acceso guardado ·\u0020</string>
     <string name="cluster_adb_multi_device">Si ADB lista varios dispositivos, usa adb -s &lt;car-device-ID&gt; shell appops set %1$s GET_USAGE_STATS allow. Encuentra el ID con adb devices.</string>
     <string name="status_ready_for_prefix">Listo para\u0020</string>
-    <string name="audio_stream_unavailable">El tipo de flujo %1$d no está disponible aquí (estado=%2$s)</string>
+    <string name="audio_stream_unavailable">El tipo de flujo %1$d no está disponible aquí (estado=%2$d)</string>
     <string name="resolution_handshake_prefix">Resolución del enlace:\u0020</string>
     <string name="safe_area_full_screen_at">Zona segura: pantalla completa en\u0020</string>
     <string name="settings_android9_compat">Los siguientes ajustes no están disponibles y están ocultos en Android 9 (API 28):\n• Wi-Fi P2P (5 GHz) — se usa LocalOnlyHotspot en su lugar.\n• Decodificador por software HEVC — se usa la decodificación por hardware en su lugar.</string>

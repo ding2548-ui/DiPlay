@@ -81,7 +81,7 @@
     <string name="edit_saved_hotspot_prefix">Edit saved hotspot ·\u0020</string>
     <string name="cluster_adb_multi_device">If ADB lists several devices, use adb -s &lt;car-device-ID&gt; shell appops set %1$s GET_USAGE_STATS allow. Find the ID with adb devices.</string>
     <string name="status_ready_for_prefix">Ready for\u0020</string>
-    <string name="audio_stream_unavailable">Stream type %1$d is unavailable here (state=%2$s)</string>
+    <string name="audio_stream_unavailable">Stream type %1$d is unavailable here (state=%2$d)</string>
     <string name="resolution_handshake_prefix">Handshake resolution:\u0020</string>
     <string name="safe_area_full_screen_at">Safe area: full screen at\u0020</string>
     <string name="safe_area_mapping_summary">Safe area: %1$d x %2$d at (%3$d, %4$d) in %5$d x %6$d</string>
