@@ -66,6 +66,16 @@ class AirPlaySession(
     private val mfi: MfiAuthenticator?,
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
+    /**
+     * The lwIP wired path relays the iPhone's connections into this process over 127.0.0.1, so
+     * every listener below binds the loopback instead of the wildcard address. getLoopbackAddress()
+     * answers ::1 on this head unit, which the relay does not connect to, hence the literal.
+     */
+    private val loopbackBind: Boolean = false,
+    /** Announces a newly opened TCP port so the lwIP side can relay it to the phone. */
+    private val portNotifier: ((Int) -> Unit)? = null,
+    /** Announces a newly opened UDP port (timing, keepalive) for the same relay. */
+    private val udpPortNotifier: ((Int) -> Unit)? = null,
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
@@ -664,6 +674,8 @@ class AirPlaySession(
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
                         activeStreams.add(type)
+                        // lwIP mode: hand the new data port to the relay so the phone can reach it.
+                        portNotifier?.invoke(port)
                         if (type == STREAM_TYPE_ALT_SCREEN) beginClusterContent()
                         else mainScreenToken = Any()
                         result.add(linkedMapOf("type" to type, "dataPort" to port))
@@ -751,20 +763,29 @@ class AirPlaySession(
     }
 
     private fun openTiming(peerPort: Int): Int {
-        val port = ntp.listen()
+        val port = ntp.listen(
+            if (loopbackBind) InetAddress.getByName(LOOPBACK) else InetAddress.getByName("::"),
+        )
         if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
+        udpPortNotifier?.invoke(port)
         return port
     }
 
     private fun openKeepAlive(): Int {
         val socket = DatagramSocket(null)
         socket.reuseAddress = true
-        socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
+        socket.bind(
+            InetSocketAddress(
+                if (loopbackBind) InetAddress.getByName(LOOPBACK) else InetAddress.getByName("::"),
+                0,
+            ),
+        )
         keepAliveSocket = socket
         keepAliveThread = Thread({ runKeepAlive(socket) }, "airplay-keepalive").apply {
             isDaemon = true
             start()
         }
+        udpPortNotifier?.invoke(socket.localPort)
         return socket.localPort
     }
 
@@ -780,10 +801,19 @@ class AirPlaySession(
     }
 
     private fun openEvent(): Int {
-        val server = ServerSocket(0, 50, InetAddress.getByName("::"))
+        // The relay target is 127.0.0.1, so the bind has to match it exactly.
+        val bindAddress = if (loopbackBind) {
+            InetAddress.getByName(LOOPBACK)
+        } else {
+            InetAddress.getByName("::")
+        }
+        val server = ServerSocket(0, 50, bindAddress)
         eventServer = server
         spawnEvent("airplay-event-accept") { acceptEvent(server) }
-        return server.localPort
+        val port = server.localPort
+        debugLog("airplay event listener bind=${bindAddress.hostAddress} port=$port")
+        portNotifier?.invoke(port)
+        return port
     }
 
     private fun teardown() {
@@ -903,6 +933,8 @@ class AirPlaySession(
 
     private companion object {
         const val TAG = "xcertplay-usb"
+        /** The relay connects over IPv4 loopback; getLoopbackAddress() answers ::1 on this unit. */
+        const val LOOPBACK = "127.0.0.1"
         const val PLIST_CONTENT_TYPE = "application/x-apple-binary-plist"
         const val PAIRING_CONTENT_TYPE = "application/pairing+tlv8"
         const val OCTET_CONTENT_TYPE = "application/octet-stream"

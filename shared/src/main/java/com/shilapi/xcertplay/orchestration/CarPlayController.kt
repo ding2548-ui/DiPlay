@@ -47,6 +47,9 @@ import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.network.LocalOnlyHotspotManager
 import com.shilapi.xcertplay.network.ManualHotspotManager
 import com.shilapi.xcertplay.network.ExistingWifiManager
+import com.shilapi.xcertplay.network.LWIP_LISTEN_PORT
+import com.shilapi.xcertplay.network.LwipNative
+import com.shilapi.xcertplay.network.LwipSessionNetwork
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
 import com.shilapi.xcertplay.network.WifiScanPause
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
@@ -257,6 +260,7 @@ class CarPlayController(
     @Volatile private var wirelessRuntimeIdentification: Iap2IdentificationConfig? = null
     @Volatile private var wirelessAirPlayEndpoint: Iap2WirelessCarPlayEndpoint? = null
     @Volatile private var vpnService: CarPlayVpnService? = null
+    @Volatile private var lwip: LwipSessionNetwork? = null
     @Volatile private var vpnBound = false
     private val wirelessHandoffRequested = AtomicBoolean(false)
     private val wirelessTunnelReady = AtomicBoolean(false)
@@ -1964,7 +1968,8 @@ class CarPlayController(
 
             val ncmHostMac = ncm.hostMac ?: config.hostMac
             debugLog("ncm using hostMac=${ncmHostMac.macString()}")
-            if (!attachVpn(ncm, ncmHostMac)) {
+            val transportAttached = if (config.wiredLwip) attachLwip(ncm, ncmHostMac) else attachVpn(ncm, ncmHostMac)
+            if (!transportAttached) {
                 throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
             }
             ncmOwnedLocally = false
@@ -1978,7 +1983,8 @@ class CarPlayController(
                 ?: throw IphoneUsbException.DeviceUnavailable("MFi coprocessor client is unavailable")
             val endpoint = Iap2WiredCarPlayEndpoint(
                 ipv6Addresses = listOf(config.linkLocal),
-                airPlayPort = vpnService?.boundPort() ?: airPlayConfig.port,
+                airPlayPort = (if (config.wiredLwip) LWIP_LISTEN_PORT else vpnService?.boundPort())
+                    ?: airPlayConfig.port,
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
                 deviceIdentifier = ncmHostMac.macString(),
@@ -2381,6 +2387,86 @@ class CarPlayController(
         config.transport == CarPlayTransport.WIRED -> Iap2WiredControlClient.NO_TIMEOUT_MILLIS
         config.locationReportingEnabled -> LOCATION_CONTROL_LOOP_TIMEOUT_MILLIS
         else -> CONTROL_LOOP_TIMEOUT_MILLIS
+    }
+
+    /**
+     * Beta wired transport: the userspace lwIP stack consumes the NCM frames (no VpnService, so no
+     * TUN, no kernel routing and no VPN consent), the AirPlay server keeps running on the JVM
+     * wildcard as usual, and a loopback proxy relays the iPhone's lwIP connections into it.
+     * Requires a 32-bit process, because the native library is armeabi-v7a only.
+     */
+    private fun attachLwip(ncm: NcmUsbBridge, hostMac: ByteArray): Boolean {
+        onStatus(CarPlayStatus.AttachingNetwork)
+        if (!LwipNative.available) {
+            // The v7a library cannot load in a 64-bit process: fall back to the kernel path
+            // instead of losing the wired transport entirely.
+            debugLog(
+                "wired lwip unavailable, falling back to the VPN transport " +
+                    "is64Bit=${android.os.Process.is64Bit()} error=${LwipNative.loadError}",
+            )
+            return attachVpn(ncm, hostMac)
+        }
+        return try {
+            val session = LwipSessionNetwork(
+                ncm,
+                { message -> debugLog(message) },
+                { failure -> debugLog("wired lwip failure", failure) },
+            )
+            session.start()
+            lwip = session
+            debugLog(
+                "wired lwip transport started availability=${LwipNative.available} " +
+                    "is64Bit=${android.os.Process.is64Bit()} linkLocal=${session.localAddress().hostAddress}",
+            )
+            val service = awaitVpnService() ?: run {
+                debugLog("wired VPN service bind failed (lwip mode)")
+                ncm.close()
+                return false
+            }
+            when (val result = service.attachWireless(
+                bindAddress = java.net.InetAddress.getLoopbackAddress(),
+                config = airPlayConfig,
+                identity = identity,
+                pairings = pairings,
+                mfi = mfiSession?.client,
+                listener = sessionListener,
+                media = media,
+                loopbackRelay = true,
+                // The session announces extra TCP ports as it progresses (eventPort, mirror stream
+                // data port): each one gets its lwIP relay listener here.
+                portNotifier = { port -> lwip?.startProxyPort(port) },
+                // Announced UDP ports (timing/NTP, keepalive) get a datagram relay — the phone
+                // polls our timing port and waits for valid answers before streaming.
+                udpPortNotifier = { port -> lwip?.startUdpProxy(port) },
+            )) {
+                CarPlayVpnService.AttachResult.Started -> {
+                    val targetPort = service.boundPort() ?: airPlayConfig.port
+                    session.startProxy(targetPort)
+                    debugLog("wired lwip proxy started target=127.0.0.1:$targetPort")
+                    true
+                }
+                CarPlayVpnService.AttachResult.AlreadyStarted -> {
+                    debugLog("wired lwip airplay attach result=already-started")
+                    session.close()
+                    ncm.close()
+                    false
+                }
+                is CarPlayVpnService.AttachResult.Failed -> {
+                    debugLog("wired lwip airplay attach result=failed ${result.message}")
+                    session.close()
+                    ncm.close()
+                    onStatus(CarPlayStatus.Failed(result.message))
+                    false
+                }
+            }
+        } catch (failure: Throwable) {
+            debugLog("wired lwip attach failed", failure)
+            lwip?.close()
+            lwip = null
+            ncm.close()
+            onStatus(CarPlayStatus.Failed(failure.message ?: failure.javaClass.simpleName))
+            false
+        }
     }
 
     private fun attachVpn(ncm: NcmUsbBridge, hostMac: ByteArray): Boolean {

@@ -23,6 +23,16 @@ android {
         targetSdk = 37
         versionCode = 31
         versionName = buildNumber?.let { "0.2.12（$it）" } ?: "0.2.12"
+
+        // The APK ABI is decided HERE, in the app module: shared's abiFilters only control its own
+        // externalNativeBuild, and bundled AARs ship their own arm64/x86 .so files, which made the
+        // 64-bit-capable head unit install the app as arm64 - a 64-bit process cannot load the
+        // v7a-only libdiplay_lwip.so, so LwipNative.available would be false and the lwIP wired
+        // transport would silently fall back to the VPN. Pinning every merged native library to
+        // v7a keeps the whole process 32-bit.
+        ndk {
+            abiFilters.add("armeabi-v7a")
+        }
     }
 
 

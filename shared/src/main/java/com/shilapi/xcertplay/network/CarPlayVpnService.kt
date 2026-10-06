@@ -53,6 +53,15 @@ class CarPlayVpnService : VpnService() {
         val media: AirPlayMediaHandler,
         val additionalAddresses: List<InetAddress> = emptyList(),
         val listenerIdentity: AirPlayListenerIdentity? = null,
+        // The lwIP wired path relays the iPhone's TCP streams into this server over 127.0.0.1;
+        // without this flag acceptLoop would drop every relayed connection as a "self-test"
+        // (isLocalSource matches the loopback interface) and the session could never start.
+        val loopbackRelay: Boolean = false,
+        // lwIP mode: the session announces extra ports as it progresses (eventPort, timing, stream
+        // data ports). Each announcement opens its lwIP relay listener here.
+        val portNotifier: ((Int) -> Unit)? = null,
+        /** lwIP mode: announced UDP ports (timing, keepalive) open their datagram relay here. */
+        val udpPortNotifier: ((Int) -> Unit)? = null,
     )
 
     private val binder = LocalBinder()
@@ -190,6 +199,15 @@ class CarPlayVpnService : VpnService() {
         media: AirPlayMediaHandler,
         additionalBindAddresses: List<InetAddress> = emptyList(),
         listenerIdentity: AirPlayListenerIdentity? = null,
+        // The lwIP wired path relays the iPhone's TCP streams into this server over 127.0.0.1;
+        // without this flag acceptLoop would drop every relayed connection as a "self-test"
+        // (isLocalSource matches the loopback interface) and the session could never start.
+        loopbackRelay: Boolean = false,
+        // lwIP mode: the session announces extra ports as it progresses (eventPort, timing, stream
+        // data ports). Each announcement opens its lwIP relay listener here.
+        portNotifier: ((Int) -> Unit)? = null,
+        /** lwIP mode: announced UDP ports (timing, keepalive) open their datagram relay here. */
+        udpPortNotifier: ((Int) -> Unit)? = null,
     ): AttachResult {
         if (active.get()) {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
@@ -201,7 +219,8 @@ class CarPlayVpnService : VpnService() {
             startAirPlayServer(
                 generation,
                 AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media,
-                    additionalBindAddresses, listenerIdentity),
+                    additionalBindAddresses, listenerIdentity,
+                    loopbackRelay, portNotifier, udpPortNotifier),
             )
             AttachResult.Started
         } catch (error: Exception) {
@@ -286,8 +305,11 @@ class CarPlayVpnService : VpnService() {
                         socket.close()
                         return
                     }
-                    val internalPeer = isInternalAirPlayPeer(socket.inetAddress, socket.localAddress)
-                    current.listenerIdentity?.let { owner ->
+                    // In lwIP relay mode every connection arrives from 127.0.0.1 (the relay
+                    // itself), which isInternalAirPlayPeer would classify as one of our own
+                    // probes, so the classification is skipped for that attachment.
+                    val internalPeer = !current.loopbackRelay &&
+                        isInternalAirPlayPeer(socket.inetAddress, socket.localAddress)                    current.listenerIdentity?.let { owner ->
                         current.listener.onTcpAccepted(AirPlayTcpAccepted(
                             owner, internalPeer, acceptedAtNanos,
                         ))
@@ -324,6 +346,9 @@ class CarPlayVpnService : VpnService() {
                             }
                         },
                         media = current.media,
+                        loopbackBind = current.loopbackRelay,
+                        portNotifier = current.portNotifier,
+                        udpPortNotifier = current.udpPortNotifier,
                     ).also(::addSession)
                 }
                 session.start()

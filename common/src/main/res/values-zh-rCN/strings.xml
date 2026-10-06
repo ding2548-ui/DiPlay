@@ -665,4 +665,9 @@
     <string name="carplay_rotation_smoother">更流畅（1920）</string>
     <string name="carplay_rotation_sharper">更清晰（屏幕尺寸）</string>
     <string name="auto_grant_incomplete">未验证全部请求权限。请检查下方各项状态；开启网络 ADB 后重试，或使用手动设置。现有权限保持不变。</string>
+    <string name="wired_lwip_stack">有线走 lwIP 用户态网络栈</string>
+    <string name="wired_lwip_stack_description">有线 CarPlay 不再建立 VPN 或内核路由，NCM 帧直接进用户态 lwIP 栈，经回环代理进入 AirPlay 服务（实验）。本构建 </string>
+    <string name="wired_lwip_available">已满足</string>
+    <string name="wired_lwip_unavailable">不满足（当前进程无法加载 lwIP 库）</string>
+    <string name="wired_lwip_restart_hint">。更改在下次有线连接时生效。</string>
 </resources>

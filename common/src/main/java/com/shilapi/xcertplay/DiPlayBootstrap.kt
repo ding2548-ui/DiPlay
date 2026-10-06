@@ -59,4 +59,10 @@ internal object DiPlayPreferences {
     fun saveAutoConnect(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("auto_connect", value).apply()
     }
+
+    /** lwIP stays off unless it is turned on: the wired VPN path remains the default. */
+    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", false)
+    fun saveWiredLwip(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean("wired_lwip", value).apply()
+    }
 }

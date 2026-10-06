@@ -580,6 +580,14 @@ class DiPlayActivity : ComponentActivity() {
             choice(card, getString(R.string.frame_rate), listOf(getString(R.string.s_30_fps_lighter_load), getString(R.string.s_60_fps_smoother_motion)), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
             toggle(card, getString(R.string.efficient_video), getString(R.string.use_hevc_leave_off_for_the_widest_head_unit_compatibility), AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
             toggle(card, getString(R.string.right_hand_drive), getString(R.string.place_carplay_s_controls_closer_to_the_driver), AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
+            toggle(
+                card, getString(R.string.wired_lwip_stack),
+                getString(R.string.wired_lwip_stack_description) +
+                    (if (com.shilapi.xcertplay.network.LwipNative.available)
+                        getString(R.string.wired_lwip_available) else getString(R.string.wired_lwip_unavailable)) +
+                    getString(R.string.wired_lwip_restart_hint),
+                DiPlayPreferences.wiredLwip(this),
+            ) { DiPlayPreferences.saveWiredLwip(this, it) }
             carPlayDockControl(card)
             toggle(card, getString(R.string.split_screen_areas), getString(R.string.split_screen_areas_description),
                 SplitScreenSettings.enabled(this)) {

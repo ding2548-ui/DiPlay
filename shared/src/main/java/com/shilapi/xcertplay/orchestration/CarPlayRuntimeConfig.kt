@@ -50,6 +50,9 @@ class CarPlayRuntimeConfig(
     val linuxI2cPath: String? = null,
     val remoteMfiServer: String? = null,
     val remoteMfiToken: String? = null,
+    // Beta: run the wired AirPlay transport on the userspace lwIP stack instead of the kernel
+    // TUN (VpnService). Requires a 32-bit process, because the native library is v7a-only.
+    val wiredLwip: Boolean = false,
     val hostMac: ByteArray = DEFAULT_HOST_MAC,
     val linkLocal: String = "fe80::2",
     val identification: Iap2IdentificationConfig,
