@@ -870,6 +870,14 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button(getString(R.string.bluetooth_settings), false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, matchButton(10, 60))
             card.addView(button(getString(R.string.wireless_connection_help), false) { wirelessHelp() }, matchButton(10, 60))
         }
+        // Ported from the Leapmotor line (DiPlay-main2.0). Both blocks are one head unit's copy
+        // rather than translatable UI, so their strings stay hard-coded Chinese, like the update
+        // block below them already was.
+        section(content, "方控学习") { card -> wheelLearningControls(card) }
+        section(content, "在线更新") { card ->
+            card.addView(label("检测 GitHub 上的新构建：自动下载、安装并重新打开 DiPlay，装好后会删除下载的 APK。", 14, MUTED))
+            updateSection(card)
+        }
         section(content, getString(R.string.about), R.drawable.ic_dp_about) { card ->
             card.addView(button(getString(R.string.about_diplay), false) { page = "about"; render() }, matchButton(0, 60))
         }
@@ -882,7 +890,8 @@ class DiPlayActivity : ComponentActivity() {
         section(content, "${getString(R.string.about_public_preview_prefix)}${version()}") { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
         }
-        updateSection(content)
+        // The updater moved to its own settings section ("在线更新"): only one live copy of its view
+        // references can exist, and settings is where the Leapmotor line keeps it.
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
         }
@@ -892,6 +901,10 @@ class DiPlayActivity : ComponentActivity() {
      * In-app update: ask GitHub for the newest published build, offer the download, then install
      * through PackageInstaller. The car is platform signed, so the silent path applies; a ROM that
      * refuses it falls back to the system installer via the FileProvider.
+     *
+     * The two view references must survive until the next render: [startUpdateCheck] and
+     * [startUpdateDownload] write their progress into them. An earlier revision cleared both at the
+     * end of this function, which left the button wired to nothing and made the section look dead.
      */
     private fun updateSection(content: LinearLayout) {
         updateMessage = label("当前版本 ${version()}", 16, MUTED).apply { setPadding(0, dp(12), 0, 0) }
@@ -899,7 +912,6 @@ class DiPlayActivity : ComponentActivity() {
         updateActionButton = button("检查更新", false) { startUpdateCheck() }
         content.addView(updateActionButton, matchButton(12, 60))
         content.addView(updateSourceButton(), matchButton(10, 60))
-        updateMessage = null; updateActionButton = null
     }
 
     private fun updateSourceButton(): Button {
@@ -936,10 +948,15 @@ class DiPlayActivity : ComponentActivity() {
                 when {
                     result.isFailure -> updateMessage?.text =
                         "检查失败：${result.exceptionOrNull()?.message ?: "网络不可达"}。可尝试更换下载源。"
-                    latest == null || (current != null && latest <= current) ->
+                    latest == null -> updateMessage?.text = "未发现可用构建。"
+                    current != null && latest <= current ->
                         updateMessage?.text = "未发现更高构建（当前 ${version()}）。"
-                    current != null && latest > current -> {
-                        updateMessage?.text = "发现新构建 $latest，当前 $current。"
+                    else -> {
+                        // A build whose versionName carries no readable run number still gets the
+                        // offer: refusing to update because the local version could not be parsed
+                        // would strand exactly the builds that need the fix.
+                        val shown = current?.toString() ?: "未知"
+                        updateMessage?.text = "发现新构建 $latest，当前 $shown。"
                         updateActionButton?.text = "下载并安装 $latest"
                         updateActionButton?.setOnClickListener { startUpdateDownload(latest) }
                     }
@@ -989,9 +1006,102 @@ class DiPlayActivity : ComponentActivity() {
                             }
                         }.start()
                     }
-                    .setNegativeButton("稍后", null).show()
+                    .setNegativeButton("稍后") { _, _ ->
+                        // Without this the busy flag stayed set and the button stayed disabled, so
+                        // one "later" killed the section until the page was rebuilt.
+                        AppUpdater.clearManualApk(this)
+                        updateBusy = false
+                        updateActionButton?.isEnabled = true
+                        updateMessage?.text = "已取消安装，仍可重新下载。"
+                    }.show()
             }
         }.start()
+    }
+
+    /**
+     * Per-action steering-wheel learning, ported from the Leapmotor line (which took it from
+     * EasyPlay). Each CarPlay action gets bound to whichever key or car-bus broadcast the driver
+     * presses; [LearnedWheelKeys] then forwards only the learned ones, which also immunises the
+     * wheel against the head unit's own internal command echo.
+     */
+    private fun wheelLearningControls(card: LinearLayout) {
+        card.addView(label(
+            "按一次车上的按键，把它绑定到下面的动作。只有学习过的键会被转发给 CarPlay，" +
+                "未学习的键一律忽略。学习按键支持媒体按键广播与车机广播两种来源。",
+            14, MUTED,
+        ))
+        val bindings = WheelLearningStore.load(this)
+        var top = 16
+        for (action in WheelAction.entries) {
+            val binding = bindings.firstOrNull { it.action == action }
+            card.addView(button("${action.label} · ${binding?.label() ?: "未学习"}", false) {
+                startWheelLearning(action)
+            }, matchButton(top, 60))
+            top = 10
+        }
+        card.addView(button("清除全部方控学习", false) {
+            WheelLearningStore.clear(this)
+            LearnedWheelKeys.refreshBroadcastReceivers(this, emptyList())
+            toast("已清除全部方控学习")
+            render()
+        }, matchButton(10, 60))
+        card.addView(space(12))
+        val logEnabled = LearnedWheelKeys.isBroadcastLogEnabled(this)
+        toggle(card, "监听方控广播日志",
+            "按 action 监听车机方控广播并记录最近 12 条；点任意一条可把它绑定为方控键。",
+            logEnabled) {
+            LearnedWheelKeys.setBroadcastLogEnabled(this, it)
+            render()
+        }
+        if (logEnabled) {
+            val entries = LearnedWheelKeys.broadcastLogEntries()
+            if (entries.isEmpty()) {
+                card.addView(label("暂未捕获到广播——按几下方向盘按键后回到本页查看。", 14, MUTED))
+            } else {
+                entries.reversed().forEachIndexed { index, entry ->
+                    card.addView(button("广播 ${entry.action} · ${entry.detail}", false) {
+                        chooseWheelActionForBroadcast(entry)
+                    }, matchButton(if (index == 0) 10 else 6, 56))
+                }
+            }
+        }
+    }
+
+    private fun chooseWheelActionForBroadcast(entry: LearnedWheelKeys.BroadcastLogEntry) {
+        val options = WheelAction.entries.map { it.label }.toTypedArray()
+        var pending = 0
+        AlertDialog.Builder(this).setTitle("把广播绑定为方控动作")
+            .setSingleChoiceItems(options, 0) { _, index -> pending = index }
+            .setPositiveButton("保存") { _, _ ->
+                val target = WheelAction.entries[pending]
+                val id = entry.bindingId
+                val bindings = WheelLearningStore.load(this)
+                    .filter { it.action != target && it.id != id } + WheelBinding(id, target)
+                if (WheelLearningStore.save(this, bindings)) {
+                    LearnedWheelKeys.refreshBroadcastReceivers(this, bindings)
+                    toast("已学习：${target.label} ← 广播 ${entry.action} · ${entry.detail}")
+                } else {
+                    toast("无法保存方控设置，请重试")
+                }
+                render()
+            }
+            .setNegativeButton("取消", null).show()
+    }
+
+    private fun startWheelLearning(action: WheelAction) {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("${action.label} · 方控学习")
+            .setMessage("请按一次车上的按键。\n\n只记录按键，不改动任何配对；按“取消”放弃。")
+            .setNegativeButton("取消") { _, _ -> LearnedWheelKeys.cancelCapture() }
+            .show()
+        LearnedWheelKeys.beginCapture(this) { id ->
+            runCatching { dialog.dismiss() }
+            val bindings = WheelLearningStore.load(this)
+                .filter { it.action != action && it.id != id } + WheelBinding(id, action)
+            if (WheelLearningStore.save(this, bindings)) toast("已学习：${action.label} ← ${WheelBinding(id, action).label()}")
+            else toast("无法保存方控设置，请重试")
+            render()
+        }
     }
 
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.

@@ -98,7 +98,9 @@ object AirPlayPersistence {
 
     const val DEFAULT_MANUFACTURER = "DiPlay"
     const val DEFAULT_MODEL = "DiPlay"
-    const val DEFAULT_OEM_LABEL = "BYD"
+    // Shown on the car icon CarPlay puts in its app list — the button that goes back to the head
+    // unit's own UI. Leapmotor variant: the upstream default was "BYD".
+    const val DEFAULT_OEM_LABEL = "零跑"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadAmbientDelaySeconds(context: Context): Int =
@@ -448,6 +450,9 @@ object AirPlayPersistence {
             .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
             // iOS hides the car icon without a label.
             .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+            // Leapmotor variant: installs upgraded from the BYD-labelled builds keep seeing
+            // BYD unless the stored label is migrated once.
+            .let { if (it == "BYD") DEFAULT_OEM_LABEL else it }
 
     fun saveOemLabel(context: Context, oemLabel: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

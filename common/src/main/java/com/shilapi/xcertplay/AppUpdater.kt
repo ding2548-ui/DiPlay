@@ -16,9 +16,16 @@ object AppUpdater {
     private const val REPO = "ding2548-ui/DiPlay"
     private const val PREFS = "diplay"
     private const val SOURCE_KEY = "update_source"
-    private const val ASSET_PREFIX = "DiPlay-2.0-"
-    private const val ASSET_SUFFIX = "-leapmotor.apk"
-    private const val TAG_PATTERN = "v2.0-"
+
+    // Both lines publish into this one repository, so the release tag prefix is what tells this
+    // updater which builds are its own. This line tags v0.2.12-<run_number> and attaches a single
+    // asset named mobile-release.apk; the Leapmotor line tags v2.0-<run> with a differently named
+    // asset, and offering one of those here would install the wrong build.
+    private const val TAG_PREFIX = "v0.2.12-"
+    private const val RELEASE_ASSET = "mobile-release.apk"
+    private const val LOCAL_PREFIX = "DiPlay-0.2.12-"
+    private const val LOCAL_SUFFIX = ".apk"
+
     private const val CONNECT_TIMEOUT = 10_000
     private const val READ_TIMEOUT = 20_000
 
@@ -42,18 +49,23 @@ object AppUpdater {
         else -> "代理 $source"
     }
 
-    /** The CI stamps the build number into the version name, e.g. 2.11（90）. */
+    /**
+     * The CI stamps the run number into the version name. This line writes 0.2.12（189-6f275b6c）,
+     * the Leapmotor line writes 2.11（90）, so only the opening bracket is relied on.
+     */
     fun currentBuild(context: Context): Int? {
         val name = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: return null
-        return Regex("（(\\d+)）").find(name)?.groupValues?.get(1)?.toIntOrNull()
-            ?: Regex("\\((\\d+)\\)").find(name)?.groupValues?.get(1)?.toIntOrNull()
+        return Regex("（(\\d+)").find(name)?.groupValues?.get(1)?.toIntOrNull()
+            ?: Regex("\\((\\d+)").find(name)?.groupValues?.get(1)?.toIntOrNull()
     }
 
     /**
-     * Resolves the newest CI build number. GitHub answers /releases/latest with a
-     * redirect to the tagged page; mirrors may either pass the redirect through or
-     * stream the page themselves, so both a Location header and the page body are
-     * accepted. Tries the selected source first, then every other source.
+     * Resolves the newest build number published for this line. Both lines share the repository, so
+     * /releases/latest names whichever line pushed last, and that is regularly the other one. The
+     * atom feed lists the recent releases of both, so it is read first and every tag matching
+     * [TAG_PREFIX] is considered; the redirect stays as a fallback for mirrors that do not serve the
+     * feed. Mirrors may pass a redirect through or stream the page themselves, so both a Location
+     * header and the page body are accepted. Tries the selected source first, then every other.
      */
     fun latestBuild(preferred: String): Int {
         val order = listOf(preferred) + sources().filter { it != preferred }
@@ -69,36 +81,59 @@ object AppUpdater {
         throw lastError ?: error("无法获取最新构建")
     }
 
-    private fun fetchLatestBuild(source: String): Int? {
-        val connection = open(source, "github.com/$REPO/releases/latest", redirectless = true)
+    private fun fetchLatestBuild(source: String): Int? =
+        newestFromFeed(source) ?: newestFromRedirect(source)
+
+    /** releases.atom carries one <link .../releases/tag/<tag>> per recent release, both lines mixed. */
+    private fun newestFromFeed(source: String): Int? {
+        val connection = open(source, "github.com/$REPO/releases.atom", redirectless = true)
         try {
-            val code = connection.responseCode
-            if (code in 300..399) {
-                val target = connection.getHeaderField("Location") ?: return null
-                return Regex("${TAG_PATTERN}(\\d+)").find(target)?.groupValues?.get(1)?.toIntOrNull()
-            }
-            if (code != 200) error("HTTP $code")
-            val body = connection.inputStream.use { stream ->
-                val buffer = ByteArray(64 * 1024)
-                val collected = StringBuilder()
-                while (collected.length < 256 * 1024) {
-                    val read = stream.read(buffer)
-                    if (read <= 0) break
-                    collected.append(String(buffer, 0, read, Charsets.UTF_8))
-                }
-                collected.toString()
-            }
-            return Regex("${TAG_PATTERN}(\\d+)").find(body)?.groupValues?.get(1)?.toIntOrNull()
+            if (connection.responseCode != 200) return null
+            val body = connection.inputStream.use { readText(it) }
+            return buildNumbers(body).maxOrNull()
         } finally {
             connection.disconnect()
         }
     }
 
-    /** The release job names assets after the tag: v2.0-90 -> DiPlay-2.0-90-leapmotor.apk. */
-    fun assetName(build: Int) = "$ASSET_PREFIX$build$ASSET_SUFFIX"
+    private fun newestFromRedirect(source: String): Int? {
+        val connection = open(source, "github.com/$REPO/releases/latest", redirectless = true)
+        try {
+            val code = connection.responseCode
+            if (code in 300..399) {
+                val target = connection.getHeaderField("Location") ?: return null
+                return buildNumbers(target).maxOrNull()
+            }
+            if (code != 200) return null
+            val body = connection.inputStream.use { readText(it) }
+            return buildNumbers(body).maxOrNull()
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** Every run number this line has published, found anywhere in the given text. */
+    private fun buildNumbers(text: String): List<Int> =
+        Regex(Regex.escape(TAG_PREFIX) + "(\\d+)").findAll(text)
+            .mapNotNull { it.groupValues[1].toIntOrNull() }
+            .toList()
+
+    private fun readText(stream: java.io.InputStream): String {
+        val buffer = ByteArray(64 * 1024)
+        val collected = StringBuilder()
+        while (collected.length < 256 * 1024) {
+            val read = stream.read(buffer)
+            if (read <= 0) break
+            collected.append(String(buffer, 0, read, Charsets.UTF_8))
+        }
+        return collected.toString()
+    }
+
+    /** The release job attaches one fixed asset name, so the build lives in the tag, not the file. */
+    fun assetName(build: Int) = "$LOCAL_PREFIX$build$LOCAL_SUFFIX"
 
     fun downloadApk(context: Context, build: Int, source: String, onProgress: (Int, Int) -> Unit): File {
-        val path = "github.com/$REPO/releases/download/v2.0-$build/${assetName(build)}"
+        val path = "github.com/$REPO/releases/download/$TAG_PREFIX$build/$RELEASE_ASSET"
         val connection = open(source, path, redirectless = false)
         val directory = context.getExternalFilesDir(null) ?: context.filesDir
         val temporary = File(directory, "${assetName(build)}.part")
@@ -135,7 +170,7 @@ object AppUpdater {
     fun pendingApk(context: Context): File? {
         val directory = context.getExternalFilesDir(null) ?: context.filesDir
         return directory.listFiles()
-            ?.filter { it.name.startsWith(ASSET_PREFIX) && it.name.endsWith(ASSET_SUFFIX) }
+            ?.filter { it.name.startsWith(LOCAL_PREFIX) && it.name.endsWith(LOCAL_SUFFIX) }
             ?.maxByOrNull { it.lastModified() }
     }
 
@@ -143,7 +178,7 @@ object AppUpdater {
     fun cleanup(context: Context) {
         val directory = context.getExternalFilesDir(null) ?: context.filesDir
         directory.listFiles()?.forEach {
-            if (it.name.startsWith(ASSET_PREFIX) && it.name.endsWith(ASSET_SUFFIX)) it.delete()
+            if (it.name.startsWith(LOCAL_PREFIX) && it.name.endsWith(LOCAL_SUFFIX)) it.delete()
         }
     }
 
