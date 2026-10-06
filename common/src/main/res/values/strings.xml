@@ -667,9 +667,4 @@
     <string name="carplay_rotation_smoother">Smoother (1920)</string>
     <string name="carplay_rotation_sharper">Sharper (the screen\'s size)</string>
     <string name="auto_grant_incomplete">Setup did not verify every requested permission. Check each status below; enable network ADB and retry, or use the manual setup. Existing permissions are kept.</string>
-    <string name="wired_lwip_stack">Use the lwIP user-space stack for wired</string>
-    <string name="wired_lwip_stack_description">Wired CarPlay no longer establishes a VPN or kernel routes; NCM frames go straight into the user-space lwIP stack and are relayed into the AirPlay server over the loopback. Experimental. This build: </string>
-    <string name="wired_lwip_available">ready</string>
-    <string name="wired_lwip_unavailable">not ready (this process cannot load the lwIP library)</string>
-    <string name="wired_lwip_restart_hint">. Takes effect on the next wired connection.</string>
 </resources>

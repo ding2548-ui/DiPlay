@@ -7,49 +7,27 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 ## ✅ 可用
 
-- **无线 CarPlay**（外部 Wi-Fi 方案）：iAP2 全链路正常，出画面、可交互。
-- **有线 CarPlay 的 USB / iAP2 控制通道**：设备发现、重枚举、配对、NCM 数据通路、
-  MFi 认证、`0x4300` / `0x4301` 全部通过。
-- **有线 CarPlay 出画面**：lwIP 与 VPN **两条通路都能进界面并出画面**（192 报告实测
-  `Video: first frame rendered`，`shown=24.6fps` / `26.0fps`，音频 `audioType=media` 也通了）。
+- **有线 CarPlay（VPN/NCM 通路）**：设备发现、重枚举、配对、NCM 数据通路、MFi 认证、
+  `0x4300` / `0x4301`、出画面（`Video: first frame rendered`）、音频（`audioType=media`）全部正常。
+  会话稳定性与断线重连已修（第 12、13 条）。
+- **无线 CarPlay**：
+  - **车载自建热点**：✅ **可用**。178 版可用 → 之后为 lwIP 把 APK 钉成 32 位把它打挂 →
+    恢复 arm64-v8a 后恢复（第 17 条）。
+  - **外置 Wi-Fi / 同一局域网**：✅ 可用。
 - **界面汉化**、零跑档位识别、方向盘按键、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
-- **方控学习**（设置 → 方控学习）：按一次车上的键绑定到 上一首 / 下一首 / 播放 / 暂停 / 播放暂停；
-  未学习的键一律忽略。另有「监听方控广播日志」，按 action 记录最近 12 条方控广播，点选即绑定。
+- **方控音频归属**：焦点与 MediaSession 已拿到（`media keys active focusGranted=true session=true`）。
 - **在线更新**（设置 → 在线更新）：检查 GitHub 上的新构建 → 自动下载（支持直连 / 代理）→ 静默安装。
 - CarPlay 应用列表里那个「回到原车」的图标按钮，名称与图标都是**零跑**（不再是 BYD）。
 
-## 🔴 暂不可用
-
-- **有线 CarPlay 出画面**：lwIP 与 VPN **两条通路都已出画面**（192 报告：`Video: first frame
-  rendered`，`shown=24.6fps` / `26.0fps`），灰屏与「VPN 进不去」都已解决。
-- **有线会话稳定性**：192 报告里每次断开都是同一行 `Invalid NTB16 short-packet pad`，
-  15～63 秒一次。已修（第 12 条）。
-- **断线后的重试卡死**：lwIP 通路断线后重建报 `USB IPv6 socket error errno=16`（EBUSY），
-  只能手动切模式才恢复。已修（第 13 条）。
-- **方控压制原厂音乐**：音频归属已生效（`media keys active focusGranted=true session=true`），
-  但 192 报告里**没有任何一次按键记录**，所以「原厂也同时切歌」还无法定论 —— 见下。
-
-## 🔴 暂不可用
+## 🔴 暂不可用 / 待确认
 
 | 症状 | 现状 | 待办 |
 |---|---|---|
-| **外置 Wi-Fi / 同一局域网** | 193 被**我自己改坏**了（见第 14 条），本版修回 | 复测 |
-| 车载自建热点无线连不上 | 热点起得来、iAP2 认证通过，但手机不拨 7000 | 本版恢复 64 位 ABI 验证（第 17 条） |
-| 方控切歌时原厂也切歌并同时播放 | 焦点/会话已拿到，但日志里没有按键记录 | **需要一份「连着的时候按方控」的日志** |
+| 方控切歌时原厂也切歌并同时播放 | 焦点/会话已拿到，但 192/402 报告里**一次按键记录都没有** | **需要一份「连着的时候按方控」的日志** |
+| USB 权限弹窗每次插拔都要手点 | 无障碍服务只在 AOSP 弹窗上生效，本车机弹窗来自别处 → 静默 | 本版加 `MANAGE_USB` + 放宽判定（第 19 条），复测 |
+| lwIP 有线通路 | 出画面但没声音、手动断开后要重启应用、整体不如 VPN 稳 | 开关已摘除（第 18 条），代码留着但用不到 |
 
-**外置 Wi-Fi 这条是我上一版的回归，先说清楚**：193 报告（402）里每一次无线尝试都是
-`wireless bring-up failed: No common AirPlay port available for the selected interface addresses`，
-70ms 就拆。原因是我把「link-local IPv6 → `::` 通配符」的替换套到了**多地址**分支上，
-而 `::` 会覆盖同组里的其他地址，`bindAll` 要求所有地址绑同一个端口 → 必然 EADDRINUSE →
-所有候选端口试完就抛。现只在**单地址**（即 VPN 通路）分支做替换，多地址分支恢复原样。
-
-**车载热点这条是另一回事**：热点确实起来了（`Manual hotspot` / wlan0 / IPv4 /
-`HotspotReady`），iAP2 也认证通过（`authenticated=true startRequests=2`），
-AirPlay 监听也绑上了（`airplay listener ready family=IPv4`），但手机始终不发起 TCP
-（`tcpAccepted=0` → `FIRST_TCP_TIMEOUT`）。这一条自 lwIP 引入以来没变过，
-需要一份**能用时的日志**对照才能继续。
-
-**方控这一条为什么要日志**：402/192 报告里 `media key ...`（两条路都会记）**一次都没出现**，
+**方控这一条为什么要日志**：`media key ...`（广播与媒体会话两条路都会记）**一次都没出现**，
 而音频是走 CarPlay 的。若下次日志仍然是「按了键但 DiPlay 一行都没有，CarPlay 却切了歌」，
 那就说明按键根本没经过 DiPlay —— 最可能是车机把方向盘键交给原厂/蓝牙媒体通路，
 再由 AVRCP 通知 iPhone 切歌（同一个 iPhone，所以 CarPlay 界面也跟着变，声音还从蓝牙出来
@@ -72,12 +50,9 @@ AirPlay 监听也绑上了（`airplay listener ready family=IPv4`），但手机
 - **CI 不再跑 lint 与单元测试**，只出 release 包（原先的 check job 太慢）。
   这意味着 lint 这道「防止 API 26+ 调用混进 API 25 构建」的自动防线没有了，
   改运行时代码时请手动跑一次 `python D:\Launcher\kotlin_static_check.py <改动的 .kt 文件>`。
-- **有线默认走 VPN/NCM**，lwIP 要手动开（见第 15 条），而且**本版在 arm64 进程里根本用不了**
-  （见第 17 条，`LwipNative.available=false`，自动回退 VPN）。lwIP 模式的已知缺陷：
-  出画面但**没有声音**；**手动断开后必须重启应用**才能再次连上；整体不如 VPN 稳。
-- **车载自建热点无线仍连不上**（热点起得来、iAP2 通过，手机不拨 7000）。
-  本版恢复了 178 的 ABI（64 位）来验证这一点，见第 17 条。
-  无线可用方案仍是**外置 Wi-Fi / 同一局域网**（已确认可用）。
+- **APK 必须带 `arm64-v8a`**（第 17 条）：为某个 native 库钉 ABI 会把**整个进程变成 32 位**，
+  而 32 位会打挂车载热点。CI 里已加断言。
+- **有线走 VPN/NCM**；lwIP 的设置开关已摘除（第 18 条），代码保留但在 arm64 进程里用不了。
 - 开无线 CarPlay 时车机自身没有网络（msm8953 单射频，不支持 STA+GO 并发）。
 
 ---
@@ -268,6 +243,48 @@ AirPlay 监听也绑上了（`airplay listener ready family=IPv4`），但手机
     （ABI 32/64 位、以及 debug→release 口味与包名后缀 `.hudtest` 的移除）。
     本版先动 ABI（顺带满足「关掉 lwIP」），复测就能把这两个变量分开：
     热点回来了 = ABI；还是不行 = 下一个变量是包名/口味。
+
+    **复测结果：热点回来了 → 就是 ABI（32 位化打挂的）。** 所以 lwIP 那个 .so 不值得为它
+    把整个进程钉成 32 位。
+
+18. **摘掉设置里的 lwIP 开关。**
+    `wired_lwip` 现在在 arm64 进程里用不了（第 17 条），开关没有意义，已从设置页移除，
+    相关的 5 条字符串也一并删掉。代码（`LwipNative` / `LwipSessionNetwork` / `attachLwip`）
+    保留不动：留着不影响，也不占运行路径。偏好默认仍是 `false`（第 15 条的一次性迁移照旧）。
+
+19. **USB 权限弹窗：无障碍为什么开了也不生效，以及真正的修法。**
+    **现象**：车机设置里已开启本应用的无障碍权限，但每次插拔数据线仍要手点授权弹窗。
+
+    **无障碍服务为什么静默** —— `UsbAutoConfirmService` 原来有三道**精确匹配**的闸门，
+    任何一道不成立就什么都不做：
+    1. `usb_auto_confirm_service_config.xml` 里 `android:packageNames="com.android.systemui,android"`
+       —— 只有这两个包的事件才会送到服务。
+    2. `isSystemUsbWindow()` 要求 `className` **恰好**是
+       `com.android.systemui.usb.UsbPermissionActivity` 或 `...UsbConfirmActivity`。
+    3. 确认按钮要 `viewIdResourceName == "android:id/button1"`，或文本**完全等于**
+       `确定/允许/OK/Allow/Confirm` 之一。
+
+    这三条只对 **AOSP 原生 ROM** 成立。本车机是 `N2G47H test-keys` 的厂商定制 ROM，
+    弹窗来自哪个包、哪个 Activity 都不一定；只要第 1、2 条不成立，服务连节点都不会读，
+    报告里也就**一行都不会有**（它原来只用 TAG `UsbAutoConfirm` 写 logcat，不进报告）。
+
+    **真正该修的是上游**：应用是**平台签名**的（manifest 里已经声明 `INSTALL_PACKAGES`
+    这种 `signature|privileged` 权限，静默安装也确实可用）。平台的 USB 权限检查对持有
+    `android.permission.MANAGE_USB` 的调用者**直接放行**（`UsbUserSettingsManager.hasPermission`），
+    于是 `UsbManager.hasPermission()` 不再为 false，`IphoneUsbHost.requestPermission()`
+    走 `AlreadyGranted` 分支，**系统根本不会弹这个窗**。所以本版声明了 `MANAGE_USB`，
+    弹窗从源头消失，无障碍服务只作兜底。
+
+    **本版改动**：
+    - manifest 声明 `android.permission.MANAGE_USB`。
+    - 诊断行加上授权状态：`wired iPhone USB permission already granted manageUsb=true|false`
+      （`requested` 那行也有）。**`manageUsb=true` 却仍走到 `requested`**
+      = 这个 ROM 没有走 MANAGE_USB 的快捷路径，那就只能靠无障碍。
+    - 无障碍服务：去掉 `packageNames` 过滤；判定改为**按内容**（弹窗必须提到本应用名 + USB）
+      加「不是自己的窗口」，不再比 Activity 名；确认按钮改为**子串**匹配并扩充
+      （确定/确认/允许/同意/OK/Allow/Confirm/Agree/Accept/Yes）；「默认」勾选框也按文本兜底。
+    - 服务把**看到的每个含 USB 的窗口**（包名 + 文本前 160 字）与点击结果写进 DiPlay 报告，
+      下一份日志就能直接看出弹窗来自哪个包、按钮叫什么。
 
 ---
 

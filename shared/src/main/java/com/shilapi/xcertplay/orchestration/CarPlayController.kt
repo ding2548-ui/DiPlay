@@ -1684,12 +1684,14 @@ class CarPlayController(
         try {
             when (val request = iphoneHost.requestPermission(device)) {
                 is IphoneUsbHost.PermissionRequest.AlreadyGranted -> {
-                    debugLog("wired iPhone USB permission already granted")
+                    debugLog("wired iPhone USB permission already granted manageUsb=${iphoneHost.manageUsbGranted}")
                     permissionGrant.set(false)
                     onIphonePermission(IphoneUsbHost.PermissionResult.Granted(request.device))
                 }
                 is IphoneUsbHost.PermissionRequest.Requested -> {
-                    debugLog("wired iPhone USB permission requested")
+                    // manageUsb=true here means the platform still asked, so MANAGE_USB does not
+                    // short-circuit this ROM's permission check and the dialog has to be handled.
+                    debugLog("wired iPhone USB permission requested manageUsb=${iphoneHost.manageUsbGranted}")
                     permissionGrant.set(false)
                     onStatus(CarPlayStatus.RequestingIphonePermission)
                     pollIphonePermission(device)

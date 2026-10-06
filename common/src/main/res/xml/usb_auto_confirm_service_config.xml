@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  No android:packageNames filter on purpose. It used to be "com.android.systemui,android", which is
+  where AOSP puts UsbPermissionActivity — but this head unit is a vendor car ROM, and when the USB
+  prompt comes from a different package the service receives no events at all and stays silent. The
+  service decides by window content instead (the prompt must name this app and mention USB), so the
+  filter only ever cost coverage. Events are cheap: the handler bails out as soon as the window is
+  not a USB prompt.
+-->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/usb_auto_confirm_desc"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="50"
     android:canRetrieveWindowContent="true"
-    android:packageNames="com.android.systemui,android"
     android:accessibilityFlags="flagReportViewIds" />

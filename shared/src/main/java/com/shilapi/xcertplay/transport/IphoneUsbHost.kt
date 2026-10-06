@@ -71,6 +71,19 @@ class IphoneUsbHost(
 ) {
     private val appContext = context.applicationContext
 
+    /**
+     * Whether this package holds `android.permission.MANAGE_USB`.
+     *
+     * The platform short-circuits its own USB permission check on that permission
+     * (`UsbUserSettingsManager.hasPermission`), so a build that holds it is treated as already
+     * authorised for every USB device and the system never shows the permission dialog. It is a
+     * `signature|privileged` permission, so a platform-signed build gets it straight from the
+     * manifest while an ordinary build silently does not — which is why this is worth reporting.
+     */
+    val manageUsbGranted: Boolean
+        get() = appContext.checkSelfPermission(android.Manifest.permission.MANAGE_USB) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
     sealed class PermissionRequest {
         data class AlreadyGranted(val device: UsbDevice) : PermissionRequest()
         data class Requested(val device: UsbDevice) : PermissionRequest()

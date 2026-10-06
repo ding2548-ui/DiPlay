@@ -49,11 +49,13 @@ class UsbAutoConfirmServiceTest {
         assertFalse(UsbAutoConfirmService.openSettings(unavailable))
     }
 
-    @Test fun onlySystemUsbActivitiesAreAccepted() {
-        assertTrue(UsbAutoConfirmService.isSystemUsbWindow("com.android.systemui", "com.android.systemui.usb.UsbPermissionActivity"))
-        assertFalse(UsbAutoConfirmService.isSystemUsbWindow("evil.app", "com.android.systemui.usb.UsbPermissionActivity"))
-        assertFalse(UsbAutoConfirmService.isSystemUsbWindow("com.android.systemui", "android.app.AlertDialog"))
-        assertFalse(UsbAutoConfirmService.isSystemUsbWindow("com.android.systemui", "com.android.systemui.media.MediaProjectionPermissionActivity"))
+    // The exact AOSP activity allow-list ("com.android.systemui" plus the two Usb*PermissionActivity
+    // names) was removed: it only ever matched a stock ROM, and on the car's vendor ROM the prompt
+    // comes from a different component, so the service rejected the window before reading any of its
+    // content. The window's text is the gate now, which is what these two cases pin down.
+    @Test fun promptContentIsWhatDecides() {
+        assertTrue(UsbAutoConfirmService.isTargetPrompt("允许 DiPlay 访问 USB 设备？", "DiPlay"))
+        assertFalse(UsbAutoConfirmService.isTargetPrompt("允许 其他应用 访问 USB 设备？", "DiPlay"))
     }
 
     @Test fun promptMustNameDiPlayAndUsbExplicitly() {

@@ -16,6 +16,14 @@
     <uses-permission android:name="android.permission.INSTALL_PACKAGES"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- USB host access without the system permission dialog. UsbUserSettingsManager.hasPermission
+         returns true outright for a caller holding MANAGE_USB, so UsbManager.hasPermission() stops
+         being false and IphoneUsbHost never calls requestPermission() — the dialog the accessibility
+         service was written to auto-confirm never appears. It is a signature|privileged permission,
+         which the platform-signed build gets from the manifest; the report line
+         "wired iPhone USB permission ... manageUsb=" says whether it actually landed. -->
+    <uses-permission android:name="android.permission.MANAGE_USB"
+        tools:ignore="ProtectedPermissions" />
     <!-- Optional: the dashboard map as a card over the home screen. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Optional, owner-enabled Usage Access for the verified DiLink 5.1 cluster profile. -->
