@@ -47,6 +47,23 @@ jobs:
         # unit as a NoSuchMethodError at runtime. Lint is the only thing standing between a
         # lowered minSdk and that class of crash: keep every module's lintDebug here.
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :shared:lintDebug :common:lintDebug :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug --stacktrace
+      - name: Standalone car-test APK
+        # assembleDebug alone is the identity-free source build. The car unit needs the MFi
+        # identity that the step above restored, and it has to come out of the workflow or
+        # there is nothing to install.
+        run: ./gradlew :mobile:assembleStandaloneDebug --stacktrace
+      - name: Verify the packaged identity
+        run: |
+          set -euo pipefail
+          APK=$(ls mobile/build/outputs/apk/debug/*.apk | head -1)
+          unzip -l "$APK" | grep -q 'assets/offline-mfi/identity.pk8'
+          unzip -l "$APK" | grep -q 'assets/offline-mfi/certificate.p7b'
+          echo "identity.pk8 and certificate.p7b are packaged in $APK"
+      - name: Upload car-test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: car-test-apk
+          path: mobile/build/outputs/apk/debug/*.apk
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4
