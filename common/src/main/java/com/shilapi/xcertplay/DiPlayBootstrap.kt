@@ -60,12 +60,28 @@ internal object DiPlayPreferences {
         prefs(context).edit().putBoolean("auto_connect", value).apply()
     }
 
-    /** lwIP stays off unless it is turned on: the wired VPN path remains the default. */
-    // lwIP is the default wired transport: it needs no VpnService, no kernel route and no consent
-    // dialog, and it is the path that has been verified end to end on this head unit. The VPN path
-    // stays as the fallback for when the library cannot load in the current process.
-    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", true)
+    /**
+     * The wired VPN/NCM transport is the default. lwIP has to be switched on by hand: on this head
+     * unit it loses audio (no sound while it renders video), it needs an app restart before it can
+     * reconnect after a manual disconnect, and it is less stable than the VPN path overall.
+     */
+    fun wiredLwip(context: Context): Boolean {
+        val store = prefs(context)
+        // Earlier builds defaulted this to on, so an upgrade would keep lwIP selected without the
+        // user ever choosing it. Move each install onto the VPN default exactly once; the switch in
+        // settings still overrides it afterwards.
+        if (!store.getBoolean(KEY_WIRED_LWIP_DEFAULTED, false)) {
+            store.edit()
+                .putBoolean("wired_lwip", false)
+                .putBoolean(KEY_WIRED_LWIP_DEFAULTED, true)
+                .apply()
+        }
+        return store.getBoolean("wired_lwip", false)
+    }
     fun saveWiredLwip(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("wired_lwip", value).apply()
     }
+
+    /** Set once the lwIP-default migration has run; see [wiredLwip]. */
+    private const val KEY_WIRED_LWIP_DEFAULTED = "wired_lwip_defaulted_v2"
 }

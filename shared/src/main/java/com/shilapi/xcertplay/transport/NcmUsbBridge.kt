@@ -37,6 +37,7 @@ class NcmUsbBridge internal constructor(
     private var failure: IphoneUsbException? = null
     private var sequence = 0
     private var loggedWriteTimeout = false
+    private var padLogged = false
     private val frames = ArrayDeque<ByteArray>()
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
@@ -181,18 +182,27 @@ class NcmUsbBridge internal constructor(
             val blockLength = readU16(buffered, 8)
             if (blockLength < 28) throw failSession("Invalid NTB16 block length $blockLength")
             if (bufferedSize < blockLength) return
-            // The short-packet pad belongs to the USB transfer, not to the block: the host appends a
-            // single zero byte only when the transfer length is an exact multiple of the endpoint's
-            // max packet size, and one buffer here can carry several blocks from one transfer. So a
-            // zero byte after a 512-aligned block is the pad and is stepped over, while anything else
-            // is the next block (an NTB16 header starts with 'N') and must not be consumed.
-            // Demanding the pad unconditionally killed the whole session with "Invalid NTB16
-            // short-packet pad": in report 192 every single wired disconnect, lwIP and VPN alike, was
-            // that one line, 15 s to 63 s into the session.
+            val padded = blockLength % USB_PACKET_SIZE == 0
+            // Apple terminates an NTB whose length is a whole number of USB packets with a single
+            // zero pad byte, so the transfer ends with a short packet instead of a ZLP. Android 7
+            // delivers that terminator as a ZLP instead, which readChunk() drops, so the byte
+            // after the block may be absent or may already be the next NTB header. Only consume a
+            // pad when one is actually present.
+            //
+            // This used to demand the pad unconditionally and fail the session without it, which
+            // made every wired session die with "Invalid NTB16 short-packet pad" 15 s to 63 s in
+            // (report 192: every single disconnect, lwIP and VPN alike). Ported from the Leapmotor
+            // fork, which had already fixed it.
             var wireLength = blockLength
-            if (blockLength % USB_PACKET_SIZE == 0) {
-                if (bufferedSize == blockLength) return
-                if (buffered[blockLength].toInt() == 0) wireLength += 1
+            if (padded && bufferedSize > blockLength && buffered[blockLength].toInt() == 0) {
+                wireLength = blockLength + 1
+            }
+            if (!padLogged && padded && wireLength == blockLength) {
+                padLogged = true
+                Log.i(
+                    IphoneCarPlayConfiguration.TAG,
+                    "NTB16 block without the expected pad byte; accepting a ZLP terminator",
+                )
             }
             for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
             val remaining = bufferedSize - wireLength

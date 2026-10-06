@@ -308,16 +308,22 @@ class CarPlayVpnService : VpnService() {
         // A bare link-local IPv6 literal carries no scope id, and bind() on a scoped address without
         // one fails with EINVAL. The wired VPN path hands us exactly that: fe80::2 out of the
         // runtime config, which surfaced as "attach result=failed Invalid argument" only after the
-        // port selector had walked every fallback port. Bind the family wildcard instead; the VPN
-        // tun owns the address, so the listener still answers on it.
-        val primary = replacement.address.wildcardWhenScoped()
+        // port selector had walked every fallback port.
+        //
+        // The substitution is only safe when this is the ONLY address. bindAll has to put every
+        // address on one port, and the IPv6 wildcard overlaps all of them, so a set containing it
+        // can never be satisfied: run 193 applied the wildcard across the multi-address branch too
+        // and every wireless attempt died with "No common AirPlay port available for the selected
+        // interface addresses" (the wireless host addresses always include a link-local IPv6).
         val servers = if (replacement.additionalAddresses.isEmpty()) {
-            listOf(AirPlayPortSelector.bind(primary, replacement.config.port) { busy, bound ->
-                Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
-            })
+            listOf(
+                AirPlayPortSelector.bind(replacement.address.wildcardWhenScoped(), replacement.config.port) { busy, bound ->
+                    Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
+                },
+            )
         } else {
             AirPlayPortSelector.bindAll(
-                listOf(primary) + replacement.additionalAddresses.map { it.wildcardWhenScoped() },
+                listOf(replacement.address) + replacement.additionalAddresses,
                 replacement.config.port) { busy, bound ->
                 Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
             }

@@ -33,15 +33,28 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 | 症状 | 现状 | 待办 |
 |---|---|---|
-| 车载自建热点无线连不上 | 热点起得来（wlan0 / IPv4 / Bonjour 已起），但手机不接入，`FIRST_TCP_TIMEOUT` | 已知硬件限制，见下 |
+| **外置 Wi-Fi / 同一局域网** | 193 被**我自己改坏**了（见第 14 条），本版修回 | 复测 |
+| 车载自建热点无线连不上 | 热点起得来、iAP2 认证通过，但手机不拨 7000 | 见下 |
 | 方控切歌时原厂也切歌并同时播放 | 焦点/会话已拿到，但日志里没有按键记录 | **需要一份「连着的时候按方控」的日志** |
 
-**方控这一条为什么要日志**：192 报告里 `media key ...`（两条路都会记）**一次都没出现**，
-而音频是走 CarPlay 的（`Audio: ready audioType=media`）。若下次日志仍然是「按了键但
-DiPlay 一行都没有，CarPlay 却切了歌」，那就说明按键根本没经过 DiPlay —— 最可能是
-车机把方向盘键交给原厂/蓝牙媒体通路，再由 AVRCP 通知 iPhone 切歌（同一个 iPhone，
-所以 CarPlay 界面也跟着变，声音还从蓝牙出来一遍）。那种情况下要修的是**手机的车机蓝牙
-音频链路**（零跑线用 `BluetoothAudioHandoff` 断开 A2DP/HFP 档位解决），不是按键转发。
+**外置 Wi-Fi 这条是我上一版的回归，先说清楚**：193 报告（402）里每一次无线尝试都是
+`wireless bring-up failed: No common AirPlay port available for the selected interface addresses`，
+70ms 就拆。原因是我把「link-local IPv6 → `::` 通配符」的替换套到了**多地址**分支上，
+而 `::` 会覆盖同组里的其他地址，`bindAll` 要求所有地址绑同一个端口 → 必然 EADDRINUSE →
+所有候选端口试完就抛。现只在**单地址**（即 VPN 通路）分支做替换，多地址分支恢复原样。
+
+**车载热点这条是另一回事**：热点确实起来了（`Manual hotspot` / wlan0 / IPv4 /
+`HotspotReady`），iAP2 也认证通过（`authenticated=true startRequests=2`），
+AirPlay 监听也绑上了（`airplay listener ready family=IPv4`），但手机始终不发起 TCP
+（`tcpAccepted=0` → `FIRST_TCP_TIMEOUT`）。这一条自 lwIP 引入以来没变过，
+需要一份**能用时的日志**对照才能继续。
+
+**方控这一条为什么要日志**：402/192 报告里 `media key ...`（两条路都会记）**一次都没出现**，
+而音频是走 CarPlay 的。若下次日志仍然是「按了键但 DiPlay 一行都没有，CarPlay 却切了歌」，
+那就说明按键根本没经过 DiPlay —— 最可能是车机把方向盘键交给原厂/蓝牙媒体通路，
+再由 AVRCP 通知 iPhone 切歌（同一个 iPhone，所以 CarPlay 界面也跟着变，声音还从蓝牙出来
+一遍）。那种情况下要修的是**手机的车机蓝牙音频链路**（零跑线用 `BluetoothAudioHandoff`
+断开 A2DP/HFP 档位解决），不是按键转发。
 
 复测时报告里应出现（缺哪条就说明对应那步没走通）：
 - lwIP：`airplay event connection accepted from ...` → `airplay video event ready` →
@@ -59,8 +72,11 @@ DiPlay 一行都没有，CarPlay 却切了歌」，那就说明按键根本没�
 - **CI 不再跑 lint 与单元测试**，只出 release 包（原先的 check job 太慢）。
   这意味着 lint 这道「防止 API 26+ 调用混进 API 25 构建」的自动防线没有了，
   改运行时代码时请手动跑一次 `python D:\Launcher\kotlin_static_check.py <改动的 .kt 文件>`。
-- VPN 通路历史上在 PSA 线上从未成功过，本版才修掉它的 `Invalid argument`；
-  首次成功与否仍需真机确认。
+- **有线默认走 VPN/NCM**，lwIP 要手动开（见第 15 条）。lwIP 模式的已知缺陷：
+  出画面但**没有声音**；**手动断开后必须重启应用**才能再次连上；整体不如 VPN 稳。
+  这些是 lwIP 通路自身的问题，本版未修 —— 默认不用它。
+- **车载自建热点无线仍连不上**（热点起得来、iAP2 通过，手机不拨 7000）。
+  无线可用方案仍是**外置 Wi-Fi / 同一局域网**。
 - 开无线 CarPlay 时车机自身没有网络（msm8953 单射频，不支持 STA+GO 并发）。
 
 ---
@@ -203,6 +219,28 @@ DiPlay 一行都没有，CarPlay 却切了歌」，那就说明按键根本没�
     `LwipSessionNetwork`** —— 只在 attach 失败时才关，会话正常结束的路径不会关。
     192 报告 21:36:55 与 21:37:17 两次 EBUSY，此后 lwIP 一直是死的，直到手动切到 VPN。
     现改为在 `attachLwip()` 建新会话前先关掉旧的那个。
+
+14. **（回归修复）外置 Wi-Fi 被我改坏了，本版修回。**
+    193 把「link-local IPv6 → `::` 通配符」的替换套在了 `startAirPlayServer` 的**多地址**分支上。
+    `bindAll` 要求一组地址绑在同一个端口，而 `::` 会覆盖同组里的其他地址
+    （无线主机地址里必然带一个 link-local IPv6）→ 每个候选端口都 EADDRINUSE →
+    `BindException("No common AirPlay port available for the selected interface addresses")`。
+    402 报告里每一次无线尝试都是这一句，`HotspotReady` 之后 70ms 就拆。
+    现只在**单地址**分支（即 VPN 通路，地址就是 `fe80::2`）做替换，多地址分支恢复原样。
+
+15. **有线默认改成 VPN/NCM，lwIP 改为手动开启。**
+    `DiPlayPreferences.wiredLwip` 默认由 `true` 改为 `false`。老版本默认开着，
+    升级后会保留旧选择，所以加了一次性迁移（`wired_lwip_defaulted_v2` 标记）：
+    首次读取时写回 `false`，之后设置里的开关仍然可以覆盖。
+    lwIP 模式目前的已知缺陷：出画面但没声音、手动断开后必须重启应用才能重连、整体不如
+    VPN 稳 —— 所以默认不用它。
+
+16. **NCM 短包填充的修法对齐零跑线。**
+    第 12 条那处逻辑与零跑线 `NcmUsbBridge` 已有实现**逐字一致**（零跑线早就修过，
+    PSA 这份是移植时漏了那次修复），并补上零跑线的注释与一次性诊断行
+    （`NTB16 block without the expected pad byte; accepting a ZLP terminator`）。
+    注释里写明了机制：Apple 用单个 0x00 填充让传输以短包结束，而 Android 7 会把它变成
+    **ZLP**，`readChunk()` 会丢掉 ZLP —— 所以那个字节常常根本不存在。
 
 ---
 
