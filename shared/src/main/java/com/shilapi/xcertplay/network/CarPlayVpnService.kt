@@ -116,50 +116,10 @@ class CarPlayVpnService : VpnService() {
             }
             require(hostMac.size == 6) { "hostMac must be 6 bytes" }
 
-            val builder = Builder()
-                .addAddress(linkLocal, LINK_PREFIX)
-                .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
-                // The VPN only carries the link-local IPv6 route, but Android's leak-prevention
-                // blocks every address family the VPN does not configure for all covered apps.
-                // Without this line establish() fails outright on this head unit: the platform
-                // sees an unconfigured family with covered apps and rejects the request with
-                // EINVAL, which is what surfaced as "attach result=failed Invalid argument".
-                // allowFamily(AF_INET) explicitly lets IPv4 traffic use the underlying network
-                // (API 21+, Android 7 included).
-                .allowFamily(AF_INET)
-                .setSession(SESSION_NAME)
-                .setMtu(TUN_MTU)
-                .setBlocking(true)
-            // Only this app's own link-local traffic needs the TUN. Covering every app swallowed
-            // other apps' link-local IPv6 whenever the wired VPN was up. The allowlist API was
-            // renamed between SDK levels: the Android 7 head unit only has addAllowedPackage,
-            // while the SDK this module compiles against has dropped that name in favour of
-            // addAllowedApplication. Neither can be called directly, so try the old name first
-            // and unwrap InvocationTargetException so a rejected allowlist still surfaces as the
-            // platform exception it is - the caller must see it, not a reflection wrapper.
-            val allowlisted = runCatching {
-                Builder::class.java.getMethod("addAllowedPackage", String::class.java)
-                    .invoke(builder, packageName)
-            }.recoverCatching { failure ->
-                try {
-                    Builder::class.java.getMethod("addAllowedApplication", String::class.java)
-                        .invoke(builder, packageName)
-                } catch (application: java.lang.reflect.InvocationTargetException) {
-                    throw application.cause ?: application
-                }
-            }
-            if (allowlisted.isFailure) {
-                val cause = allowlisted.exceptionOrNull()
-                // A missing method on both sides would leave the VPN scoped to every app, which is
-                // exactly what this allowlist exists to prevent, so refuse instead of continuing.
-                if (cause is NoSuchMethodException) throw IOException("VPN allowlist is unavailable", cause)
-                throw cause as? Exception ?: IOException("VPN allowlist failed", cause)
-            }
             stage("tun")
-            val tunFd = builder.establish()
+            val tunFd = establishTun(linkLocal, listener)
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
-            Log.i(TAG, "vpn tun established address=$linkLocal mtu=$TUN_MTU")
 
             // Stage markers: the failure below used to reach the caller as a bare message such as
             // "Invalid argument", which is indistinguishable from an errno string and sent the
@@ -178,10 +138,101 @@ class CarPlayVpnService : VpnService() {
             )
             AttachResult.Started
         } catch (error: Exception) {
-            Log.w(TAG, "attach failed stage=${currentStage()} ${error.javaClass.simpleName}", error)
+            val detail = "attach failed stage=${currentStage()} ${error.javaClass.simpleName}: ${error.message}"
+            Log.w(TAG, detail, error)
+            // Log.w never reaches the exported report, which is the only place this is read from,
+            // so the stage would be invisible exactly when it is needed.
+            runCatching { listener.onDebugLog(detail) }
             releaseLocked()
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
         }
+    }
+
+    /**
+     * Brings the tun up, trying the builder configurations in [TUN_VARIANTS] in order.
+     *
+     * Android 7 rejects a configuration this line sends with a bare EINVAL, which reaches the user
+     * as "attach result=failed Invalid argument" — while the very same APK attaches cleanly on
+     * Android 16 (report 876, 20:28:42: `attach result=started` 48 ms after the service bound).
+     * The message names neither the knob nor the step, so the variants are walked and each outcome
+     * is recorded: the report then says which knob Android 7 dislikes, and if a later variant is
+     * accepted the wired path comes up instead of the whole attach failing.
+     */
+    private fun establishTun(linkLocal: String, listener: AirPlaySessionListener): ParcelFileDescriptor? {
+        var lastError: Exception? = null
+        for (variant in TUN_VARIANTS) {
+            val builder = Builder().addAddress(linkLocal, LINK_PREFIX)
+            when (variant) {
+                // What this line has always sent. allowFamily(AF_INET) is there so the platform does
+                // not treat IPv4 as an unconfigured family while apps are covered; setMtu and
+                // setBlocking are the upstream defaults.
+                TUN_FULL -> builder
+                    .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+                    .allowFamily(AF_INET)
+                    .setSession(SESSION_NAME)
+                    .setMtu(TUN_MTU)
+                    .setBlocking(true)
+                TUN_NO_ALLOW_FAMILY -> builder
+                    .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+                    .setSession(SESSION_NAME)
+                    .setMtu(TUN_MTU)
+                    .setBlocking(true)
+                else -> builder
+                    .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+                    .setSession(SESSION_NAME)
+            }
+            applyAllowlist(builder)?.let { throw it }
+            try {
+                val tun = builder.establish()
+                if (tun == null) {
+                    lastError = IOException("VpnService.establish returned null")
+                    reportTo(listener, "vpn establish variant=$variant result=null")
+                    continue
+                }
+                reportTo(listener, "vpn tun established variant=$variant address=$linkLocal")
+                return tun
+            } catch (error: Exception) {
+                lastError = error
+                reportTo(
+                    listener,
+                    "vpn establish variant=$variant rejected " +
+                        "${error.javaClass.simpleName}: ${error.message}",
+                )
+            }
+        }
+        lastError?.let { throw it }
+        return null
+    }
+
+    /**
+     * Restricts the VPN to this package. Covering every app swallowed other apps' link-local IPv6
+     * whenever the wired VPN was up. The API was renamed between SDK levels — the Android 7 head
+     * unit only has addAllowedPackage, the SDK this module compiles against only carries
+     * addAllowedApplication — so neither name can be called directly. Returns the failure to throw,
+     * or null on success.
+     */
+    private fun applyAllowlist(builder: Builder): Exception? {
+        val allowlisted = runCatching {
+            Builder::class.java.getMethod("addAllowedPackage", String::class.java)
+                .invoke(builder, packageName)
+        }.recoverCatching {
+            try {
+                Builder::class.java.getMethod("addAllowedApplication", String::class.java)
+                    .invoke(builder, packageName)
+            } catch (application: java.lang.reflect.InvocationTargetException) {
+                throw application.cause ?: application
+            }
+        }
+        val cause = allowlisted.exceptionOrNull() ?: return null
+        // A missing method on both sides would leave the VPN scoped to every app, which is exactly
+        // what this allowlist exists to prevent, so refuse instead of continuing.
+        if (cause is NoSuchMethodException) return IOException("VPN allowlist is unavailable", cause)
+        return cause as? Exception ?: IOException("VPN allowlist failed", cause)
+    }
+
+    private fun reportTo(listener: AirPlaySessionListener, message: String) {
+        Log.i(TAG, message)
+        runCatching { listener.onDebugLog(message) }
     }
 
     /**
@@ -254,12 +305,19 @@ class CarPlayVpnService : VpnService() {
         generation: Int,
         replacement: AirPlayAttachment,
     ) {
+        // A bare link-local IPv6 literal carries no scope id, and bind() on a scoped address without
+        // one fails with EINVAL. The wired VPN path hands us exactly that: fe80::2 out of the
+        // runtime config, which surfaced as "attach result=failed Invalid argument" only after the
+        // port selector had walked every fallback port. Bind the family wildcard instead; the VPN
+        // tun owns the address, so the listener still answers on it.
+        val primary = replacement.address.wildcardWhenScoped()
         val servers = if (replacement.additionalAddresses.isEmpty()) {
-            listOf(AirPlayPortSelector.bind(replacement.address, replacement.config.port) { busy, bound ->
+            listOf(AirPlayPortSelector.bind(primary, replacement.config.port) { busy, bound ->
                 Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
             })
         } else {
-            AirPlayPortSelector.bindAll(listOf(replacement.address) + replacement.additionalAddresses,
+            AirPlayPortSelector.bindAll(
+                listOf(primary) + replacement.additionalAddresses.map { it.wildcardWhenScoped() },
                 replacement.config.port) { busy, bound ->
                 Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
             }
@@ -270,7 +328,8 @@ class CarPlayVpnService : VpnService() {
         additionalServers = servers.drop(1)
         servers.forEach { bound ->
             runCatching { replacement.listener.onDebugLog(
-                "airplay listener ready family=${if (bound.inetAddress is Inet6Address) "IPv6" else "IPv4"} port=${bound.localPort}",
+                "airplay listener ready family=${if (bound.inetAddress is Inet6Address) "IPv6" else "IPv4"} " +
+                    "port=${bound.localPort} bind=${bound.inetAddress.hostAddress}",
             ) }
             Thread(
                 { acceptLoop(generation, bound) },
@@ -434,7 +493,25 @@ class CarPlayVpnService : VpnService() {
         /** IPv4 address family for [android.net.VpnService.Builder.allowFamily]. */
         private const val AF_INET = 2 // OsConstants.AF_INET
 
+        /** Builder configurations tried in order by [establishTun]; see there for the reasoning. */
+        private val TUN_VARIANTS = listOf(TUN_FULL, TUN_NO_ALLOW_FAMILY, TUN_MINIMAL)
+        private const val TUN_FULL = "full"
+        private const val TUN_NO_ALLOW_FAMILY = "no-allow-family"
+        private const val TUN_MINIMAL = "minimal"
+
+        /** The IPv6 wildcard, substituted for scoped addresses that cannot be bound directly. */
+        private val WILDCARD_IPV6: InetAddress = InetAddress.getByName("::")
+
         /** Returns the VPN consent intent, or null when consent is already granted. */
         fun prepare(context: Context): Intent? = VpnService.prepare(context)
     }
+
+    /**
+     * A link-local IPv6 literal parsed from a string has no scope id, and the kernel rejects
+     * `bind()` on a scoped address without one with EINVAL. The VPN path's listener address comes
+     * straight from the runtime config ("fe80::2"), so it always hits that; the wildcard covers
+     * the address without needing to resolve its interface first.
+     */
+    private fun InetAddress.wildcardWhenScoped(): InetAddress =
+        if (this is Inet6Address && isLinkLocalAddress) WILDCARD_IPV6 else this
 }

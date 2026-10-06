@@ -264,7 +264,7 @@ class LwipSessionNetwork(
 
     /**
      * Opens a relay for one more TCP port: iPhone -> lwIP :[listenPort] ->
-     * 127.0.0.1:[targetPort]. The AirPlay session announces extra ports as the session
+     * loopback:[targetPort]. The AirPlay session announces extra ports as the session
      * progresses (eventPort, timing over TCP, stream data ports) — each announcement opens
      * its lwIP listener here.
      */
@@ -290,7 +290,7 @@ class LwipSessionNetwork(
                 thread(name = "lwip-proxy-conn-$listenPort") { relay(client, targetPort) }
             }
         }
-        report("wired lwip proxy listening port=$listenPort target=127.0.0.1:$targetPort")
+        report("wired lwip proxy listening port=$listenPort target=loopback:$targetPort")
     }
 
     private fun relay(client: TcpSocket, targetPort: Int) {
@@ -316,11 +316,11 @@ class LwipSessionNetwork(
     }
 
     /**
-     * Relays one UDP port both ways: iPhone -> lwIP :[listenPort] -> 127.0.0.1:[targetPort]
+     * Relays one UDP port both ways: iPhone -> lwIP :[listenPort] -> loopback:[targetPort]
      * and back. Used for AirPlay timing (NTP) and keepalive — datagram protocols the TCP
      * proxy cannot carry. The phone's address is learned from the first datagram it sends
      * ("last peer"); JVM-side replies follow it, because the relayed JVM socket only ever
-     * sees 127.0.0.1 as its peer.
+     * sees the loopback as its peer.
      */
     @Synchronized
     fun startUdpProxy(listenPort: Int, targetPort: Int = listenPort) {
@@ -352,7 +352,7 @@ class LwipSessionNetwork(
                 if (length <= 0) continue
                 lastPeer = sender.copyOf() to aux[0]
                 try {
-                    local.send(java.net.DatagramPacket(buffer, length, java.net.InetSocketAddress(IPV4_LOOPBACK, targetPort)))
+                    local.send(java.net.DatagramPacket(buffer, length, java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), targetPort)))
                 } catch (_: Exception) {
                     if (running.get()) report("wired lwip udp relay rx drop port=$listenPort")
                 }
@@ -384,7 +384,7 @@ class LwipSessionNetwork(
                 }
             }
         }
-        report("wired lwip udp proxy listening port=$listenPort target=127.0.0.1:$targetPort")
+        report("wired lwip udp proxy listening port=$listenPort target=loopback:$targetPort")
     }
 
     /** Opens a TCP listener socket inside lwIP. */
@@ -444,7 +444,6 @@ class LwipSessionNetwork(
 
     private companion object {
         val ANY_IPV6 = ByteArray(16)
-        val IPV4_LOOPBACK = java.net.Inet4Address.getByAddress(byteArrayOf(127, 0, 0, 1))
         const val RECV_TIMEOUT_MILLIS = 250L
         const val SEND_TIMEOUT_MILLIS = 1000
         // EasyPlay parity (0xc8): pollOutput waits for up to maxBytes of pending output before

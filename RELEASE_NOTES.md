@@ -10,6 +10,7 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 - **无线 CarPlay**（外部 Wi-Fi 方案）：iAP2 全链路正常，出画面、可交互。
 - **有线 CarPlay 的 USB / iAP2 控制通道**：设备发现、重枚举、配对、NCM 数据通路、
   MFi 认证、`0x4300` / `0x4301` 全部通过。
+- **有线 CarPlay 进 CarPlay 界面**：lwIP 通路的地址通告与中继已通，手机能连上、能进界面。
 - **界面汉化**、零跑档位识别、方向盘按键、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
 - **方控学习**（设置 → 方控学习）：按一次车上的键绑定到 上一首 / 下一首 / 播放 / 暂停 / 播放暂停；
   未学习的键一律忽略。另有「监听方控广播日志」，按 action 记录最近 12 条方控广播，点选即绑定。
@@ -18,22 +19,30 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 ## 🔴 暂不可用
 
-- **有线 CarPlay 出画面**。两条传输通路各有故障，都断在「手机发起 AirPlay TCP」之前：
+- **有线 CarPlay 出画面（灰屏）**。上一版报告的两个根因都已修，**待真机复测**：
 
-  | 通路 | 状态 |
-  |---|---|
-  | lwIP（默认） | 监听与中继都已就绪，但下发给手机的 IPv6 地址不正确 → 手机邻居发现失败 → 不拨号 |
-  | VPN | `attach()` 直接抛 `Invalid argument`，连 AirPlay 监听都没起来 |
+  | 症状 | 根因 | 本版 |
+  |---|---|---|
+  | lwIP 模式进得了界面但**灰屏** | 事件通道中继被 `Connection refused`（环回地址族不一致） | 已修（第 9 条） |
+  | 关闭 lwIP 走 VPN **直接进不去** | `attach()` 抛 `Invalid argument`（API 25 平台拒收，Android 16 同一份包正常） | 已改（第 10 条） |
+  | 方控不压制原厂音乐，两边同时切歌播放 | 音频归属在 API 25 上是死代码，从未申请焦点 | 已修（第 11 条） |
 
-  本版修复了 **lwIP 通路**的两处缺陷（见下）。**VPN 通路的 `Invalid argument` 尚未定位** ——
-  需要 `adb logcat -s xcertplay-usb` 里的 `attach failed stage=` 一行才能确定修法。
+  复测时报告里应出现（缺哪条就说明对应那步没走通）：
+  - lwIP：`airplay event connection accepted from ...` → `airplay video event ready` →
+    `Video recovery: requested keyframe sent=true` → `Video: first frame rendered`
+  - VPN：成功则 `vpn tun established variant=... address=fe80::2` 且
+    `airplay listener ready family=IPv6 port=7000 bind=...`；失败则 `attach failed stage=...`
+    加每个 `vpn establish variant=... rejected ...`
+  - 方控：`media keys active focusGranted=true session=true`，之后每次按键一行
+    `media key source=... action=... -> CarPlay ... sent=true`
 
 ## ⚠️ 已知限制
 
 - **CI 不再跑 lint 与单元测试**，只出 release 包（原先的 check job 太慢）。
   这意味着 lint 这道「防止 API 26+ 调用混进 API 25 构建」的自动防线没有了，
   改运行时代码时请手动跑一次 `python D:\Launcher\kotlin_static_check.py <改动的 .kt 文件>`。
-- VPN 通路在 PSA 线上从未成功过，目前只作为 lwIP 不可用时的回退路径。
+- VPN 通路历史上在 PSA 线上从未成功过，本版才修掉它的 `Invalid argument`；
+  首次成功与否仍需真机确认。
 - 开无线 CarPlay 时车机自身没有网络（msm8953 单射频，不支持 STA+GO 并发）。
 
 ---
@@ -94,6 +103,71 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
    本线移植时漏了这个函数，而零跑线在 `CarPlayHostActivity` 的重连与退出两处都会调它。
    缺它的后果是：CarPlay 重连/退出后视频播放器会**留在屏上**指向一个已经不存在的会话，
    且 `reply()` 继续往已关闭的 controller 发消息。现补上函数并在两处 teardown 调用。
+
+9. **有线 lwIP 灰屏：事件通道的中继地址族不一致（上一版第 2 条的残留半截）。**
+   上一版把**中继侧**改成了 `InetAddress.getLoopbackAddress()`（本机解析为 `::1`），
+   但**监听侧**仍绑着字面量 `127.0.0.1`（`AirPlaySession` 里的 `LOOPBACK` 常量）。
+   于是主控口 7000 通（它两边都用 `getLoopbackAddress()`），
+   而 `eventPort` / timing / keepalive 三条全部 `Connection refused`：
+
+   ```
+   18:02:55.588  wired lwip proxy accepted port=44738 fd=5     ← 手机连进来了
+   18:02:55.598  wired lwip relay ended: Connection refused     ← 10ms 后中继失败
+   （整场没有 airplay event connection accepted）
+   ```
+
+   事件通道建不起来 → `sendCommand` 恒返回 false → 每秒一行
+   `Video recovery: requested keyframe sent=false` → 视频 backlog 超 250ms 后等不到关键帧
+   → `shown=0.0fps` → **灰屏**。
+   现三处监听统一走新的 `listenerBindAddress()`，与中继同一个调用；
+   UDP 中继的目标地址也从硬编码 IPv4 改成 `getLoopbackAddress()`。
+
+   **Android 16 的报告独立印证了这条**（报告 876，同一份 APK 的 lwIP 会话）：
+   ```
+   20:28:05.402  wired lwip proxy accepted port=37591 fd=5
+   20:28:05.406  wired lwip relay ended: failed to connect to ip6-localhost/[ip] (port 37591)
+                 ... connect failed: ECONNREFUSED
+   ```
+   `ip6-localhost` 就是 `::1` —— 中继拨 IPv6 环回、监听绑 IPv4 字面量，一眼可见。
+   同一份报告切到 VPN 通路后 `airplay event connection accepted` 立刻正常，
+   也说明问题只出在环回这一处，不在事件通道本身。
+
+10. **VPN 通路 `Invalid argument`：API 25 专有的平台拒绝，本版自证 + 自愈。**
+    同一份 APK 在 **Android 16 上 VPN 通路是通的**（报告 876：`wired VPN service bound` 之后
+    48ms 就 `attach result=started`，随后 `airplay event connection accepted`、
+    `Video: first frame rendered`）。所以这不是配置写错，是 **Android 7 的平台拒收**，
+    而它只回一个裸 EINVAL —— 既不说哪一步，也不说哪个参数。之前查到这里只能靠
+    `adb logcat -s xcertplay-usb` 抓 `stage=`。
+    本版把这条路做成**自己会说话**：
+
+    - `establish()` 按 `full` → `no-allow-family` → `minimal` 三种配置依次尝试，
+      每次结果（接受/拒绝 + 异常类型 + message）都写进报告：
+      `vpn tun established variant=...` / `vpn establish variant=... rejected ...`。
+      哪一档被接受，说明被拒的就是它比上一档多出来的那个开关；一档被接受，有线通路当轮就活了。
+    - `attach failed stage=...` 现在进报告（`Log.w` 只进 logcat，报告只收 `onDiagnostic`）。
+    - `airplay listener ready` 现在带 `bind=<地址>`，一眼看出监听到底绑在 `fe80::2` 还是 `::`。
+
+    同时保留一处独立修正：监听地址是 link-local IPv6 时改用 `::` 通配符
+    （裸 link-local 字面量 `scope_id` 为 0，`bind()` 会 EINVAL；零跑线一直绑 `::` 所以没这问题）。
+
+11. **方控不压制原厂音乐：音频归属在 API 25 上从来没被申请过。**
+    本车机把方向盘键交给「持有音频焦点的那个媒体会话」，所以必须由 DiPlay 拿到焦点 +
+    激活 MediaSession，原厂播放器才会让位。而本线的归属只由 `onMediaAudioChanged(true)`
+    触发，那要 iPhone 把**音乐流**发过来；实测 iPhone 把音频留在车机蓝牙链路上
+    （整份报告 0 行 `Audio:`，SETUP 只协商了屏幕流 `type=110`），于是永远不触发。
+    另一条路 `onIphonePlaying`（iPhone 报播放，走 CarPlay 的 now-playing，**是通的**）
+    却指向 `regainFocusLocked()` —— 那个函数在 API 25 上是彻底的死代码：
+    `focusRequest` 只在 `start()` 里、且只在 SDK ≥ 26 时才赋值，函数本身也直接
+    `if (SDK_INT < O) return`。结果焦点和 MediaSession 都没建立，方控两边都收，两边都切歌。
+    现让 `onIphonePlaying` 走与零跑线一致的 `updateLocked(playing)`（会建会话、拿焦点）。
+    顺带：
+    - `CarPlayMediaKeys` 的诊断行以前只进 logcat（`DiPlay-MediaKeys` 这个 TAG），
+      **报告里完全看不到**，所以「焦点到底拿到没有」一直无从判断；现接进报告。
+    - 媒体会话路径的按键改为经 `LeapmotorMediaKeys.dispatch` 转发，与广播路径**共用**
+      去重窗口 —— 否则拿到焦点后一次按键会在两条路上各转一次，变成跳两首。
+      去重窗口的键也从「原始 action」改成「CarPlay 按钮」，
+      因为同一按在两条路上的名字不同（广播叫 `nextOne`，媒体会话叫 `next`）。
+    - 按 §58，**没有**恢复「发 pause 广播压制原厂播放器」那一招（车机会回声导致 CarPlay 自己被暂停）。
 
 ---
 

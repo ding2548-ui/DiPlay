@@ -90,7 +90,7 @@ internal object LeapmotorMediaKeys {
     var onDiagnostic: ((String) -> Unit)? = null
 
     private var lastKeyUptimeMillis = 0L
-    private var lastKeyLabel = ""
+    private var lastKeyMapped = 0
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
@@ -152,6 +152,10 @@ internal object LeapmotorMediaKeys {
                 report("learned key ignored (no CarPlay session) action=$action")
                 return false
             }
+            if (!claimDispatchWindow(learned)) {
+                report("media key duplicate suppressed action=$action")
+                return false
+            }
             if (CarPlayVideo.onMediaKey(learned)) {
                 report("media key source=$source action=$action -> learned video player $learned")
                 return true
@@ -177,23 +181,32 @@ internal object LeapmotorMediaKeys {
             report("media key ignored (no CarPlay session) action=$action")
             return false
         }
+        if (!claimDispatchWindow(mapped)) {
+            report("media key duplicate suppressed action=$action")
+            return false
+        }
         // While the iOS 27 video player is on screen the keys drive it (skip / pause), not CarPlay.
         if (CarPlayVideo.onMediaKey(mapped)) {
             report("media key source=$source action=$action -> video player $mapped")
             return true
         }
-        // A duplicate DOWN/UP pair from the car would otherwise jump two tracks.
-        val now = SystemClock.uptimeMillis()
-        val label = "$action=$mapped"
-        if (label == lastKeyLabel && now - lastKeyUptimeMillis < DUPLICATE_WINDOW_MILLIS) {
-            report("media key duplicate suppressed action=$action")
-            return false
-        }
-        lastKeyLabel = label
-        lastKeyUptimeMillis = now
         val sent = active.sendMediaButton(mapped)
         report("media key source=$source action=$action -> CarPlay $mapped sent=$sent")
         return sent
+    }
+
+    /**
+     * True when this press is the first of its button within the de-duplication window. One
+     * physical press can reach us twice under two different names — the car's broadcast says
+     * "nextOne" while the media session says "next" — so the window is keyed on the CarPlay button
+     * rather than on the raw action, and every path that dispatches shares it.
+     */
+    private fun claimDispatchWindow(button: Int): Boolean {
+        val now = SystemClock.uptimeMillis()
+        if (button == lastKeyMapped && now - lastKeyUptimeMillis < DUPLICATE_WINDOW_MILLIS) return false
+        lastKeyMapped = button
+        lastKeyUptimeMillis = now
+        return true
     }
 
     private fun handle(intent: Intent?) {

@@ -3974,6 +3974,7 @@ class CarPlayHostActivity : ComponentActivity() {
         controller = next
         updateClusterMapShown()
         CarPlayMediaKeys.attach(this, next)
+        CarPlayMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)
         LeapmotorGearMonitor.onDiagnostic = { message -> appendLog(message) }
