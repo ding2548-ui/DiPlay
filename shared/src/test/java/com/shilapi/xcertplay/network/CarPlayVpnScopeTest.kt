@@ -160,6 +160,18 @@ class VpnScopeBuilderShadow {
         return builder
     }
 
+    /**
+     * The service reaches the allowlist reflectively because this module compiles against an SDK
+     * that only carries addAllowedApplication while the head unit firmware only has
+     * addAllowedPackage. Both names must therefore be observable here, and a rejection from
+     * either one has to stop the attachment before establish().
+     */
+    @Implementation fun addAllowedPackage(packageName: String): VpnService.Builder {
+        VpnScopeBoundary.calls += "allow:$packageName"
+        VpnScopeBoundary.allowFailure?.let { throw it }
+        return builder
+    }
+
     @Implementation fun establish(): ParcelFileDescriptor? {
         VpnScopeBoundary.calls += "establish"
         VpnScopeBoundary.establishFailure?.let { throw it }

@@ -4,18 +4,19 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import com.shilapi.xcertplay.airplay.AirPlayListenerIdentity
-import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
-import com.shilapi.xcertplay.airplay.isInternalAirPlayPeer
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
+import com.shilapi.xcertplay.airplay.AirPlayListenerIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
+import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
 import com.shilapi.xcertplay.airplay.PairingStore
+import com.shilapi.xcertplay.airplay.isInternalAirPlayPeer
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.io.IOException
@@ -107,20 +108,16 @@ class CarPlayVpnService : VpnService() {
                 .setMtu(TUN_MTU)
                 .setBlocking(true)
             // Only this app's own link-local traffic needs the TUN. Covering every app swallowed
-            // other apps' link-local IPv6 whenever the wired VPN was up. Whitelisting this package
-            // puts every other app completely outside the VPN. The allowlist API was renamed
-            // between SDK levels (addAllowedPackage on the Android 7 car, addAllowedApplication on
-            // newer stacks) and this module compiles against a SDK that only carries the new name,
-            // so call whichever exists at runtime through reflection.
-            val allowlisted = runCatching {
-                Builder::class.java.getMethod("addAllowedPackage", String::class.java)
-                    .invoke(builder, packageName)
-            }.recoverCatching {
-                Builder::class.java.getMethod("addAllowedApplication", String::class.java)
-                    .invoke(builder, packageName)
-            }
-            if (allowlisted.isFailure) {
-                Log.w(TAG, "vpn self allowlist failed: ${allowlisted.exceptionOrNull()?.message}")
+            // other apps' link-local IPv6 whenever the wired VPN was up. The allowlist API was
+            // renamed between SDK levels: addAllowedPackage on the Android 7 car, which is the
+            // only name its VpnService.Builder carries, addAllowedApplication on newer stacks.
+            // The version test picks the one that exists there, so a rejection still surfaces as
+            // itself instead of being wrapped by reflection.
+            @Suppress("DEPRECATION")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                builder.addAllowedApplication(packageName)
+            } else {
+                builder.addAllowedPackage(packageName)
             }
             val tunFd = builder.establish()
                 ?: throw IOException("VpnService.establish returned null")
