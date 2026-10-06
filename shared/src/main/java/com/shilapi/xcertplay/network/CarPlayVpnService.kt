@@ -92,18 +92,40 @@ class CarPlayVpnService : VpnService() {
             }
             require(hostMac.size == 6) { "hostMac must be 6 bytes" }
 
-            val tunFd = Builder()
+            val builder = Builder()
                 .addAddress(linkLocal, LINK_PREFIX)
                 .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+                // The VPN only carries the link-local IPv6 route, but Android's leak-prevention
+                // blocks every address family the VPN does not configure for all covered apps.
+                // Without this line establish() fails outright on this head unit: the platform
+                // sees an unconfigured family with covered apps and rejects the request with
+                // EINVAL, which is what surfaced as "attach result=failed Invalid argument".
+                // allowFamily(AF_INET) explicitly lets IPv4 traffic use the underlying network
+                // (API 21+, Android 7 included).
+                .allowFamily(AF_INET)
                 .setSession(SESSION_NAME)
                 .setMtu(TUN_MTU)
                 .setBlocking(true)
-                // An empty app list routes every UID through this VPN. Scope it before establish;
-                // rejection must reach the existing attachment cleanup, never an unscoped retry.
-                .addAllowedApplication(packageName)
-                .establish()
+            // Only this app's own link-local traffic needs the TUN. Covering every app swallowed
+            // other apps' link-local IPv6 whenever the wired VPN was up. Whitelisting this package
+            // puts every other app completely outside the VPN. The allowlist API was renamed
+            // between SDK levels (addAllowedPackage on the Android 7 car, addAllowedApplication on
+            // newer stacks) and this module compiles against a SDK that only carries the new name,
+            // so call whichever exists at runtime through reflection.
+            val allowlisted = runCatching {
+                Builder::class.java.getMethod("addAllowedPackage", String::class.java)
+                    .invoke(builder, packageName)
+            }.recoverCatching {
+                Builder::class.java.getMethod("addAllowedApplication", String::class.java)
+                    .invoke(builder, packageName)
+            }
+            if (allowlisted.isFailure) {
+                Log.w(TAG, "vpn self allowlist failed: ${allowlisted.exceptionOrNull()?.message}")
+            }
+            val tunFd = builder.establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
+            Log.i(TAG, "vpn tun established address=$linkLocal mtu=$TUN_MTU")
 
             val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
                 onTransportError(generation, listener, error)
@@ -352,6 +374,8 @@ class CarPlayVpnService : VpnService() {
         private const val LINK_LOCAL_ROUTE = "fe80::"
         private const val SESSION_NAME = "xcertplay CarPlay"
         private const val TUN_MTU = 1500
+        /** IPv4 address family for [android.net.VpnService.Builder.allowFamily]. */
+        private const val AF_INET = 2 // OsConstants.AF_INET
 
         /** Returns the VPN consent intent, or null when consent is already granted. */
         fun prepare(context: Context): Intent? = VpnService.prepare(context)
