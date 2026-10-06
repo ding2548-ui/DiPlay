@@ -61,7 +61,10 @@ internal object DiPlayPreferences {
     }
 
     /** lwIP stays off unless it is turned on: the wired VPN path remains the default. */
-    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", false)
+    // lwIP is the default wired transport: it needs no VpnService, no kernel route and no consent
+    // dialog, and it is the path that has been verified end to end on this head unit. The VPN path
+    // stays as the fallback for when the library cannot load in the current process.
+    fun wiredLwip(context: Context) = prefs(context).getBoolean("wired_lwip", true)
     fun saveWiredLwip(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("wired_lwip", value).apply()
     }

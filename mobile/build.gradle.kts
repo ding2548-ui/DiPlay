@@ -7,9 +7,11 @@ plugins {
 val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
     .orNull?.let { file(it).canonicalFile }
 
-// CI stamps the run number so an installed APK can be traced back to the build that produced it.
-// Without it two packages both read "0.2.12" and there is no way to tell them apart on the unit.
+// CI stamps the run number and the short commit sha into versionName, so the first line of a
+// diagnostic report names the exact build that produced it: "0.2.12（186-b815324）". The run
+// number alone only says when a build ran, not what was in it.
 val buildNumber = providers.environmentVariable("DIPLAY_BUILD_NUMBER").orNull
+val buildCommit = providers.environmentVariable("DIPLAY_BUILD_COMMIT").orNull
 
 android {
     namespace = "com.shilapi.xcertplay"
@@ -22,7 +24,9 @@ android {
         minSdk = 25
         targetSdk = 37
         versionCode = 31
-        versionName = buildNumber?.let { "0.2.12（$it）" } ?: "0.2.12"
+        versionName = buildNumber?.let { run ->
+            buildCommit?.let { sha -> "0.2.12（$run-$sha）" } ?: "0.2.12（$run）"
+        } ?: "0.2.12"
 
         // The APK ABI is decided HERE, in the app module: shared's abiFilters only control its own
         // externalNativeBuild, and bundled AARs ship their own arm64/x86 .so files, which made the

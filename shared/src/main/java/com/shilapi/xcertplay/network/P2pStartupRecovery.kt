@@ -51,23 +51,14 @@ internal object P2pStartupRecovery {
         if (none { it.mode == P2pCreationMode.SYSTEM_DEFAULT }) add(P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT))
     }
 
-    /**
-     * Android 7/7.1 through 9 only expose the original `createGroup` overload: the platform picks
-     * the group SSID, passphrase and channel, so there is no frequency to request and one attempt
-     * is all that can be made. `awaitUsableGroup` reads the generated credentials back.
-     */
-    fun legacyPlan(): List<P2pCreationRequest> =
-        listOf(P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT))
-
     fun create(
         stationFrequency: Int?,
         beforeRetry: () -> Unit,
         preferred: P2pCreationRequest? = null,
-        planOverride: List<P2pCreationRequest>? = null,
         preferredChannel: Int = WifiP2pChannels.AUTO,
         request: (P2pCreationRequest) -> Unit,
     ): P2pCreationRequest {
-        val modes = planOverride ?: plan(stationFrequency, preferred, preferredChannel)
+        val modes = plan(stationFrequency, preferred, preferredChannel)
         var lastRejection: P2pCreateRejected? = null
         for ((index, mode) in modes.withIndex()) {
             var retriedBusy = false

@@ -138,11 +138,14 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
       - uses: gradle/actions/setup-gradle@v4
-      - name: Stamp the build number
+      - name: Stamp the build identity
         run: |
           set -euo pipefail
           echo "DIPLAY_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          echo "release versionName will be stamped 0.2.12（${GITHUB_RUN_NUMBER}）"
+          # The short sha goes into versionName so a diagnostic report names the exact code on the
+          # unit. The run number alone only says when the build ran, not what was in it.
+          echo "DIPLAY_BUILD_COMMIT=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+          echo "release versionName will be stamped 0.2.12（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）"
       - name: Platform-signed release APK
         if: env.DIPLAY_RELEASE_ENABLED == 'true'
         run: ./gradlew :mobile:assembleStandaloneRelease --stacktrace

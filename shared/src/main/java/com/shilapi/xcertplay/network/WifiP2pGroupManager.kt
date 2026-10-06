@@ -102,14 +102,9 @@ class WifiP2pGroupManager(
 
     @SuppressLint("MissingPermission")
     override fun start(timeoutMillis: Long): WirelessHotspotInfo {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-            throw IOException("Wi-Fi P2P requires Android 7 (API 24) or newer")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            throw IOException("Wi-Fi P2P credentials require Android 10 (API 29) or newer")
         }
-        // Android 10 added explicit group credentials and the group operating frequency. On
-        // Android 7 through 9 only the original createGroup overload exists, so the platform
-        // chooses the SSID, passphrase and channel and startup follows legacyPlan() instead.
-        // Gating on Q here would leave this head unit with no working wireless backend at all:
-        // LocalOnlyHotspot is API 26+, so Wi-Fi Direct is the only option below that.
         check(Looper.myLooper() != Looper.getMainLooper()) {
             "WifiP2pGroupManager.start must not run on the main thread"
         }
@@ -157,11 +152,7 @@ class WifiP2pGroupManager(
                 callbackThread = thread
             }
 
-            // requestP2pState only exists from API 29; the group state is diagnostic, so older
-            // platforms simply do not report it.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                logP2pState(attempt, p2pChannel)
-            }
+            logP2pState(attempt, p2pChannel)
             // Preferences disappear on reinstall, but the scoped namespace survives.
             val existing = requestGroupInfo(attempt, p2pChannel, REQUEST_POLL_NANOS, requireResponse = true)
             diagnostic("Wi-Fi P2P existingGroup=${existing != null}")
@@ -182,10 +173,6 @@ class WifiP2pGroupManager(
             val creation = P2pStartupRecovery.create(
                 stationFrequency = stationFrequency,
                 preferred = preferred?.request,
-                // Below API 29 there is no WifiP2pConfig, so no frequency can be requested and the
-                // whole preference plan is meaningless: one default attempt is all the API allows.
-                planOverride = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) null
-                else P2pStartupRecovery.legacyPlan(),
                 preferredChannel = preferredChannel,
                 beforeRetry = {
                     ensureStartActive(attempt)
@@ -201,12 +188,7 @@ class WifiP2pGroupManager(
                 request = { selection ->
                     ensureStartActive(attempt)
                     if (remainingNanos(deadlineNanos) == 0L) throw IOException("Wi-Fi Direct startup timed out")
-                    val config = if (selection.mode != P2pCreationMode.SYSTEM_DEFAULT) {
-                        // WifiP2pConfig is API 29. This branch cannot be taken below that: below
-                        // Q the plan is legacyPlan(), which only ever yields SYSTEM_DEFAULT, so
-                        // the mode test above is false and create() is never invoked. Lint cannot
-                        // follow that through the plan override, hence the waiver on the lambda.
-                        @SuppressLint("NewApi")
+                    val config = if (selection.mode == P2pCreationMode.SYSTEM_DEFAULT) null else {
                         P2pConfigBuildDiagnostics.build(Build.VERSION.SDK_INT, selection, diagnostic) {
                             val builder = WifiP2pConfig.Builder()
                                 .setNetworkName(credentials.ssid)
@@ -214,8 +196,6 @@ class WifiP2pGroupManager(
                             builder.setGroupOperatingFrequency(requireNotNull(selection.frequencyMHz))
                             builder.build()
                         }
-                    } else {
-                        null
                     }
                     if (config != null && !ownership.edit().putString("owned_ssid", credentials.ssid).commit()) {
                         throw IOException("Could not record Wi-Fi P2P group ownership")
@@ -236,15 +216,7 @@ class WifiP2pGroupManager(
                     val usingRemembered = preferred?.request == selection
                     if (usingRemembered) synchronized(stateLock) { rememberedAttempt = preferred }
                     try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            p2pManager.createGroup(p2pChannel, config, createActionListener(attempt, request))
-                        } else {
-                            // createGroup(Channel, WifiP2pConfig, ActionListener) is API 29. Android 7
-                            // through 9 only have the original overload, where the platform generates
-                            // the group SSID, passphrase and channel.
-                            @Suppress("DEPRECATION")
-                            p2pManager.createGroup(p2pChannel, createActionListener(attempt, request))
-                        }
+                        p2pManager.createGroup(p2pChannel, config, createActionListener(attempt, request))
                         awaitGroupCreated(attempt, request, deadlineNanos, timeoutMillis)
                     } catch (failure: P2pCreateRejected) {
                         if (usingRemembered && failure.reason == WifiP2pManager.ERROR && preferred != null) {
@@ -402,8 +374,7 @@ class WifiP2pGroupManager(
         }
     }
 
-    // Not @RequiresApi(Q): this runs below API 29 too, where it reads the group credentials
-    // reflectively and reports channel 0 (unknown).
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun awaitUsableGroup(
         attempt: StartAttempt,
         channel: WifiP2pManager.Channel,
@@ -432,31 +403,19 @@ class WifiP2pGroupManager(
                 throw IOException("Wi-Fi P2P device became a group client instead of owner")
             }
 
-            // WifiP2pGroup.networkName / passphrase / frequency are API 29. Android 7 carries
-            // the SSID and passphrase on the same object but as plain fields, and the passphrase
-            // field is a byte array; it never reports a frequency at all. The accessors are used
-            // directly where they exist - including under Robolectric, whose shadow stores values
-            // for the real accessors - and the fields are only a fallback for older platforms.
-            val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-            val networkName = (if (modern) group.networkName else null)
-                ?.takeIf { it.isNotBlank() }
-                ?: group.reflectiveString("networkName")
+            val networkName = group.networkName?.takeIf { it.isNotBlank() }
             if (credentials != null && networkName != null && networkName != credentials.ssid) {
                 throw IOException("Wi-Fi Direct returned an unexpected group")
             }
-            val passphrase = (if (modern) group.passphrase else null)
-                ?.takeIf { it.isNotBlank() }
-                ?: group.reflectiveString("passphrase")?.takeIf { it.isNotBlank() }
-                ?: group.reflectivePassphrase()
+            val passphrase = group.passphrase?.takeIf { it.isNotBlank() }
                 ?: credentials?.passphrase
             val interfaceName = group.getInterface()?.takeIf { it.isNotBlank() }
-            // The legacy group never reports a frequency, so the iPhone has to discover the AP by
-            // scanning; the endpoint advertises channel 0 (unknown) in that case.
-            val frequencyMHz = if (modern) group.frequency else 0
-            val channelNumber = if (frequencyMHz > 0) wifiFrequencyMhzToChannel(frequencyMHz) else 0
+            val frequencyMHz = group.frequency
+            val channelNumber = wifiFrequencyMhzToChannel(frequencyMHz)
             if (
                 networkName == null || passphrase == null ||
                 interfaceName == null ||
+                frequencyMHz <= 0 ||
                 channelNumber == null
             ) {
                 lastReason = "incomplete group details frequencyMHz=$frequencyMHz"
@@ -627,34 +586,6 @@ class WifiP2pGroupManager(
         await(latch, REQUEST_POLL_NANOS)
         ensureStartActive(attempt)
         diagnostic("Wi-Fi P2P frameworkState=${result.get() ?: "unknown"}")
-    }
-
-    /**
-     * Reads a WifiP2pGroup String field. From API 29 it is a real getter; on Android 7 the same
-     * value is only reachable as a field, and the field name differs for the passphrase.
-     */
-    private fun WifiP2pGroup.reflectiveString(getter: String): String? {
-        runCatching { javaClass.getMethod(getter).invoke(this) }
-            .getOrNull()
-            ?.let { return it as? String }
-        return runCatching {
-            @Suppress("UNCHECKED_CAST")
-            javaClass.getField(getter).get(this) as? String
-        }.getOrNull()
-    }
-
-    /** The API 29 passphrase getter returns String; the legacy field is a byte array. */
-    private fun WifiP2pGroup.reflectivePassphrase(): String? {
-        runCatching { javaClass.getMethod("passphrase").invoke(this) }
-            .getOrNull()
-            ?.let { return it as? String }
-        val bytes = runCatching {
-            @Suppress("UNCHECKED_CAST")
-            javaClass.getField("passphrase").get(this) as? ByteArray
-        }.getOrNull() ?: return null
-        if (bytes.isEmpty()) return null
-        val text = String(bytes, Charsets.UTF_8)
-        return text.takeIf { it.isNotBlank() }
     }
 
     private fun interfaceHardwareAddress(interfaceName: String): String? =
