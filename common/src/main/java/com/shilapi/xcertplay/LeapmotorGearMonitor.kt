@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.util.Log
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.orchestration.CarPlayController
@@ -62,10 +63,11 @@ internal object LeapmotorGearMonitor {
             }
         }
         val filter = IntentFilter(RESPONSE_ACTION)
+        // The CAN server broadcasts this action, so the receiver must be exported; from Android 14
+        // the flag is mandatory. Lint only folds the version test when the call is made in the two
+        // branches directly, which is the same shape the USB hosts use.
         runCatching {
-            // The CAN server broadcasts this action, so the receiver must be exported; from
-            // Android 14 the flag is mandatory and registration fails without it.
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
             } else {
                 application.registerReceiver(created, filter)

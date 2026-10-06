@@ -13,6 +13,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -135,7 +136,7 @@ internal object LearnedWheelKeys {
         }
         runCatching {
             // Media button broadcasts come from the system, hence exported.
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
             } else {
                 application.registerReceiver(created, filter)
@@ -495,7 +496,7 @@ internal object LearnedWheelKeys {
         }
         runCatching {
             // The car bus broadcasts these actions from another process, hence exported.
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
             } else {
                 application.registerReceiver(created, filter)
