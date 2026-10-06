@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- In-app updates: the platform signature grants silent PackageInstaller sessions on the car. -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Optional: the dashboard map as a card over the home screen. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Optional, owner-enabled Usage Access for the verified DiLink 5.1 cluster profile. -->
@@ -156,6 +159,30 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/usb_auto_confirm_service_config" />
         </service>
+
+        <!-- In-app update: session result callback, and cleanup + relaunch after the replace. -->
+        <receiver
+            android:name="com.shilapi.xcertplay.UpdateInstallReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.shilapi.xcertplay.UpdateInstalledReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Shares the downloaded update APK with the system installer for the manual fallback
+             (non-platform-signed ROMs cannot run silent PackageInstaller sessions). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

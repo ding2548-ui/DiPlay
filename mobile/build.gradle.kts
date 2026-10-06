@@ -7,6 +7,10 @@ plugins {
 val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
     .orNull?.let { file(it).canonicalFile }
 
+// CI stamps the run number so an installed APK can be traced back to the build that produced it.
+// Without it two packages both read "0.2.12" and there is no way to tell them apart on the unit.
+val buildNumber = providers.environmentVariable("DIPLAY_BUILD_NUMBER").orNull
+
 android {
     namespace = "com.shilapi.xcertplay"
     compileSdk {
@@ -18,8 +22,7 @@ android {
         minSdk = 25
         targetSdk = 37
         versionCode = 31
-        versionName = "0.2.12"
-
+        versionName = buildNumber?.let { "0.2.12（$it）" } ?: "0.2.12"
     }
 
 
@@ -39,8 +42,9 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".hudtest"
-            versionNameSuffix = "-hud-test"
+            // No applicationIdSuffix and no versionNameSuffix: the car unit installs the release
+            // identity, and a debug-flavoured package name or label would ship the wrong app.
+            // Keep applicationId/versionName identical to release so an in-place update works.
         }
         release {
             optimization {
@@ -123,6 +127,11 @@ val verifyStandaloneAuthentication by tasks.registering {
 tasks.named("preBuild") { mustRunAfter(verifyStandaloneAuthentication) }
 tasks.register("assembleStandaloneDebug") {
     group = "build"
-    description = "Build a standalone car-test APK with explicitly provisioned authentication."
+    description = "Build a standalone APK with explicitly provisioned authentication."
     dependsOn(verifyStandaloneAuthentication, "assembleDebug")
+}
+tasks.register("assembleStandaloneRelease") {
+    group = "build"
+    description = "Build a platform-signed standalone release APK with provisioned authentication."
+    dependsOn(verifyStandaloneAuthentication, "assembleRelease")
 }

@@ -68,6 +68,19 @@ class CarPlayVpnService : VpnService() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
+    /**
+     * Which part of [attach] is running, so a failure names the step instead of only the platform
+     * message. Held per thread because attach runs on a caller thread while the bridge runs on its
+     * own, and cleared at the start of every attempt.
+     */
+    private val attachStage = ThreadLocal<String>()
+
+    private fun stage(name: String) {
+        attachStage.set(name)
+    }
+
+    private fun currentStage(): String = attachStage.get() ?: "unknown"
+
     @Synchronized
     fun attach(
         ncm: NcmUsbBridge,
@@ -86,6 +99,7 @@ class CarPlayVpnService : VpnService() {
         }
         active.set(true)
         val generation = ++attachGeneration
+        attachStage.set("builder")
         return try {
             val address = InetAddress.getByName(linkLocal)
             if (address !is Inet6Address || !address.isLinkLocalAddress) {
@@ -132,23 +146,30 @@ class CarPlayVpnService : VpnService() {
                 if (cause is NoSuchMethodException) throw IOException("VPN allowlist is unavailable", cause)
                 throw cause as? Exception ?: IOException("VPN allowlist failed", cause)
             }
+            stage("tun")
             val tunFd = builder.establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
             Log.i(TAG, "vpn tun established address=$linkLocal mtu=$TUN_MTU")
 
+            // Stage markers: the failure below used to reach the caller as a bare message such as
+            // "Invalid argument", which is indistinguishable from an errno string and sent the
+            // investigation after establish() when the real throw was further down.
+            stage("bridge")
             val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
                 onTransportError(generation, listener, error)
             }
             ipv6Bridge.start()
             bridge = ipv6Bridge
 
+            stage("listener")
             startAirPlayServer(
                 generation,
                 AirPlayAttachment(address, config, identity, pairings, mfi, listener, media),
             )
             AttachResult.Started
         } catch (error: Exception) {
+            Log.w(TAG, "attach failed stage=${currentStage()} ${error.javaClass.simpleName}", error)
             releaseLocked()
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
         }

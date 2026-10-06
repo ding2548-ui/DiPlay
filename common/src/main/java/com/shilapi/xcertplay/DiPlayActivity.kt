@@ -68,6 +68,10 @@ class DiPlayActivity : ComponentActivity() {
     private var clusterContentRequestVersion = 0L
     private var pendingCarHotspotSetup = false
     private var hotspotJoinControls: HotspotJoinControls? = null
+    // In-app update: live only while the about page is on screen, so a redraw drops the handles.
+    private var updateBusy = false
+    private var updateMessage: TextView? = null
+    private var updateActionButton: Button? = null
     private var setupError: String? = null
     private var status: TextView? = null
     private var connectButton: Button? = null
@@ -870,9 +874,116 @@ class DiPlayActivity : ComponentActivity() {
         section(content, "${getString(R.string.about_public_preview_prefix)}${version()}") { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
         }
+        updateSection(content)
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
         }
+    }
+
+    /**
+     * In-app update: ask GitHub for the newest published build, offer the download, then install
+     * through PackageInstaller. The car is platform signed, so the silent path applies; a ROM that
+     * refuses it falls back to the system installer via the FileProvider.
+     */
+    private fun updateSection(content: LinearLayout) {
+        updateMessage = label("当前版本 ${version()}", 16, MUTED).apply { setPadding(0, dp(12), 0, 0) }
+        content.addView(updateMessage)
+        updateActionButton = button("检查更新", false) { startUpdateCheck() }
+        content.addView(updateActionButton, matchButton(12, 60))
+        content.addView(updateSourceButton(), matchButton(10, 60))
+        updateMessage = null; updateActionButton = null
+    }
+
+    private fun updateSourceButton(): Button {
+        val sources = AppUpdater.sources()
+        val labels = sources.map { AppUpdater.sourceLabel(it) }
+        val picker = button("下载源 · ${AppUpdater.sourceLabel(AppUpdater.source(this))}", false) {}
+        picker.setOnClickListener {
+            var pending = sources.indexOf(AppUpdater.source(this))
+            AlertDialog.Builder(this).setTitle("下载源")
+                .setSingleChoiceItems(labels.toTypedArray(), pending) { _, index -> pending = index }
+                .setPositiveButton("保存") { _, _ ->
+                    if (pending != sources.indexOf(AppUpdater.source(this))) {
+                        AppUpdater.saveSource(this, sources[pending])
+                        picker.text = "下载源 · ${AppUpdater.sourceLabel(sources[pending])}"
+                    }
+                }
+                .setNegativeButton("取消", null).show()
+        }
+        return picker
+    }
+
+    private fun startUpdateCheck() {
+        if (updateBusy) return
+        updateBusy = true
+        updateActionButton?.isEnabled = false
+        updateMessage?.text = "正在检查更新…"
+        Thread {
+            val result = runCatching { AppUpdater.latestBuild(AppUpdater.source(this)) }
+            val current = AppUpdater.currentBuild(this)
+            handler.post {
+                updateBusy = false
+                updateActionButton?.isEnabled = true
+                val latest = result.getOrNull()
+                when {
+                    result.isFailure -> updateMessage?.text =
+                        "检查失败：${result.exceptionOrNull()?.message ?: "网络不可达"}。可尝试更换下载源。"
+                    latest == null || (current != null && latest <= current) ->
+                        updateMessage?.text = "未发现更高构建（当前 ${version()}）。"
+                    current != null && latest > current -> {
+                        updateMessage?.text = "发现新构建 $latest，当前 $current。"
+                        updateActionButton?.text = "下载并安装 $latest"
+                        updateActionButton?.setOnClickListener { startUpdateDownload(latest) }
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun startUpdateDownload(build: Int) {
+        if (updateBusy) return
+        updateBusy = true
+        updateActionButton?.isEnabled = false
+        updateMessage?.text = "正在下载 $build…"
+        Thread {
+            val result = runCatching {
+                AppUpdater.downloadApk(this, build, AppUpdater.source(this)) { done, total ->
+                    if (total > 0) handler.post {
+                        updateMessage?.text = "正在下载 $build… ${done * 100 / total}%"
+                    }
+                }
+            }
+            handler.post {
+                val apk = result.getOrNull()
+                if (apk == null) {
+                    updateMessage?.text =
+                        "下载失败：${result.exceptionOrNull()?.message ?: "网络不可达"}。可尝试更换下载源。"
+                    updateBusy = false
+                    updateActionButton?.isEnabled = true
+                    return@post
+                }
+                updateMessage?.text = "下载完成（${apk.length() / 1048576} MB）。"
+                AlertDialog.Builder(this).setTitle("安装更新")
+                    .setMessage("已下载 $build。安装期间 DiPlay 会短暂关闭，装好后自动重新打开。")
+                    .setPositiveButton("立即安装") { _, _ ->
+                        updateMessage?.text = "正在安装…"
+                        // Registered before the session so the receiver can fall back to the
+                        // manual installer if the silent path is rejected on this ROM.
+                        AppUpdater.rememberManualApk(this, apk)
+                        Thread {
+                            val installed = runCatching { AppUpdater.installApk(this, apk) }
+                            handler.post {
+                                if (installed.isFailure) {
+                                    updateBusy = false
+                                    updateActionButton?.isEnabled = true
+                                    updateMessage?.text = "静默安装未成功，请用系统安装器完成更新。"
+                                }
+                            }
+                        }.start()
+                    }
+                    .setNegativeButton("稍后", null).show()
+            }
+        }.start()
     }
 
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.
