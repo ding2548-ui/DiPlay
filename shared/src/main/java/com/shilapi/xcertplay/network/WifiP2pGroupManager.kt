@@ -402,7 +402,8 @@ class WifiP2pGroupManager(
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
+    // Not @RequiresApi(Q): this runs below API 29 too, where it reads the group credentials
+    // reflectively and reports channel 0 (unknown).
     private fun awaitUsableGroup(
         attempt: StartAttempt,
         channel: WifiP2pManager.Channel,
@@ -431,21 +432,27 @@ class WifiP2pGroupManager(
                 throw IOException("Wi-Fi P2P device became a group client instead of owner")
             }
 
-            // WifiP2pGroup.networkName / passphrase / frequency are API 29. Android 7 reports the
-            // SSID as a String field and the passphrase as a byte array on the same object, and it
-            // never reports a frequency at all, so each value is read reflectively with a null
-            // fallback rather than calling a method that does not exist.
-            val networkName = group.reflectiveString("networkName")?.takeIf { it.isNotBlank() }
+            // WifiP2pGroup.networkName / passphrase / frequency are API 29. Android 7 carries
+            // the SSID and passphrase on the same object but as plain fields, and the passphrase
+            // field is a byte array; it never reports a frequency at all. The accessors are used
+            // directly where they exist - including under Robolectric, whose shadow stores values
+            // for the real accessors - and the fields are only a fallback for older platforms.
+            val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+            val networkName = (if (modern) group.networkName else null)
+                ?.takeIf { it.isNotBlank() }
+                ?: group.reflectiveString("networkName")
             if (credentials != null && networkName != null && networkName != credentials.ssid) {
                 throw IOException("Wi-Fi Direct returned an unexpected group")
             }
-            val passphrase = group.reflectiveString("passphrase")?.takeIf { it.isNotBlank() }
+            val passphrase = (if (modern) group.passphrase else null)
+                ?.takeIf { it.isNotBlank() }
+                ?: group.reflectiveString("passphrase")?.takeIf { it.isNotBlank() }
                 ?: group.reflectivePassphrase()
                 ?: credentials?.passphrase
             val interfaceName = group.getInterface()?.takeIf { it.isNotBlank() }
             // The legacy group never reports a frequency, so the iPhone has to discover the AP by
             // scanning; the endpoint advertises channel 0 (unknown) in that case.
-            val frequencyMHz = group.reflectiveInt("frequency") ?: 0
+            val frequencyMHz = if (modern) group.frequency else 0
             val channelNumber = if (frequencyMHz > 0) wifiFrequencyMhzToChannel(frequencyMHz) else 0
             if (
                 networkName == null || passphrase == null ||
@@ -649,10 +656,6 @@ class WifiP2pGroupManager(
         val text = String(bytes, Charsets.UTF_8)
         return text.takeIf { it.isNotBlank() }
     }
-
-    private fun WifiP2pGroup.reflectiveInt(getter: String): Int? =
-        runCatching { javaClass.getMethod(getter).invoke(this) as? Int }.getOrNull()
-            ?: runCatching { javaClass.getField(getter).getInt(this) }.getOrNull()
 
     private fun interfaceHardwareAddress(interfaceName: String): String? =
         networkInterface(interfaceName)
