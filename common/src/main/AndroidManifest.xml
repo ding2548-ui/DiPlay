@@ -42,8 +42,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- The location/microphone foreground types are declared here, and both permissions are
+             requested in the shared module manifest that merges into this one. -->
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
-            android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice|microphone|location"
+            tools:ignore="ForegroundServicePermission" />
 
         <activity
             android:name="com.shilapi.xcertplay.CarPlayHostActivity"

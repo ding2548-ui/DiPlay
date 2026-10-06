@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -52,6 +53,10 @@ class MapEmbedService : Service() {
 
     override fun onBind(intent: Intent): IBinder = messenger.binder
 
+    // Embed is @RequiresApi(R) and only ever instantiated by attach() after its own SDK_INT >= R
+    // check, so an entry in the map implies API 30. The service callbacks below cannot carry the
+    // annotation themselves, and the map is empty on older units anyway.
+    @SuppressLint("NewApi")
     override fun onDestroy() {
         destroyed = true
         stopObservingSharing?.invoke()
@@ -61,6 +66,7 @@ class MapEmbedService : Service() {
         super.onDestroy()
     }
 
+    @SuppressLint("NewApi")
     private fun revokeSharing() {
         if (destroyed) return
         val attached = embeds.values.toList()
@@ -68,6 +74,7 @@ class MapEmbedService : Service() {
         attached.forEach { it.sharingDisabled() }
     }
 
+    @SuppressLint("NewApi")
     private fun handle(message: Message) {
         val client = message.replyTo ?: return
         val caller = packageManager.getNameForUid(message.sendingUid) ?: "uid ${message.sendingUid}"
@@ -116,6 +123,7 @@ class MapEmbedService : Service() {
         send(client, MSG_ERROR, Bundle().apply { putString(KEY_ERROR, error) })
     }
 
+    @SuppressLint("NewApi")
     private fun send(client: Messenger, what: Int, data: Bundle) {
         try {
             client.send(Message.obtain(null, what).apply { this.data = data })

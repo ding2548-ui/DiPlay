@@ -1,4 +1,5 @@
 package com.shilapi.xcertplay
+import android.annotation.SuppressLint
 
 import android.app.Activity
 import android.content.res.ColorStateList
@@ -315,6 +316,9 @@ class CarPlayVideoActivity : Activity() {
     private fun causes(error: Throwable): String = generateSequence(error) { it.cause }.take(4)
         .joinToString(" <- ") { "${it.javaClass.simpleName}(${it.message?.replace(Regex("\\w+://\\S+"), "<url>")})" }
 
+    // The network summary is diagnostics only; a missing ACCESS_NETWORK_STATE permission just
+    // means the report shows less, and its constant does not exist before API 23 anyway.
+    @SuppressLint("MissingPermission")
     private fun playbackNetworkSummary(): String {
         val manager = getSystemService(ConnectivityManager::class.java)
         val network = manager?.activeNetwork

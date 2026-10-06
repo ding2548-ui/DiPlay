@@ -530,7 +530,7 @@
     <string name="turn_card_overlay_medium">Средняя</string>
     <string name="turn_card_overlay_large">Большая</string>
     <string name="reset_turn_card_overlay">Сбросить положение собственной карточки</string>
-    <string name="turn_card_overlay_note">DiPlay рисует эту карточку поверх карты; перемещение шагами 2 %. Стеклянную карточку iOS нельзя двигать отдельно. Изменения применяются сразу; карточка остаётся и при движении прямо.</string>
+    <string name="turn_card_overlay_note" formatted="false">DiPlay рисует эту карточку поверх карты; перемещение шагами 2%. Стеклянную карточку iOS нельзя двигать отдельно. Изменения применяются сразу; карточка остаётся и при движении прямо.</string>
     <string name="turn_card_now">Сейчас</string>
     <string name="turn_card_distance_m">%1$d м</string>
     <string name="turn_card_distance_km">%1$.1f км</string>

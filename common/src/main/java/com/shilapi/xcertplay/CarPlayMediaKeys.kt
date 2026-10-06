@@ -159,6 +159,7 @@ internal object CarPlayMediaKeys {
         // focusRequest is null on Android 7, where start() already took the legacy focus; there is
         // nothing to re-request and the session keeps the focus it has.
         val request = focusRequest ?: return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         focusHeld = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         Log.i(TAG, "audio focus regained=$focusHeld")
     }
@@ -195,8 +196,8 @@ internal object CarPlayMediaKeys {
             @Suppress("DEPRECATION")
             null
         }
-        val granted = if (request != null) {
-            audio?.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audio?.requestAudioFocus(request!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } else {
             @Suppress("DEPRECATION")
             audio?.requestAudioFocus(

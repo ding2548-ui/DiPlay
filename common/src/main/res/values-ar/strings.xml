@@ -530,7 +530,7 @@
     <string name="turn_card_overlay_medium">متوسط</string>
     <string name="turn_card_overlay_large">كبير</string>
     <string name="reset_turn_card_overlay">إعادة موضع البطاقة المخصصة</string>
-    <string name="turn_card_overlay_note">ترسم DiPlay هذه البطاقة فوق الخريطة وتُحرَّك بخطوات 2٪. بطاقة iOS الزجاجية لا يمكن تحريكها وحدها. التغييرات فورية، والبطاقة تبقى أثناء السير مباشرة.</string>
+    <string name="turn_card_overlay_note" formatted="false">ترسم DiPlay هذه البطاقة فوق الخريطة وتُحرَّك بخطوات 2٪. بطاقة iOS الزجاجية لا يمكن تحريكها وحدها. التغييرات فورية، والبطاقة تبقى أثناء السير مباشرة.</string>
     <string name="turn_card_now">الآن</string>
     <string name="turn_card_distance_m">%1$d م</string>
     <string name="turn_card_distance_km">%1$.1f كم</string>

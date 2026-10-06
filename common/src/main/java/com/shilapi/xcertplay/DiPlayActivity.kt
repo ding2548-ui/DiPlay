@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // UI copy and visual language adapted from DiAuto. See docs/THIRD_PARTY_NOTICES.md.
 package com.shilapi.xcertplay
+import android.annotation.SuppressLint
 
 import android.Manifest
 import android.app.AlertDialog
@@ -1366,7 +1367,9 @@ class DiPlayActivity : ComponentActivity() {
             slider = SeekBar(context).apply {
                 max = steps.lastIndex
                 progress = steps.indexOf(current).coerceIn(steps.indices)
-                minHeight = dp(44)
+                // ProgressBar.setMinHeight is API 29; View.setMinimumHeight has existed since
+                // API 16 and is what the former delegated to on this head unit.
+                minimumHeight = dp(44)
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                         val value = steps[progress.coerceIn(steps.indices)]
@@ -2711,6 +2714,9 @@ class DiPlayActivity : ComponentActivity() {
     private fun openProjection() {
         startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
+    // The paired-device list is read defensively (runCatching around bondedDevices) and BLUETOOTH_
+    // CONNECT only exists from API 31, so on this API 25 unit there is no constant to check with.
+    @SuppressLint("MissingPermission")
     private fun choosePhone() {
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT); return
@@ -2770,18 +2776,25 @@ class DiPlayActivity : ComponentActivity() {
         val manager = getSystemService(android.net.wifi.p2p.WifiP2pManager::class.java)
         if (manager == null) { toast(getString(R.string.this_head_unit_does_not_support_wi_fi_direct)); return }
         val channel = manager.initialize(this, mainLooper, null)
+        // WifiP2pManager.Channel.close() is API 27; on Android 7 the channel has no close method
+        // and calling it raises NoSuchMethodError, which is an Error and cannot be caught here.
+        // The reset below runs on a main-looper handler that is torn down with this screen anyway.
+        fun closeChannel() {
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O_MR1) return
+            runCatching { channel.close() }
+        }
         try {
             manager.requestGroupInfo(channel) { group ->
-                if (group == null) { channel.close(); connect(true); return@requestGroupInfo }
+                if (group == null) { closeChannel(); connect(true); return@requestGroupInfo }
                 manager.removeGroup(channel, object : android.net.wifi.p2p.WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         val deadline = android.os.SystemClock.elapsedRealtime() + 4000
                         fun waitUntilRemoved() {
                             manager.requestGroupInfo(channel) { remaining ->
                                 when {
-                                    remaining == null -> { channel.close(); if (!isFinishing && !isDestroyed) connect(true) }
+                                    remaining == null -> { closeChannel(); if (!isFinishing && !isDestroyed) connect(true) }
                                     android.os.SystemClock.elapsedRealtime() >= deadline -> {
-                                        channel.close(); toast(getString(R.string.wi_fi_direct_is_still_busy_close_the_other_projection_app))
+                                        closeChannel(); toast(getString(R.string.wi_fi_direct_is_still_busy_close_the_other_projection_app))
                                     }
                                     else -> handler.postDelayed({ waitUntilRemoved() }, 200)
                                 }
@@ -2789,11 +2802,11 @@ class DiPlayActivity : ComponentActivity() {
                         }
                         waitUntilRemoved()
                     }
-                    override fun onFailure(reason: Int) { channel.close(); toast(getString(R.string.could_not_reset_wi_fi_direct_close_the_other_projection_ap)) }
+                    override fun onFailure(reason: Int) { closeChannel(); toast(getString(R.string.could_not_reset_wi_fi_direct_close_the_other_projection_ap)) }
                 })
             }
         } catch (_: SecurityException) {
-            channel.close(); permissionHelp(getString(R.string.wireless_permissions), getString(R.string.allow_nearby_devices_and_on_older_android_versions_locatio))
+            closeChannel(); permissionHelp(getString(R.string.wireless_permissions), getString(R.string.allow_nearby_devices_and_on_older_android_versions_locatio))
         }
     }
 

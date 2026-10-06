@@ -1,4 +1,5 @@
 package com.shilapi.xcertplay
+import android.annotation.SuppressLint
 
 import android.Manifest
 import android.content.Context
@@ -1046,6 +1047,9 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     // Hardware navigation belongs to the iPhone-rendered CarPlay UI, not Android View focus.
+    // The super calls below are the documented way to chain an Activity override; lint flags
+    // ComponentActivity.dispatchKeyEvent as library-restricted regardless.
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (!menuOpen && AndroidTvInputMode.shouldUseKnobAsPrimaryInput(this) &&
             CarPlayRemoteKeys.dispatch(event, controller)) {
