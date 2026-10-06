@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.network
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -72,6 +73,9 @@ class WifiP2pGroupManager(
     @Volatile private var observedCreatedName: String? = null
     @Volatile private var requestedName: String? = null
 
+    // Wi-Fi P2P needs a permission the platform can refuse; every call below reports a failure
+    // through the returned diagnostic or a rejected-attempt exception instead of crashing.
+    @SuppressLint("MissingPermission")
     override fun connectionDiagnosticSnapshot(): String {
         val current = synchronized(stateLock) { if (closed) null else channel }
             ?: return "p2pGroup=unavailable association=unknown"
@@ -96,6 +100,7 @@ class WifiP2pGroupManager(
         }
     }
 
+    @SuppressLint("MissingPermission")
     override fun start(timeoutMillis: Long): WirelessHotspotInfo {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             throw IOException("Wi-Fi P2P credentials require Android 10 (API 29) or newer")
@@ -449,6 +454,7 @@ class WifiP2pGroupManager(
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun requestGroupInfo(
         attempt: StartAttempt,
         channel: WifiP2pManager.Channel,
@@ -658,6 +664,7 @@ class WifiP2pGroupManager(
         removeGroup(channel, waitForCallback = true, expectedName = expectedName)
     }
 
+    @SuppressLint("MissingPermission")
     private fun removeGroup(channel: WifiP2pManager.Channel, waitForCallback: Boolean,
         expectedName: String? = observedCreatedName ?: requestedName) {
         val latch = CountDownLatch(1)

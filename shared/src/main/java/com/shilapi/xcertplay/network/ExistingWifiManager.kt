@@ -115,9 +115,7 @@ class ExistingWifiManager(
                     hosts = addresses
                     interfaceIndex = iface.index
                     interfaceName = name
-                    connectivity.registerNetworkCallback(NetworkRequest.Builder().clearCapabilities()
-                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                        .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), callback)
+                    connectivity.registerNetworkCallback(wifiNetworkRequest(), callback)
                     callbackRegistered = true
                 }
                 // Close the gap between reading the link and registering the callback.
@@ -148,6 +146,20 @@ class ExistingWifiManager(
     private fun sameLink(properties: LinkProperties): Boolean =
         properties.interfaceName == interfaceName && properties.linkAddresses.any { it.address == host } &&
             existingWifiHostAddresses(properties.linkAddresses.map { it.address }, interfaceIndex).toSet() == hosts.toSet()
+
+    /**
+     * A Wi-Fi, non-VPN request. `NetworkRequest.Builder.clearCapabilities` is API 30, so on older
+     * platforms the request keeps the default capabilities and matches a few extra networks. That
+     * is harmless: the callback only reacts to the network [start] already selected, and that scan
+     * filters on Wi-Fi transport plus the absence of a VPN transport itself.
+     */
+    private fun wifiNetworkRequest(): NetworkRequest {
+        val builder = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) builder.clearCapabilities()
+        return builder.build()
+    }
 
     private fun security(): Iap2WirelessSecurity =
         if (passphrase.isEmpty()) Iap2WirelessSecurity.NONE else Iap2WirelessSecurity.WPA_WPA2

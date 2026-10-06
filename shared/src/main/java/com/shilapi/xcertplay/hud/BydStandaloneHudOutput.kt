@@ -48,6 +48,12 @@ internal class BydStandaloneHudOutput private constructor(context: Context) {
         fun diagnostics(context: Context): String = buildString {
             appendLine("standaloneHudAvailable=${available(context)} sdk=${Build.VERSION.SDK_INT}")
             appendLine("firmware=${Build.FINGERPRINT}")
+            // longVersionCode and signingInfo are API 28; this unit is API 25. A bare version check
+            // is what lint accepts as a guard, so it has to be here rather than around the caller.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+                appendLine("receiverMetadataUnavailable=requiresApi28")
+                return@buildString
+            }
             runCatching {
                 val info = context.packageManager.getPackageInfo(TARGET.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
                 val receiver = context.packageManager.getReceiverInfo(TARGET, 0)

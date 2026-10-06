@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.network
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.MacAddress
@@ -28,7 +29,12 @@ import java.util.concurrent.TimeUnit
  * [start] must run on a worker thread because it blocks until the system callback arrives and
  * the AP interface is usable. The reservation and multicast lock stay owned by this instance
  * until [close].
+ *
+ * The whole backend is API 26+ ([WifiManager.startLocalOnlyHotspot] and
+ * [WifiManager.LocalOnlyHotspotReservation] do not exist on Android 7), so callers must check the
+ * platform first; [requestHotspot] also rejects older units at runtime in case one slips through.
  */
+@RequiresApi(Build.VERSION_CODES.O)
 class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit = {}) : WirelessHotspotManager {
     private val connectivityManager =
         context.applicationContext.getSystemService(ConnectivityManager::class.java)
@@ -175,6 +181,10 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
      * for, or null when the platform got the plain Android-generated AP. The caller uses
      * the returned channel as the advertised fallback when no live radio reading exists.
      */
+    // The hotspot start calls below need a permission the platform may refuse; every path here is
+    // wrapped in runCatching/ReflectiveOperationException handling and the caller turns a refusal
+    // into a clean startup failure, so no extra check is needed at this level.
+    @SuppressLint("MissingPermission")
     private fun requestHotspot(callback: WifiManager.LocalOnlyHotspotCallback): Int? {
         // WifiManager.startLocalOnlyHotspot is API 26. This head unit is API 25, where the method
         // does not exist and calling it raises NoSuchMethodError — an Error, so it would kill the
@@ -191,6 +201,10 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
         // path and rely on the band check below. Android 14/15 also keep the plain path.
         val main = Handler(Looper.getMainLooper())
         val executor = Executor { main.post(it) }
+        // SoftApConfiguration itself is API 30 and its Builder moves to API 36; both sit inside the
+        // version test below. Lint does not fold a `== 33 || >= 36` condition into the API level, so
+        // the guard is stated here and the NewApi check is silenced for this block only.
+        @SuppressLint("NewApi")
         if (Build.VERSION.SDK_INT == 33 || Build.VERSION.SDK_INT >= 36) {
             try {
                 val builder = SoftApConfiguration.Builder()
@@ -451,10 +465,16 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
         val security = mapWifiConfigurationSecurity(configuration)
         val passphrase = validatePassphrase(security, unquote(configuration.preSharedKey))
         val bssid = configuration.BSSID?.let {
-            try {
-                MacAddress.fromString(it)
-            } catch (failure: IllegalArgumentException) {
-                throw IOException("LocalOnlyHotspot reported an invalid BSSID: $it", failure)
+            // MacAddress is API 28. Below that the platform still reports the BSSID as text, so
+            // parse the six hex pairs directly instead of calling a method that does not exist.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                try {
+                    MacAddress.fromString(it)
+                } catch (failure: IllegalArgumentException) {
+                    throw IOException("LocalOnlyHotspot reported an invalid BSSID: $it", failure)
+                }
+            } else {
+                parseBssidText(it)
             }
         }
         val channel = readWifiConfigurationChannel(configuration)
@@ -749,6 +769,23 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
 
     private fun ByteArray.toMacAddressString(): String =
         joinToString(":") { "%02x".format(it.toInt() and 0xff) }
+
+    /**
+     * The pre-API-28 stand-in for [MacAddress.fromString]: accepts the "aa:bb:cc:dd:ee:ff" form the
+     * platform reports and yields the same six raw bytes, so the rest of this class keeps working
+     * with one representation.
+     */
+    private fun parseBssidText(text: String): ByteArray {
+        val parts = text.split(':')
+        if (parts.size != 6 || parts.any { it.length != 2 }) {
+            throw IOException("LocalOnlyHotspot reported an invalid BSSID: $text")
+        }
+        return try {
+            ByteArray(6) { index -> parts[index].toInt(16).toByte() }
+        } catch (failure: NumberFormatException) {
+            throw IOException("LocalOnlyHotspot reported an invalid BSSID: $text", failure)
+        }
+    }
 
     private fun Inet6Address.toEui64MacAddress(): String? {
         val bytes = address

@@ -18,10 +18,15 @@ internal class ManualHotspotInterfaces(
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    // PublicTethering only exists on API 36+, so publicTethering is null on this API 25 head unit
+    // and every access below takes the legacy path. Lint cannot follow the null check that produced
+    // the field, hence the silenced NewApi on the two touch points.
+    @SuppressLint("NewApi")
     private val publicTethering = if (Build.VERSION.SDK_INT >= 36) PublicTethering(context) else null
     private var lastLegacyDiagnostic: String? = null
 
     fun sample(): HotspotNetworkSnapshot {
+        @SuppressLint("NewApi")
         val ap = publicTethering?.interfaces ?: legacyApInterfaces()
         val before = runCatching { connectivity?.activeNetwork }
         val upstreams = runCatching {
@@ -73,6 +78,7 @@ internal class ManualHotspotInterfaces(
         ap
     }.getOrNull()
 
+    @SuppressLint("NewApi")
     override fun close() { publicTethering?.close() }
 
     @RequiresApi(36)

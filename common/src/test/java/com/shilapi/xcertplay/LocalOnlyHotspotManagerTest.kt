@@ -50,6 +50,9 @@ class LocalOnlyHotspotManagerTest {
         assertEquals(1, radio.standardRequests)
     }
 
+    // The manager is API 26+ because the platform hotspot calls are. Robolectric supplies its own
+    // shadows, so the test exercises the logic rather than a real Android 7 radio.
+    @android.annotation.SuppressLint("NewApi")
     private fun lateReservation(cancel: Boolean) {
         val context = RuntimeEnvironment.getApplication()
         val radio = shadowOf(context.getSystemService(WifiManager::class.java)) as Radio

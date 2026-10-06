@@ -30,9 +30,18 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // java.time.Instant and java.util.Base64 are API 26 APIs used by the pairing and
+        // location code; desugaring supplies them on Android 7/7.1 (API 24/25).
+        coreLibraryDesugaringEnabled = true
+    }
+    // Android 7 cannot reliably dlopen libs that stay uncompressed inside the APK
+    // (extractNativeLibs=false, the AGP default): extract at install time instead.
+    packaging {
+        jniLibs.useLegacyPackaging = true
     }
 }
 dependencies {
+    coreLibraryDesugaring libs.desugar.jdk.libs
     implementation libs.androidx.app
     implementation libs.bouncycastle
     implementation libs.jmdns

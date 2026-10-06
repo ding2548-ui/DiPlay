@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.network
 
+import android.annotation.SuppressLint
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.IInterface
 import android.os.Parcel
@@ -23,8 +25,12 @@ internal object HotspotJoinCapability {
     }
 
     fun read(wifi: Any): Snapshot? = try {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+        @SuppressLint("BlockedPrivateApi")
         val callbackType = Class.forName("android.net.wifi.ISoftApCallback")
+        @SuppressLint("BlockedPrivateApi")
         val register = wifi.javaClass.getMethod("registerSoftApCallback", callbackType)
+        @SuppressLint("BlockedPrivateApi")
         val unregister = wifi.javaClass.getMethod("unregisterSoftApCallback", callbackType)
         read(object : Registration {
             override fun register(callback: IInterface) { register.invoke(wifi, callback) }
@@ -35,13 +41,24 @@ internal object HotspotJoinCapability {
     /** Android sends the current SoftApCapability immediately on registration, even with AP off. */
     internal fun read(registration: Registration, timeoutMillis: Long = 2_000): Snapshot? {
         require(timeoutMillis in 1..2_000)
+        // The transaction below unpacks its reply with Parcel.enforceNoDataAvail, which is API 33.
+        // On this API 25 head unit the call raises NoSuchMethodError, and an Error slips past the
+        // catch(Exception) below, so the whole process would go down over an optional capability
+        // probe. Nothing here can report a supported band on Android 7, so decline instead.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
         var callback: IInterface? = null
         var attempted = false
         val active = AtomicBoolean(true)
         try {
+            // Reading a private framework transaction code is what this probe is for; it is reached
+            // through reflection precisely because the API is not public.
+            @SuppressLint("BlockedPrivateApi")
             val callbackType = Class.forName("android.net.wifi.ISoftApCallback")
+            @SuppressLint("BlockedPrivateApi")
             val stubType = Class.forName("android.net.wifi.ISoftApCallback\$Stub")
+            @SuppressLint("BlockedPrivateApi")
             val capabilityType = Class.forName("android.net.wifi.SoftApCapability")
+            @SuppressLint("BlockedPrivateApi")
             val code = stubType.getDeclaredField("TRANSACTION_onCapabilityChanged")
                 .apply { isAccessible = true }.getInt(null)
             val creator = capabilityType.getField("CREATOR").get(null) as Parcelable.Creator<*>

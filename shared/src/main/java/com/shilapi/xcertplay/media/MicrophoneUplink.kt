@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.annotation.SuppressLint
 import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -39,6 +40,9 @@ internal class MicrophoneUplink(
     @Volatile private var effects: List<AudioEffect> = emptyList()
     private var thread: Thread? = null
 
+    // The activity requests RECORD_AUDIO and logs "Microphone permission granted" before this runs;
+    // a later revocation surfaces as an AudioRecord failure, not a crash.
+    @SuppressLint("MissingPermission")
     fun start(): Boolean {
         if (!running.compareAndSet(false, true)) return true
 

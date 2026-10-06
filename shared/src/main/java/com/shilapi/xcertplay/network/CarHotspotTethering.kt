@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.network
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.os.Bundle
@@ -37,10 +38,15 @@ object CarHotspotTethering {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
         val observedAdbState = AtomicReference<Boolean?>()
         val startReflection: (ResultReceiver) -> Unit = { receiver ->
+            // There is no public API for the car hotspot's startTethering overload on this platform,
+            // so the binder field has to be reached reflectively. The call is already wrapped by the
+            // caller's runCatching, and a missing field surfaces as NoSuchMethodException.
+            @SuppressLint("SoonBlockedPrivateApi")
             val service = ConnectivityManager::class.java.getDeclaredField("mService")
                 .apply { isAccessible = true }
                 .get(context.getSystemService(ConnectivityManager::class.java))
                 ?: throw NoSuchMethodException("Connectivity service unavailable")
+            @SuppressLint("SoonBlockedPrivateApi")
             service.javaClass.getMethod(
                 "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
                 Boolean::class.javaPrimitiveType, String::class.java,

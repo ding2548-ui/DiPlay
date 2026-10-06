@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.orchestration
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothDevice
@@ -2070,6 +2071,12 @@ class CarPlayController(
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "The car hotspot is off. Turn it on in the car settings and connect again.")
         }
+        if (hotspotMode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT &&
+            android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O
+        ) {
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
+                "The local-only hotspot needs Android 8.0. Choose Wi-Fi Direct or Car hotspot.")
+        }
         val manager: WirelessHotspotManager = when (hotspotMode) {
             WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(appContext, ::debugLog,
                 preferredChannel = config.wifiP2pPreferredChannel)
@@ -2122,11 +2129,15 @@ class CarPlayController(
         closed || phase != Phase.WIRELESS || generation != wirelessGeneration.get() || wirelessFailureReported.get()
 
     // Kept across reconnects within this controller: resuming between attempts would start a scan.
+    // Bluetooth permissions are checked by the caller before the adapter is used; the API 31+
+    // BLUETOOTH_CONNECT constant does not exist on this API 25 head unit.
+    @SuppressLint("MissingPermission")
     private fun pauseWifiScans(backend: WirelessHotspotBackend) = synchronized(this) {
         if (closed || !WifiScanPause.eligible(backend)) return@synchronized
         (wifiScanPause ?: WifiScanPause(appContext, ::debugLog).also { wifiScanPause = it }).pause()
     }
 
+    @SuppressLint("MissingPermission")
     private fun selectWirelessBluetoothDevice(adapter: BluetoothAdapter): BluetoothDevice {
         val bonded = adapter.bondedDevices.orEmpty()
         config.wirelessBluetoothDeviceAddress?.let { selected ->
@@ -2275,6 +2286,7 @@ class CarPlayController(
         false
     }
 
+    @SuppressLint("MissingPermission")
     private fun connectedBluetoothDevices(adapter: BluetoothAdapter): Set<BluetoothDevice> =
         buildSet {
             addAll(connectedBluetoothDevices(adapter, BluetoothProfile.HEADSET, BluetoothHeadset::class.java))
@@ -2314,6 +2326,7 @@ class CarPlayController(
     }
 
     @Suppress("DEPRECATION")
+    @SuppressLint("MissingPermission") // the address read below degrades to null on SecurityException
     private fun accessoryBluetoothMac(adapter: BluetoothAdapter): String {
         val address = try {
             adapter.address

@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.hud
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -193,6 +194,10 @@ internal object BydClusterBridge {
     }
 
     // IS_BYD_MAP=true is required: the adapter drops foreign frames while it believes the stock map navigates.
+    // FLAG_RECEIVER_INCLUDE_BACKGROUND is a hidden Intent flag with no public equivalent. The stock
+    // car clients send it, and the receiver on the other end only honours the broadcast when it is
+    // present, so the literal value is what the protocol requires.
+    @SuppressLint("WrongConstant")
     private fun baseIntent(keyType: Int) = Intent(AMAP_ACTION).apply {
         setPackage(adapter?.packageName ?: BydAmapAdapter.BYD.packageName)
         addFlags(FLAG_RECEIVER_INCLUDE_BACKGROUND)

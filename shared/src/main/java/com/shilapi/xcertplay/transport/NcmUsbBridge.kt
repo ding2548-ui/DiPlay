@@ -32,6 +32,7 @@ class NcmUsbBridge internal constructor(
     private val stateLock = Any()
     private val readLock = Any()
     private val writeLock = Any()
+    private val usbCompat = UsbRequestCompat()
     private var closed = false
     private var failure: IphoneUsbException? = null
     private var sequence = 0
@@ -119,6 +120,7 @@ class NcmUsbBridge internal constructor(
         }
         // Wakes a reader blocked in requestWait(); it then observes the closed state.
         runCatching { requestToClose?.cancel() }
+        usbCompat.close()
         statusThread?.let { thread ->
             thread.interrupt()
             try {
@@ -232,7 +234,7 @@ class NcmUsbBridge internal constructor(
                 }
                 if (!readQueued) {
                     directReadBuffer.clear()
-                    if (!current.queue(directReadBuffer)) throw failSession("Android could not queue the NCM read request")
+                    if (!usbCompat.queue(current, directReadBuffer)) throw failSession("Android could not queue the NCM read request")
                     readQueued = true
                 }
                 current
@@ -242,7 +244,7 @@ class NcmUsbBridge internal constructor(
         }
         try {
             val completed = try {
-                connection.requestWait(timeoutMillis.coerceAtLeast(1))
+                usbCompat.requestWait(connection, timeoutMillis.coerceAtLeast(1))
             } catch (_: TimeoutException) {
                 // Nothing arrived yet; the request stays queued for the next call. USBMUX owns
                 // authoritative detach/failure detection for the same phone.

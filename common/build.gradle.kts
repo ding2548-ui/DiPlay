@@ -16,6 +16,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Supplies java.time and java.util.Base64 on Android 7/7.1 (API 24/25).
+        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
@@ -31,6 +33,7 @@ android {
 
 dependencies {
     api(project(":shared"))
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
