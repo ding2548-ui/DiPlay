@@ -3503,7 +3503,15 @@ class CarPlayHostActivity : ComponentActivity() {
             model = normalizedModel(),
             oemLabel = oemLabel,
             icons = listOf(loadAirPlayIcon()),
-            videoInCar = com.shilapi.xcertplay.hud.BydOutputSettings.videoWhileParkedActive(this),
+            // Offered unconditionally, exactly as the Leapmotor line does. Upstream gates this on
+            // BydOutputSettings.videoWhileParkedActive(), but that switch only exists inside the
+            // BYD vehicle-data panel (BydOutputSettings.available() needs BYD packages or a BYD
+            // fingerprint, and the standalone HUD probe additionally needs API 28+), so on this head
+            // unit it can never be reached and the whole iOS 27 video path would never be offered to
+            // the iPhone. Offering it is not the same as allowing it: CarPlayController's
+            // VideoInCarGate reads LeapmotorGearMonitor.videoAllowed() (N 挡) once a second, and
+            // VideoInCar.allowed stays false until the CAN broadcast reports a gear.
+            videoInCar = true,
         )
     }
 
@@ -4326,6 +4334,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayMediaKeys.detach(oldController)
         LeapmotorMediaKeys.detach(oldController)
         LeapmotorGearMonitor.detach(oldController)
+        CarPlayVideo.detach(oldController)
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         controller = null
         sink = null
@@ -4474,6 +4483,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayMediaKeys.detach(oldController)
         LeapmotorMediaKeys.detach(oldController)
         LeapmotorGearMonitor.detach(oldController)
+        CarPlayVideo.detach(oldController)
         CarPlayBackgroundSession.clear(oldController)
         controller = null
         sink = null

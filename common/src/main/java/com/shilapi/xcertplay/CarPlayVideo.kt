@@ -9,7 +9,6 @@ import android.widget.Toast
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.airplay.VideoInCar
 import com.shilapi.xcertplay.host.R
-import com.shilapi.xcertplay.hud.BydNavigationOutputs
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayVideoListener
 import java.util.concurrent.CompletableFuture
@@ -21,7 +20,11 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * iOS 27 video in car (see [VideoInCar]). The iPhone hands the car a media URL (insertPlayQueueItem)
  * and drives it (setRate, seek, stop); the car plays it in [CarPlayVideoActivity], which opens as soon
- * as the iPhone starts the item (or sends requestUI "videoplayback:") and only while the car is in P.
+ * as the iPhone starts the item (or sends requestUI "videoplayback:") and only while the car is in N
+ * (Leapmotor has no P gear reading).
+ *
+ * The video-allowed state comes from [LeapmotorGearMonitor] (the Leapmotor CAN broadcast), replacing
+ * the upstream BYD parked source; Leapmotor gates on N instead of P.
  */
 internal object CarPlayVideo : CarPlayVideoListener {
     private const val TAG = "DiPlay-Video"
@@ -54,11 +57,25 @@ internal object CarPlayVideo : CarPlayVideoListener {
         next.videoListener = this
     }
 
+    /**
+     * Session over: drop the controller and close the player. Without this the player survives a
+     * reconnect over a session that no longer exists, and every reply targets the dead controller.
+     * Safe to call when this object was never attached; [expected] guards against tearing down a
+     * newer session.
+     */
+    fun detach(expected: CarPlayController?) {
+        if (expected != null && controller !== expected) return
+        controller = null
+        appContext = null
+        activity?.finish()
+        stop()
+    }
+
     // Leapmotor gates in-car video on N (the CAN broadcast has no P reading).
     override fun readParked(): Boolean? = com.shilapi.xcertplay.LeapmotorGearMonitor.videoAllowed()
 
     override fun onVideoAllowedChanged(allowed: Boolean) {
-        if (!allowed) main.post { closePlayer("the car left P") }
+        if (!allowed) main.post { closePlayer("the car left N") }
     }
 
     override fun onVideoSessionEnded() {
@@ -109,7 +126,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
         stop()
     }
 
-    /** The player closed on the car (Back, or the car left P): pause, so the iPhone shows it paused. */
+    /** The player closed on the car (Back, or the car left N): pause, so the iPhone shows it paused. */
     fun onPlayerClosed(positionMillis: Int?) {
         positionMillis?.let { startMillis = it }
         if (playing) setPlaying(false)
@@ -232,7 +249,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
         val context = appContext ?: return
         when {
             url == null -> Log.w(TAG, "video player requested without a playable item")
-            !VideoInCar.allowed -> Log.w(TAG, "video player requested while not parked")
+            !VideoInCar.allowed -> Log.w(TAG, "video player requested while not in N")
             activity != null -> Unit
             else -> context.startActivity(
                 Intent(context, CarPlayVideoActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),

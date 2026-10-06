@@ -10,7 +10,7 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 - **无线 CarPlay**（外部 Wi-Fi 方案）：iAP2 全链路正常，出画面、可交互。
 - **有线 CarPlay 的 USB / iAP2 控制通道**：设备发现、重枚举、配对、NCM 数据通路、
   MFi 认证、`0x4300` / `0x4301` 全部通过。
-- **界面汉化**、零跑档位识别、方向盘按键、倒车暂停、iOS 27 视频车内播放。
+- **界面汉化**、零跑档位识别、方向盘按键、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
 - **方控学习**（设置 → 方控学习）：按一次车上的键绑定到 上一首 / 下一首 / 播放 / 暂停 / 播放暂停；
   未学习的键一律忽略。另有「监听方控广播日志」，按 action 记录最近 12 条方控广播，点选即绑定。
 - **在线更新**（设置 → 在线更新）：检查 GitHub 上的新构建 → 自动下载（支持直连 / 代理）→ 静默安装。
@@ -77,6 +77,23 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 6. **「回到原车」按钮改品牌。**
    CarPlay 应用列表里的车机图标由 BYD 改为**零跑**：`DEFAULT_OEM_LABEL` 由 `"BYD"` 改为 `"零跑"`
    （并迁移一次已存的旧值），默认图标 `res/raw/ic_car_home.png` 换成零跑 logo。
+
+7. **iOS 27 视频车内播放：修好启用链（原先整条是关着的）。**
+   门控本身（N 挡 → `LeapmotorGearMonitor.videoAllowed()` → `VideoInCarGate`）在本线是完整的，
+   但 `AirPlayConfig.videoInCar` 用的是上游 BYD 的开关
+   `BydOutputSettings.videoWhileParkedActive()`，而那个开关只存在于 BYD 车辆数据面板里，
+   在本车机上**够不着**：`BydOutputSettings.available()` 要装 BYD 包或 fingerprint 含 BYD，
+   独立 HUD 探测还要 API 28+（本机 25），`BydAmapAdapter` 找的是 `com.byd.amapservice`。
+   结果 `/info` 永远不带 `videoPlaybackInfo`、SETUP 不协商 `videoPlayback`，
+   iPhone 压根不会把视频交给车机 —— 门控再对也没用。现改为与零跑线一致的无条件 `true`。
+   **注意「提供能力」≠「允许播放」**：`VideoInCar.allowed` 初值为 false，
+   仍由 N 挡轮询放开，收到任何档位数据前一律不放行。
+   验证点：`airplay /info videoInCar=true ... videoPlaybackAllowed=...`。
+
+8. **补上 `CarPlayVideo.detach()`。**
+   本线移植时漏了这个函数，而零跑线在 `CarPlayHostActivity` 的重连与退出两处都会调它。
+   缺它的后果是：CarPlay 重连/退出后视频播放器会**留在屏上**指向一个已经不存在的会话，
+   且 `reply()` 继续往已关闭的 controller 发消息。现补上函数并在两处 teardown 调用。
 
 ---
 
