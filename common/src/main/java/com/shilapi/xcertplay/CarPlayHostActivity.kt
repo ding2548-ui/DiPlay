@@ -2917,9 +2917,10 @@ class CarPlayHostActivity : ComponentActivity() {
             setPadding(0, dp(8), 0, 0)
         }
         val modes = buildList {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                add(WirelessHotspotMode.WIFI_P2P to getString(R.string.wi_fi_p2p_5_ghz))
-            }
+            // Wi-Fi Direct is offered on every supported release: below API 29 WifiP2pGroupManager
+            // starts the group through the two-argument createGroup, where the framework generates
+            // the credentials and selects the channel itself.
+            add(WirelessHotspotMode.WIFI_P2P to hotspotModeLabel(WirelessHotspotMode.WIFI_P2P))
             add(WirelessHotspotMode.MANUAL to getString(R.string.built_in_car_hotspot))
             add(WirelessHotspotMode.EXISTING_WIFI to getString(R.string.existing_wifi_title))
         }
@@ -3154,11 +3155,20 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun hotspotModeLabel(mode: WirelessHotspotMode): String = when (mode) {
-        WirelessHotspotMode.WIFI_P2P -> getString(R.string.wi_fi_p2p_5_ghz)
+        WirelessHotspotMode.WIFI_P2P -> wifiP2pModeLabel()
         WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> getString(R.string.localonlyhotspot)
         WirelessHotspotMode.MANUAL -> getString(R.string.manual_hotspot)
         WirelessHotspotMode.EXISTING_WIFI -> getString(R.string.existing_wifi_title)
     }
+
+    /**
+     * The "(5 GHz)" suffix only holds where a channel can be requested at all — API 29 and newer.
+     * Below that the framework selects the channel, so naming a band would be a claim this build
+     * cannot keep.
+     */
+    private fun wifiP2pModeLabel(): String = getString(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) R.string.wi_fi_p2p_5_ghz else R.string.wifi_direct,
+    )
 
     private fun menuText(
         text: String,

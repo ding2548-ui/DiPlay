@@ -35,8 +35,15 @@ class HotspotModeMigrationTest {
         assertEquals(WirelessHotspotMode.WIFI_P2P, AirPlayPersistence.loadWirelessHotspotMode(context))
     }
 
-    @Test @Config(sdk = [28]) fun olderAndroidDoesNotFallBackToRemovedLocalMode() {
-        prefs.edit().putString("wireless_hotspot_mode", "WIFI_P2P").apply()
+    @Test @Config(sdk = [28]) fun olderAndroidDropsRemovedLocalModeButKeepsWifiDirect() {
+        // LOCAL_ONLY_HOTSPOT needs Android 8 (startLocalOnlyHotspot is API 26) and has to migrate.
+        prefs.edit().putString("wireless_hotspot_mode", "LOCAL_ONLY_HOTSPOT").apply()
         assertEquals(WirelessHotspotMode.MANUAL, AirPlayPersistence.loadWirelessHotspotMode(context))
+
+        // Wi-Fi Direct no longer needs API 29: WifiP2pGroupManager falls back to the two-argument
+        // createGroup there, so the selection has to survive on this release instead of being
+        // silently rewritten to the built-in hotspot.
+        prefs.edit().putString("wireless_hotspot_mode", "WIFI_P2P").apply()
+        assertEquals(WirelessHotspotMode.WIFI_P2P, AirPlayPersistence.loadWirelessHotspotMode(context))
     }
 }

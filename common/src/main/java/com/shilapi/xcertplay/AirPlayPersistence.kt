@@ -288,9 +288,11 @@ object AirPlayPersistence {
         val stored = prefs.getString(KEY_WIRELESS_HOTSPOT_MODE, null)
         val mode = WirelessHotspotMode.entries.firstOrNull { it.name == stored }
             ?: WirelessHotspotMode.MANUAL
-        val supported = if (mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT ||
-            (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && mode == WirelessHotspotMode.WIFI_P2P)
-        ) WirelessHotspotMode.MANUAL else mode
+        // Only LOCAL_ONLY_HOTSPOT has to migrate: startLocalOnlyHotspot is API 26. Wi-Fi Direct used
+        // to be coerced here as well, because its group could not be created below API 29 — it is
+        // offered on every supported release now that WifiP2pGroupManager falls back to the
+        // two-argument createGroup, so coercing it would silently discard the user's choice.
+        val supported = if (mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT) WirelessHotspotMode.MANUAL else mode
         if (stored != supported.name) saveWirelessHotspotMode(context, supported)
         return supported
     }
@@ -302,11 +304,17 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadWifiP2pPreferredChannel(context: Context): Int = runCatching {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_WIFI_P2P_PREFERRED_CHANNEL, WifiP2pChannels.AUTO)
-            .takeIf(WifiP2pChannels::isValid) ?: WifiP2pChannels.AUTO
-    }.getOrDefault(WifiP2pChannels.AUTO)
+    fun loadWifiP2pPreferredChannel(context: Context): Int {
+        // Below API 29 createGroup has no config overload, so the framework always selects the
+        // channel itself. Reporting AUTO keeps a value stored by an earlier release from turning
+        // into a startup failure the user cannot explain.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return WifiP2pChannels.AUTO
+        return runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getInt(KEY_WIFI_P2P_PREFERRED_CHANNEL, WifiP2pChannels.AUTO)
+                .takeIf(WifiP2pChannels::isValid) ?: WifiP2pChannels.AUTO
+        }.getOrDefault(WifiP2pChannels.AUTO)
+    }
 
     fun saveWifiP2pPreferredChannel(context: Context, channel: Int) {
         require(WifiP2pChannels.isValid(channel))
