@@ -375,6 +375,34 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
     验证：连接播放 → 暂停再播放（logcat 出现 `media keys released` 之后又 `media keys active`）
     → 再切歌，封面应正常换成新歌。
 
+23. **WiFi Direct 模式根本切不过去（选中后自动弹回车载热点）。**
+    `AirPlayPersistence.loadWirelessHotspotMode()` 里有一道遗留门槛：`SDK_INT < 29` 时把
+    `WIFI_P2P` **强制改写成 `MANUAL`，并且把存储值也覆盖掉**；
+    而 `saveWirelessHotspotMode()` 只改写 `LOCAL_ONLY_HOTSPOT` —— 存进去是 P2P、读出来是 MANUAL，
+    所以表现就是"压根不给切过去"。
+
+    这道门槛当初是对的（`WifiP2pGroupManager.start()` 在 API<29 直接抛异常，P2P 确实不可用），
+    现在组能建了，门槛就成了拦路虎。同一个 `SDK_INT >= Q` 判断还有另外两处：
+
+    - `CarPlayHostActivity` 的无线模式菜单：API<29 时**根本不列出** Wi-Fi Direct 选项；
+    - `DiPlayActivity.wifiDirectChannelControl()`：仍然提供信道选择器，但 API<29 上
+      `createGroup` 没有 config 重载，**信道无法指定**，选了也只会变成连接失败。
+
+    修法：
+    - `loadWirelessHotspotMode()` 只保留 `LOCAL_ONLY_HOTSPOT → MANUAL`（那条是真的 API 26 限制）；
+    - `CarPlayHostActivity` 无条件列出 Wi-Fi Direct；标签在 API<29 用「Wi-Fi Direct」
+      而不是「Wi-Fi P2P (5 GHz)」（信道由系统选，标 5 GHz 站不住）；
+    - `wifiDirectChannelControl()` 在 API<29 不再显示（没有可配置项）；
+    - `loadWifiP2pPreferredChannel()` 在 API<29 一律返回 AUTO，避免旧版本存下的手动信道
+      变成用户无法解释的启动失败。
+
+    单测 `HotspotModeMigrationTest.olderAndroidDoesNotFallBackToRemovedLocalMode` 原来断言的正是
+    这个降级行为，已改为 `olderAndroidDropsRemovedLocalModeButKeepsWifiDirect`
+    （LOCAL_ONLY 仍降级、WIFI_P2P 保留）。
+
+    复测判据：连接设置页应能选中 Wi-Fi Direct 并**保持选中**；起会话时报告里应出现
+    `Wi-Fi P2P create mode=SYSTEM_DEFAULT frequencyMHz=auto`。
+
 ---
 
 ## 装包说明
