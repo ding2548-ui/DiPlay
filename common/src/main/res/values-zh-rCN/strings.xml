@@ -12,6 +12,7 @@
     <string name="wifi_direct_channel_summary">首选信道：%1$s</string>
     <string name="wifi_direct_channel_choice">信道 %1$d · %2$s</string>
     <string name="wifi_direct_channel_description">自动模式会为您选择信道。手动信道取决于车机的支持情况。更改将在下次 Wi-Fi Direct 连接时生效。</string>
+    <string name="wifi_direct_channel_system_selected">此 Android 版本由系统选择 Wi-Fi Direct 信道，这里没有可配置项。把车机升级到 Android 10 或更高版本才能指定信道。</string>
     <string name="built_in_car_hotspot">车载热点</string>
     <string name="wifi_direct">Wi-Fi Direct</string>
     <string name="hotspot_hint_manual">车载热点 · 保持车载热点、蓝牙和 iPhone 的 Wi-Fi 开启。</string>

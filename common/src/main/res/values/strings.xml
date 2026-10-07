@@ -14,6 +14,7 @@
     <string name="wifi_direct_channel_summary">Preferred channel: %1$s</string>
     <string name="wifi_direct_channel_choice">Channel %1$d · %2$s</string>
     <string name="wifi_direct_channel_description">Auto chooses a channel for you. Manual channels depend on what your car supports. Changes apply to the next Wi-Fi Direct connection.</string>
+    <string name="wifi_direct_channel_system_selected">This Android version lets the system select the Wi-Fi Direct channel, so there is nothing to choose here. Update the head unit to Android 10 or newer to pin a channel.</string>
     <string name="hotspot_hint_manual">Built-in car hotspot · Keep the car hotspot, Bluetooth and your iPhone’s Wi-Fi on.</string>
     <string name="hotspot_hint_local">Open Connection setup to save your built-in car hotspot details.</string>
     <string name="hotspot_hint_p2p">Wi-Fi Direct · Keep the car’s Wi-Fi switch, Bluetooth and your iPhone’s Wi-Fi on.</string>

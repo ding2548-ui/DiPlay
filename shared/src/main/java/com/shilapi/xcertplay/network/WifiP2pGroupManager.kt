@@ -102,13 +102,17 @@ class WifiP2pGroupManager(
 
     @SuppressLint("MissingPermission")
     override fun start(timeoutMillis: Long): WirelessHotspotInfo {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            throw IOException("Wi-Fi P2P credentials require Android 10 (API 29) or newer")
-        }
         check(Looper.myLooper() != Looper.getMainLooper()) {
             "WifiP2pGroupManager.start must not run on the main thread"
         }
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
+        // A pinned channel is expressed through WifiP2pConfig.Builder, which arrived in API 29.
+        // Below that the framework always selects the channel itself, so report the setting
+        // before any group is created instead of creating one and rejecting it afterwards.
+        if (preferredChannel != WifiP2pChannels.AUTO && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            throw P2pChannelUnavailableException(preferredChannel,
+                "This Android version lets the system select the Wi-Fi Direct channel.")
+        }
 
         val attempt = StartAttempt()
         synchronized(stateLock) {
@@ -152,7 +156,9 @@ class WifiP2pGroupManager(
                 callbackThread = thread
             }
 
-            logP2pState(attempt, p2pChannel)
+            // requestP2pState arrived in API 29. The state line is diagnostic only, so an older
+            // framework skips it instead of failing the bring-up it was called from.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) logP2pState(attempt, p2pChannel)
             // Preferences disappear on reinstall, but the scoped namespace survives.
             val existing = requestGroupInfo(attempt, p2pChannel, REQUEST_POLL_NANOS, requireResponse = true)
             diagnostic("Wi-Fi P2P existingGroup=${existing != null}")
@@ -170,62 +176,79 @@ class WifiP2pGroupManager(
                 }
             }
 
-            val creation = P2pStartupRecovery.create(
-                stationFrequency = stationFrequency,
-                preferred = preferred?.request,
-                preferredChannel = preferredChannel,
-                beforeRetry = {
-                    ensureStartActive(attempt)
-                    // Do not cancel discovery, toggle Wi-Fi, or remove a newly observed group.
-                    // A competing app may have acquired the radio since our rejected request.
-                    synchronized(stateLock) { waitNanos(TimeUnit.MILLISECONDS.toNanos(500)) }
-                    ensureStartActive(attempt)
-                    checkPrerequisites(readStation())
-                    if (requestGroupInfo(attempt, p2pChannel, REQUEST_POLL_NANOS, requireResponse = true) != null) {
-                        throw P2pResetRequiredException()
+            val requestGroup: (P2pCreationRequest) -> Unit = { selection ->
+                ensureStartActive(attempt)
+                if (remainingNanos(deadlineNanos) == 0L) throw IOException("Wi-Fi Direct startup timed out")
+                val config = if (selection.mode == P2pCreationMode.SYSTEM_DEFAULT) null else {
+                    P2pConfigBuildDiagnostics.build(Build.VERSION.SDK_INT, selection, diagnostic) {
+                        val builder = WifiP2pConfig.Builder()
+                            .setNetworkName(credentials.ssid)
+                            .setPassphrase(credentials.passphrase)
+                        builder.setGroupOperatingFrequency(requireNotNull(selection.frequencyMHz))
+                        builder.build()
                     }
-                },
-                request = { selection ->
-                    ensureStartActive(attempt)
-                    if (remainingNanos(deadlineNanos) == 0L) throw IOException("Wi-Fi Direct startup timed out")
-                    val config = if (selection.mode == P2pCreationMode.SYSTEM_DEFAULT) null else {
-                        P2pConfigBuildDiagnostics.build(Build.VERSION.SDK_INT, selection, diagnostic) {
-                            val builder = WifiP2pConfig.Builder()
-                                .setNetworkName(credentials.ssid)
-                                .setPassphrase(credentials.passphrase)
-                            builder.setGroupOperatingFrequency(requireNotNull(selection.frequencyMHz))
-                            builder.build()
+                }
+                if (config != null && !ownership.edit().putString("owned_ssid", credentials.ssid).commit()) {
+                    throw IOException("Could not record Wi-Fi P2P group ownership")
+                }
+                val createRequest = CreateRequest()
+                // Keep the requested SSID from the value we supplied. Some Android 10
+                // vendor frameworks omit WifiP2pConfig.getNetworkName(), even though they
+                // support the API 29 Builder methods used above. Reading config.networkName
+                // therefore throws NoSuchMethodError on those devices.
+                requestedName = if (config == null) null else credentials.ssid
+                synchronized(stateLock) {
+                    ensureStartActiveLocked(attempt)
+                    attempt.request = createRequest
+                }
+                diagnostic("Wi-Fi P2P create mode=${selection.mode} frequencyMHz=${selection.frequencyMHz ?: "auto"}")
+                // The API 29 overload with a null config uses system-generated credentials without
+                // requesting a persistent group, unlike the two-argument API. That overload does not
+                // exist below API 29, where the two-argument form is the only way to ask the
+                // framework for a group whose credentials it generates itself.
+                val usingRemembered = preferred?.request == selection
+                if (usingRemembered) synchronized(stateLock) { rememberedAttempt = preferred }
+                try {
+                    if (config == null && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                        p2pManager.createGroup(p2pChannel, createActionListener(attempt, createRequest))
+                    } else {
+                        p2pManager.createGroup(p2pChannel, config, createActionListener(attempt, createRequest))
+                    }
+                    awaitGroupCreated(attempt, createRequest, deadlineNanos, timeoutMillis)
+                } catch (failure: P2pCreateRejected) {
+                    if (usingRemembered && failure.reason == WifiP2pManager.ERROR && preferred != null) {
+                        if (configurationMemory.forget(preferred)) diagnostic("Wi-Fi P2P remembered cleared=create_rejected")
+                    }
+                    throw failure
+                }
+            }
+            // Below API 29 WifiP2pConfig.Builder does not exist, so every explicit-frequency mode
+            // P2pStartupRecovery.plan would offer throws before createGroup is reached. The
+            // framework's own default configuration is the only request those releases can make,
+            // and it is also the one whose credentials the framework generates.
+            val creation = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                val systemDefault = P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)
+                requestGroup(systemDefault)
+                systemDefault
+            } else {
+                P2pStartupRecovery.create(
+                    stationFrequency = stationFrequency,
+                    preferred = preferred?.request,
+                    preferredChannel = preferredChannel,
+                    beforeRetry = {
+                        ensureStartActive(attempt)
+                        // Do not cancel discovery, toggle Wi-Fi, or remove a newly observed group.
+                        // A competing app may have acquired the radio since our rejected request.
+                        synchronized(stateLock) { waitNanos(TimeUnit.MILLISECONDS.toNanos(500)) }
+                        ensureStartActive(attempt)
+                        checkPrerequisites(readStation())
+                        if (requestGroupInfo(attempt, p2pChannel, REQUEST_POLL_NANOS, requireResponse = true) != null) {
+                            throw P2pResetRequiredException()
                         }
-                    }
-                    if (config != null && !ownership.edit().putString("owned_ssid", credentials.ssid).commit()) {
-                        throw IOException("Could not record Wi-Fi P2P group ownership")
-                    }
-                    val request = CreateRequest()
-                    // Keep the requested SSID from the value we supplied. Some Android 10
-                    // vendor frameworks omit WifiP2pConfig.getNetworkName(), even though they
-                    // support the API 29 Builder methods used above. Reading config.networkName
-                    // therefore throws NoSuchMethodError on those devices.
-                    requestedName = if (config == null) null else credentials.ssid
-                    synchronized(stateLock) {
-                        ensureStartActiveLocked(attempt)
-                        attempt.request = request
-                    }
-                    diagnostic("Wi-Fi P2P create mode=${selection.mode} frequencyMHz=${selection.frequencyMHz ?: "auto"}")
-                    // The API 29 overload with null config uses system-generated credentials
-                    // without requesting a persistent group, unlike the older two-argument API.
-                    val usingRemembered = preferred?.request == selection
-                    if (usingRemembered) synchronized(stateLock) { rememberedAttempt = preferred }
-                    try {
-                        p2pManager.createGroup(p2pChannel, config, createActionListener(attempt, request))
-                        awaitGroupCreated(attempt, request, deadlineNanos, timeoutMillis)
-                    } catch (failure: P2pCreateRejected) {
-                        if (usingRemembered && failure.reason == WifiP2pManager.ERROR && preferred != null) {
-                            if (configurationMemory.forget(preferred)) diagnostic("Wi-Fi P2P remembered cleared=create_rejected")
-                        }
-                        throw failure
-                    }
-                },
-            )
+                    },
+                    request = requestGroup,
+                )
+            }
             val group = awaitUsableGroup(
                 attempt = attempt,
                 channel = p2pChannel,
@@ -247,7 +270,9 @@ class WifiP2pGroupManager(
                 created = true
                 startAttempt = null
                 // Manual experiments must not replace the proven automatic configuration.
-                pendingSuccess = if (preferredChannel == WifiP2pChannels.AUTO) {
+                // Nothing to remember when the framework did not report a frequency (API < 29):
+                // the record is keyed on the channel the car actually chose.
+                pendingSuccess = if (preferredChannel == WifiP2pChannels.AUTO && group.frequencyMHz != null) {
                     {
                         configurationMemory.remember(creation, requireNotNull(group.frequencyMHz), stationFrequency)
                     }
@@ -374,7 +399,6 @@ class WifiP2pGroupManager(
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     private fun awaitUsableGroup(
         attempt: StartAttempt,
         channel: WifiP2pManager.Channel,
@@ -410,21 +434,26 @@ class WifiP2pGroupManager(
             val passphrase = group.passphrase?.takeIf { it.isNotBlank() }
                 ?: credentials?.passphrase
             val interfaceName = group.getInterface()?.takeIf { it.isNotBlank() }
-            val frequencyMHz = group.frequency
-            val channelNumber = wifiFrequencyMhzToChannel(frequencyMHz)
+            // WifiP2pGroup.getFrequency is API 29. Below that the framework does not expose the
+            // group's channel at all, so it stays unknown instead of being invented: the band is
+            // reported as system-selected and the channel as 0, which is what the iPhone is told.
+            val frequencyMHz = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) group.frequency else null
+            val channelNumber = frequencyMHz?.let(::wifiFrequencyMhzToChannel)
             if (
                 networkName == null || passphrase == null ||
                 interfaceName == null ||
-                frequencyMHz <= 0 ||
-                channelNumber == null
+                (frequencyMHz != null && (frequencyMHz <= 0 || channelNumber == null))
             ) {
-                lastReason = "incomplete group details frequencyMHz=$frequencyMHz"
+                lastReason = "incomplete group details frequencyMHz=${frequencyMHz ?: "unknown"}"
                 continue
             }
-            val band = when {
-                is5Ghz(frequencyMHz) -> "5 GHz"
-                frequencyMHz in 2412..2484 -> "2.4 GHz"
-                else -> throw IOException("Wi-Fi P2P returned an unsupported band at ${frequencyMHz}MHz")
+            val band = when (frequencyMHz) {
+                null -> "Unknown (system selected)"
+                else -> when {
+                    is5Ghz(frequencyMHz) -> "5 GHz"
+                    frequencyMHz in 2412..2484 -> "2.4 GHz"
+                    else -> throw IOException("Wi-Fi P2P returned an unsupported band at ${frequencyMHz}MHz")
+                }
             }
 
             val hostAddress = awaitInterfaceAddress(attempt, interfaceName, deadlineNanos)
@@ -442,7 +471,8 @@ class WifiP2pGroupManager(
                 ssid = networkName,
                 passphrase = passphrase,
                 security = groupSecurity(group),
-                channel = channelNumber,
+                // 0 means "the framework selected it": [channelNumber] is only known from API 29.
+                channel = channelNumber ?: 0,
                 frequencyMHz = frequencyMHz,
                 bssid = interfaceHardwareAddress(interfaceName)
                     ?: group.owner?.deviceAddress?.takeIf { it.isNotBlank() },
