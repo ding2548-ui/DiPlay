@@ -14,7 +14,13 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   - **车载自建热点**：✅ **可用**。178 版可用 → 之后为 lwIP 把 APK 钉成 32 位把它打挂 →
     恢复 arm64-v8a 后恢复（第 17 条）。
   - **外置 Wi-Fi / 同一局域网**：✅ 可用。
-- **界面汉化**、零跑档位识别、方向盘按键、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
+- **界面汉化**、零跑档位识别、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
+- **方向盘方控**：S01 走通道 A（`car.meter.music.BROADCAST` 的 JSON）—— 实测正确，
+  切歌时原厂同步切并被立刻暂停、CarPlay 保持播放。
+- **T03 方控**：本版补上通道 B（`com.leapmotor.customkey.music.pauseplay` 的整数 extras
+  `ICU_MediaSwitch` / `ICU_MediaKey`），并把车机总线接收器改为常开（第 21 条）。**待 T03 复测**。
+- **USB 权限弹窗**：`MANAGE_USB` + 无障碍按内容判定，**实测已通过**
+  （`usb auto-confirm: confirmed`，S01）。
 - **方控音频归属**：焦点与 MediaSession 已拿到（`media keys active focusGranted=true session=true`）。
 - **在线更新**（设置 → 在线更新）：检查 GitHub 上的新构建 → 自动下载（支持直连 / 代理）→ 静默安装。
 - CarPlay 应用列表里那个「回到原车」的图标按钮，名称与图标都是**零跑**（不再是 BYD）。
@@ -23,16 +29,22 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 | 症状 | 现状 | 待办 |
 |---|---|---|
-| 方控切歌时原厂也切歌并同时播放 | 已对齐零跑线的夺权状态机（第 20 条） | 复测：看 `audio focus change=-1` 后有没有重新 `request granted=true` |
-| USB 权限弹窗每次插拔都要手点 | 无障碍服务只在 AOSP 弹窗上生效，本车机弹窗来自别处 → 静默 | 本版加 `MANAGE_USB` + 放宽判定（第 19 条），复测 |
+| **T03 方控无反应** | 根因已定位：通道 B 的解析缺失，**且**注册通道 B 的接收器此前只由默认关闭的调试开关创建 → 真机上从未注册（第 21 条） | 本版已修，**待 T03 复测**。请把日志发来，按下面「方控复测判据」核对 |
 | lwIP 有线通路 | 出画面但没声音、手动断开后要重启应用、整体不如 VPN 稳 | 开关已摘除（第 18 条），代码留着但用不到 |
 
-**方控这一条为什么要日志**：`media key ...`（广播与媒体会话两条路都会记）**一次都没出现**，
-而音频是走 CarPlay 的。若下次日志仍然是「按了键但 DiPlay 一行都没有，CarPlay 却切了歌」，
-那就说明按键根本没经过 DiPlay —— 最可能是车机把方向盘键交给原厂/蓝牙媒体通路，
-再由 AVRCP 通知 iPhone 切歌（同一个 iPhone，所以 CarPlay 界面也跟着变，声音还从蓝牙出来
-一遍）。那种情况下要修的是**手机的车机蓝牙音频链路**（零跑线用 `BluetoothAudioHandoff`
-断开 A2DP/HFP 档位解决），不是按键转发。
+**方控复测判据**（S01 / T03 都适用，缺哪条就说明那步没走通）：
+
+1. 起会话时应看到 `car bus listening on 11 actions (wheel channels included)`
+   —— 这是本版新增的，**没有它 = 车机总线接收器没起来**（第 21 条的根因）。
+2. 再看到 `media keys listening on 11 car actions`。
+3. 按一次方向盘的「下一首」，应出现**恰好一行**：
+   `media key source=<通道> action=nextOne -> CarPlay 4 sent=true`
+   （T03 的通道名应是 `com.leapmotor.customkey.music.pauseplay`）。
+4. **T03 若仍无反应**：看有没有 `media key extra-channel unmatched action=... extras=[...]`
+   —— 这行会把该车机真正发的 extras **全量列出来**，据此再加映射即可，不用再跑一趟实车。
+
+若报告里**一行 `media key ...` 都没有**：说明按键根本没到 DiPlay，
+要查的是车机把方控交给谁（原厂 / 蓝牙媒体通路），不是按键转发。
 
 复测时报告里应出现（缺哪条就说明对应那步没走通）：
 - lwIP：`airplay event connection accepted from ...` → `airplay video event ready` →
@@ -304,6 +316,37 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
     iAP2，断耳机组 profile 有风险；而 handoff 的本职只是防止声音从车机 A2DP sink 漏出，A2DP 足够。
     新增设置开关「CarPlay 播放时断开手机蓝牙音频」（默认开）与全套诊断行。
     逐条对比见 `D:\Launcher\DiPlay-PSA-音频夺权-对比报告.md`。
+
+21. **T03 方控无反应：补上通道 B 的整数 extras，并把车机总线接收器改为常开。**
+    原厂方控有**三条**通道（`com.leapmotor.multimedia-AppMain-方控指令与切歌暂停实现.md`）：
+
+    | 通道 | action | extras | 走它的车 |
+    |---|---|---|---|
+    | A | `car.meter.music.BROADCAST` | `receiver` 的 byte[] = 长度头 + JSON `data.action` | **S01** |
+    | B | `com.leapmotor.customkey.music.pauseplay` | int `ICU_MediaSwitch`(2=下一首/1=上一首)、`ICU_MediaKey`(1=播放暂停) | **T03** |
+    | C | `car.hmi.music.BROADCAST` | String `action` | 备用 |
+
+    本线一直只覆盖通道 A，而 S01 恰好走通道 A，所以「S01 好使、T03 不好使」看起来像玄学。实际缺了三处：
+
+    - **注册通道 B 的接收器根本没起来（主因）**：`ensureCarBusReceiver()` 只被
+      `setBroadcastLogEnabled(true)` 调用，而那个「监听方控广播日志」开关**默认关闭** →
+      真机上这个接收器**从未注册**。即使解析写对了也没人接 T03 的广播。
+      现改为 `LearnedWheelKeys.attach()` 里无条件注册（它属于方控通路，不是诊断）。
+    - **通道 B 的解析不存在**：`handle()` 只认 `receiver` 的 byte[] 和 String `action`，
+      而通道 B 是**整数 extras**，每次按键都落到 `media key payload unusable`。现补上解码。
+    - **`play_pause` 拼写不在白名单里**：通道 B 解码输出的是 ICU 拼写 `play_pause`，
+      而 `isWheelAction` 只认 JSON 拼写 `playpause`/`pauseplay` → 会被判成「车机内部指令」丢掉。
+      `forLeapmotorAction` 同样漏。两处都补上。
+
+    顺带把注册动作对齐原厂的十个（补 5 个 housekeeping，只监听不转发），
+    并新增三条诊断：`car bus listening on N actions`、
+    未知通道的 `media key extra-channel unmatched action=... extras=[...]`（把车机真正发的
+    extras **全量列出来**）、以及 `payload unusable` 行现在也带 extras。
+    **这样 T03 若仍不匹配，从一次日志就能读出新映射，不用再跑实车。**
+
+    复测判据：起会话时应有 `car bus listening on 11 actions (wheel channels included)`
+    与 `media keys listening on 11 car actions`；按「下一首」应出现**恰好一行**
+    `media key source=com.leapmotor.customkey.music.pauseplay action=nextOne -> CarPlay 4 sent=true`。
 
 ---
 
