@@ -171,10 +171,11 @@ internal class ClusterMapPresentation(
             if (name == null) {
                 // Never replace a missing 5.1 side layer with a full-screen display.
                 if (DiLink51ClusterLayout.supported()) return null
-                return displays.firstOrNull { display ->
+                displays.firstOrNull { display ->
                     val size = sizeOf(display)
                     DiLink4ClusterDisplay.matches(display.name, size.x, size.y)
-                }
+                }?.let { return it }
+                return probeClusterDisplay(displays)
             }
             return displays.firstOrNull { it.name == name }?.takeIf {
                 if (!DiLink51ClusterLayout.supported()) true else {
@@ -182,6 +183,33 @@ internal class ClusterMapPresentation(
                     DiLink51ClusterLayout.plan(size.x, size.y, theme) != null
                 }
             }
+        }
+
+        /** Name fragments that identify a cluster projection when the firmware name says nothing else. */
+        private val CLUSTER_NAME_HINTS = listOf("cluster", "instrument", "dashboard", "meter")
+
+        /**
+         * Firmwares below the BYD baselines (this branch's Leapmotor Android 7 head unit among
+         * them) expose no BYD display name, yet the cluster projection can still be their only
+         * presentation display. The matched BYD paths above keep priority; this probe runs only
+         * below Android 8 so the measured BYD firmware and the test suite's SDK 29 environment
+         * keep the unmatched-means-null contract. A cluster-named display beats unrelated names,
+         * a sole candidate is taken as the cluster, and several unrelated ones are left alone.
+         * Every display lands in [diagnosticReport], so a real-unit export identifies the exact
+         * projection display without adb when the probe guesses wrong.
+         */
+        internal fun probeClusterDisplay(displays: List<Display>): Display? {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) return null
+            val candidates = displays.filter {
+                it.displayId != Display.DEFAULT_DISPLAY &&
+                    !it.name.contains("fission_bg", ignoreCase = true) &&
+                    !it.name.contains("xdja", ignoreCase = true)
+            }
+            if (candidates.isEmpty()) return null
+            return candidates.firstOrNull { display ->
+                val name = display.name.lowercase()
+                CLUSTER_NAME_HINTS.any(name::contains)
+            } ?: candidates.singleOrNull()
         }
 
         fun describeDisplays(context: Context): String =

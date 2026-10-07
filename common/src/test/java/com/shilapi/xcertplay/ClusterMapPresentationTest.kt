@@ -59,6 +59,46 @@ class ClusterMapPresentationTest {
             ShadowDisplayManager.removeDisplay(other)
         }
     }
+
+    @Test
+    @Config(sdk = [25])
+    fun solePresentationDisplayIsProbedOnAndroid7Firmware() {
+        val id = display("leapmotor cluster projection", "w1280dp-h480dp-mdpi")
+        try {
+            assertEquals(id, ClusterMapPresentation.findDisplay(context)?.displayId)
+        } finally {
+            ShadowDisplayManager.removeDisplay(id)
+        }
+    }
+
+    @Test
+    @Config(sdk = [25])
+    fun android7ProbePrefersClusterNamedDisplayOverUnrelatedName() {
+        val overlay = display("Overlay display")
+        val cluster = display("cluster_projection", "w1920dp-h720dp-mdpi")
+        try {
+            assertEquals(cluster, ClusterMapPresentation.findDisplay(context)?.displayId)
+        } finally {
+            ShadowDisplayManager.removeDisplay(overlay)
+            ShadowDisplayManager.removeDisplay(cluster)
+        }
+    }
+
+    @Test
+    @Config(sdk = [25])
+    fun android7ProbeSkipsBydMarkerDisplays() {
+        // The DiLink 4 name with the wrong geometry falls through its measured path; the probe
+        // must not pick it up either, so the unknown non-BYD display is the only candidate.
+        val stale = display(DiLink4ClusterDisplay.NAME)
+        val unknown = display("leapmotor_virtual")
+        try {
+            assertEquals(unknown, ClusterMapPresentation.findDisplay(context)?.displayId)
+        } finally {
+            ShadowDisplayManager.removeDisplay(stale)
+            ShadowDisplayManager.removeDisplay(unknown)
+        }
+    }
+
     @Test fun dilink4MeasuredProjectionIsSelected() {
         val id = display(DiLink4ClusterDisplay.NAME, "w1920dp-h720dp-mdpi")
         try {
