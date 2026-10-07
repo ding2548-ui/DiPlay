@@ -267,21 +267,26 @@ internal object CarPlayMediaKeys {
         mediaAudioActive = active
         if (active == ownershipActive) return
         ownershipActive = active
-        if (active) acquireLocked() else releaseLocked()
+        // A pause only gives the ownership back. The now-playing state has to survive it: the iPhone
+        // delivers each artwork transfer exactly once, so dropping [artworkOwner] here makes
+        // [onArtworkChanged] discard every later cover and the car keeps drawing the placeholder for
+        // the rest of the connection. The resume republishes the retained cover through the new
+        // session instead of waiting for art that will never come again.
+        if (active) acquireLocked() else releaseOwnershipLocked()
     }
 
-    private fun releaseLocked() {
-        artworkOwner = null
-        artworkQueue.clear()
+    /**
+     * Gives the car's audio ownership back — the session and the focus, nothing else.
+     *
+     * Separate from [clearNowPlayingLocked] because a pause is not a teardown; see [updateLocked].
+     */
+    private fun releaseOwnershipLocked() {
         session?.let {
             it.isActive = false
             it.release()
         }
         session = null
         mediaAudioActive = false
-        nowPlaying = CarPlayNowPlaying()
-        artwork = null
-        artworkCache.clear()
         // On Android 7 focus was taken through the legacy overload, so it is abandoned by listener;
         // abandonAudioFocusRequest only exists from API 26.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -296,6 +301,28 @@ internal object CarPlayMediaKeys {
         focusHeld = false
         ownershipActive = false
         report("media keys released")
+    }
+
+    /**
+     * Drops the now-playing state as well. Only a real teardown may do this — [detach], or [attach]
+     * switching to a newer controller.
+     *
+     * [artworkOwner] is what authorises a transfer in [onArtworkChanged], and [NowPlayingArtworkQueue.clear]
+     * invalidates the queue's own token too, so clearing these mid-connection loses the current
+     * track's cover permanently.
+     */
+    private fun clearNowPlayingLocked() {
+        artworkOwner = null
+        artworkQueue.clear()
+        nowPlaying = CarPlayNowPlaying()
+        artwork = null
+        artworkCache.clear()
+    }
+
+    /** The full teardown: ownership plus now-playing state. */
+    private fun releaseLocked() {
+        releaseOwnershipLocked()
+        clearNowPlayingLocked()
     }
 
     private fun publishPlaybackStateLocked() {

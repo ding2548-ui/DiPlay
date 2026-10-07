@@ -344,9 +344,36 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
     extras **全量列出来**）、以及 `payload unusable` 行现在也带 extras。
     **这样 T03 若仍不匹配，从一次日志就能读出新映射，不用再跑实车。**
 
-    复测判据：起会话时应有 `car bus listening on 11 actions (wheel channels included)`
-    与 `media keys listening on 11 car actions`；按「下一首」应出现**恰好一行**
+    复测判据：起会话时应有 `media keys listening on 9 car actions`（通道 A 侧）
+    与 `car bus listening on 2 extra wheel channels`（通道 B 侧）—— **两个接收器各报各的**，
+    合起来是全部 11 个；按「下一首」应出现**恰好一行**
     `media key source=com.leapmotor.customkey.music.pauseplay action=nextOne -> CarPlay 4 sent=true`。
+
+22. **暂停/切歌一次后封面不再更新（仪表卡在占位图）。**
+    `releaseLocked()` 原来既释放音频焦点与 MediaSession，又顺手清掉 now-playing 状态 ——
+    包括 `artworkOwner` 和 `artworkQueue.clear()`。而 `artworkOwner` **只在 `attach()` 换 controller
+    时创建一次**，`acquireLocked()` 又不重建它，于是：
+
+    ```
+    iPhone 报 playing=false → updateLocked(false) → releaseLocked() → artworkOwner = null
+    之后 iPhone 发来的每一张封面 → onArtworkChanged 里 artworkOwner?.let{...} → 静默丢弃
+    ```
+
+    `iap2 artwork transfer id=0x.. bytes=<非0>` 照旧出现，但 metadata 里只剩占位图，
+    直到断开重连才会恢复。切歌时 iPhone 常插一次 pause→play（正是用来压住原厂播放器的那套
+    释放/重取循环），所以表现是"没暂停过就正常，暂停过一次之后就坏了"。
+
+    修法：把「让出音频焦点/会话」和「清空 now-playing 状态」拆开。
+    - 暂停只走新的 `releaseOwnershipLocked()`（释放 session + 焦点）；
+    - `artworkOwner` / `artworkQueue` / `artworkCache` / `artwork` / `nowPlaying` 只在
+      `detach()` 或 `attach()` 切换 controller 时清（`clearNowPlayingLocked()`）。
+
+    这样恢复播放时新建的 session 能用 `androidMetadata(nowPlaying, artwork)` **立刻带回当前封面**，
+    不用等 iPhone 重发 —— 而 iPhone 不会重发同一首歌已经发过的封面，
+    所以只补 `artworkOwner`（最小改动）还不够，当前这首歌的剩余时间仍会是占位图。
+
+    验证：连接播放 → 暂停再播放（logcat 出现 `media keys released` 之后又 `media keys active`）
+    → 再切歌，封面应正常换成新歌。
 
 ---
 
