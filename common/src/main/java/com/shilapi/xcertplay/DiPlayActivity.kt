@@ -1388,12 +1388,19 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun wifiDirectChannelControl(parent: LinearLayout) {
-        // Below API 29 the channel cannot be requested at all: createGroup has no config overload,
-        // so the framework always selects one. Offering a picker that cannot be honoured would only
-        // turn into a connection failure later.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val summary: (Int) -> String = {
             getString(R.string.wifi_direct_channel_summary, wifiDirectChannelLabel(it))
+        }
+        // Below API 29 the channel cannot be requested at all: createGroup has no config overload,
+        // so the framework always selects one. The row stays visible — hiding it reads as a missing
+        // setting — but it explains itself rather than offering a choice that cannot be honoured.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            parent.addView(button(summary(WifiP2pChannels.AUTO), false) {
+                AlertDialog.Builder(this).setTitle(R.string.wifi_direct_channel_title)
+                    .setMessage(R.string.wifi_direct_channel_system_selected)
+                    .setPositiveButton(R.string.got_it, null).show()
+            }, matchButton(12, 60))
+            return
         }
         val control = button(summary(AirPlayPersistence.loadWifiP2pPreferredChannel(this)), false) {}
         control.setOnClickListener {

@@ -2058,13 +2058,12 @@ class CarPlayController(
 
     private fun startWirelessHotspot(generation: Int): WirelessHotspotInfo {
         val readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
-        val hotspotMode = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-            config.wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P
-        ) {
-            WirelessHotspotMode.LOCAL_ONLY_HOTSPOT
-        } else {
-            config.wirelessHotspotMode
-        }
+        // Wi-Fi Direct is no longer downgraded on older releases. It used to be mapped to
+        // LOCAL_ONLY_HOTSPOT below API 29, because the P2P group could not be created there — but
+        // the local-only hotspot needs Android 8, so on this Android 7 unit the selection was
+        // turned into "the local-only hotspot needs Android 8.0" and retried forever.
+        // WifiP2pGroupManager now starts the group through the two-argument createGroup instead.
+        val hotspotMode = config.wirelessHotspotMode
         if (com.shilapi.xcertplay.network.CarHotspotSettings.shouldEnable(
                 appContext, config.transport == CarPlayTransport.WIRELESS, hotspotMode,
             )

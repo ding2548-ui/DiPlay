@@ -441,6 +441,39 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
     复测判据：连接设置页应能选中 Wi-Fi Direct 并**保持选中**；起会话时报告里应出现
     `Wi-Fi P2P create mode=SYSTEM_DEFAULT frequencyMHz=auto`。
 
+25. **Wi-Fi Direct 选中后不建热点、一直重试（第 4 道遗留门槛）。**
+    上一轮修掉三处门槛后模式能选了，但实测起会话时报告里是：
+
+    ```
+    wireless bring-up failed: The local-only hotspot needs Android 8.0. Choose Wi-Fi Direct or Car hotspot.
+    wireless startup recovery stopped generation=N reason=HOTSPOT_CONFIGURATION retries=0   ← 无限重试
+    ```
+
+    **注意它尝试的是 `LOCAL_ONLY_HOTSPOT`，不是 Wi-Fi Direct。**
+    根因在 `CarPlayController.startWirelessHotspot()`：
+
+    ```kotlin
+    val hotspotMode = if (SDK_INT < Q && config.wirelessHotspotMode == WIFI_P2P)
+        LOCAL_ONLY_HOTSPOT     // ← 选了 Wi-Fi Direct 被悄悄换掉
+    else config.wirelessHotspotMode
+    ...
+    if (hotspotMode == LOCAL_ONLY_HOTSPOT && SDK_INT < O) throw ...("needs Android 8.0")
+    ```
+
+    这套降级是当年"API<29 建不了 P2P 组"时加的兜底（退回下一个可用的 AP 模式），
+    但 `LOCAL_ONLY_HOTSPOT` 需要 API 26，而车机是 API 25 —— 于是必然抛错，
+    错误信息还写着"请选择 Wi-Fi Direct"，而用户选的正是 Wi-Fi Direct。
+
+    修法：`startWirelessHotspot()` 直接用 `config.wirelessHotspotMode`，不再降级。
+    （`CarHotspotSettings.shouldEnable()` 只在 `MANUAL` 时返回 true，所以去掉降级不会连带去开车载热点。）
+
+    顺带把信道那一行改回**可见**：之前 API<29 直接不显示，看起来像少了设置项。
+    现在显示为「Preferred channel: Auto」，点开说明"此 Android 版本由系统选择信道，
+    升级到 Android 10 才能指定"（新增 `wifi_direct_channel_system_selected` 文案）。
+
+    复测判据：报告里应出现 `Wi-Fi P2P create mode=SYSTEM_DEFAULT frequencyMHz=auto`，
+    且**不再出现** `The local-only hotspot needs Android 8.0`。
+
 ---
 
 ## 装包说明
