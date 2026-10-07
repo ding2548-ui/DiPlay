@@ -270,7 +270,9 @@ class WifiP2pGroupManager(
                 created = true
                 startAttempt = null
                 // Manual experiments must not replace the proven automatic configuration.
-                pendingSuccess = if (preferredChannel == WifiP2pChannels.AUTO) {
+                // Nothing to remember when the framework did not report a frequency (API < 29):
+                // the record is keyed on the channel the car actually chose.
+                pendingSuccess = if (preferredChannel == WifiP2pChannels.AUTO && group.frequencyMHz != null) {
                     {
                         configurationMemory.remember(creation, requireNotNull(group.frequencyMHz), stationFrequency)
                     }
@@ -432,21 +434,26 @@ class WifiP2pGroupManager(
             val passphrase = group.passphrase?.takeIf { it.isNotBlank() }
                 ?: credentials?.passphrase
             val interfaceName = group.getInterface()?.takeIf { it.isNotBlank() }
-            val frequencyMHz = group.frequency
-            val channelNumber = wifiFrequencyMhzToChannel(frequencyMHz)
+            // WifiP2pGroup.getFrequency is API 29. Below that the framework does not expose the
+            // group's channel at all, so it stays unknown instead of being invented: the band is
+            // reported as system-selected and the channel as 0, which is what the iPhone is told.
+            val frequencyMHz = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) group.frequency else null
+            val channelNumber = frequencyMHz?.let(::wifiFrequencyMhzToChannel)
             if (
                 networkName == null || passphrase == null ||
                 interfaceName == null ||
-                frequencyMHz <= 0 ||
-                channelNumber == null
+                (frequencyMHz != null && (frequencyMHz <= 0 || channelNumber == null))
             ) {
-                lastReason = "incomplete group details frequencyMHz=$frequencyMHz"
+                lastReason = "incomplete group details frequencyMHz=${frequencyMHz ?: "unknown"}"
                 continue
             }
-            val band = when {
-                is5Ghz(frequencyMHz) -> "5 GHz"
-                frequencyMHz in 2412..2484 -> "2.4 GHz"
-                else -> throw IOException("Wi-Fi P2P returned an unsupported band at ${frequencyMHz}MHz")
+            val band = when (frequencyMHz) {
+                null -> "Unknown (system selected)"
+                else -> when {
+                    is5Ghz(frequencyMHz) -> "5 GHz"
+                    frequencyMHz in 2412..2484 -> "2.4 GHz"
+                    else -> throw IOException("Wi-Fi P2P returned an unsupported band at ${frequencyMHz}MHz")
+                }
             }
 
             val hostAddress = awaitInterfaceAddress(attempt, interfaceName, deadlineNanos)
@@ -464,7 +471,8 @@ class WifiP2pGroupManager(
                 ssid = networkName,
                 passphrase = passphrase,
                 security = groupSecurity(group),
-                channel = channelNumber,
+                // 0 means "the framework selected it": [channelNumber] is only known from API 29.
+                channel = channelNumber ?: 0,
                 frequencyMHz = frequencyMHz,
                 bssid = interfaceHardwareAddress(interfaceName)
                     ?: group.owner?.deviceAddress?.takeIf { it.isNotBlank() },

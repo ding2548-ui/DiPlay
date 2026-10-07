@@ -474,6 +474,34 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
     复测判据：报告里应出现 `Wi-Fi P2P create mode=SYSTEM_DEFAULT frequencyMHz=auto`，
     且**不再出现** `The local-only hotspot needs Android 8.0`。
 
+26. **Wi-Fi Direct 建组成功后立刻闪退（第 5 道门槛：`getFrequency` 也是 API 29）。**
+    run 219 实测：组能建了，但一连上就闪退。`crash.txt` 里是
+
+    ```
+    java.lang.NoSuchMethodError: No virtual method getFrequency()I in class Landroid/net/wifi/p2p/WifiP2pGroup;
+      at WifiP2pGroupManager.awaitUsableGroup(WifiP2pGroupManager.kt:435)
+    ```
+
+    `WifiP2pGroup.getFrequency()` 是 **API 29** 才有的。建组成功后读频率 → `NoSuchMethodError`
+    （`Error`，`catch (Exception)` 接不住）→ 崩溃。
+
+    已核对：`WifiP2pGroup` 的 API 29 成员只有 `getFrequency()` 和 `getSecurityType()`
+    （后者早已被 `SDK_INT < 36` 守卫）。**对照包的 outline 类里也只有这两个**，且它给
+    `getFrequency` 加了 `SDK_INT >= 29` 守卫 —— 本次按同样方式修。
+
+    修法（与可用对照包一致）：
+    - `frequencyMHz` 在 API<29 为 `null`（框架根本不暴露组的信道），**不再编造**；
+    - 完备性检查不再要求频率，只在"频率存在但非法"时才 `continue`；
+    - band 在频率未知时报 `Unknown (system selected)`；
+    - `channel` 未知时传 **0**（"由系统选择"），这也是对照包的做法；
+    - `pendingSuccess` 在频率未知时不记录（`P2pConfigurationMemory` 本来就用信道做键）。
+
+    **注意**：`start()` 里的 `group` 是 `WirelessHotspotInfo`（自己的类），
+    只有 `awaitUsableGroup()` 里的 `group` 是 `WifiP2pGroup` —— 别把两者搞混。
+
+    复测判据：报告里应出现 `Wi-Fi P2P ready mode=SYSTEM_DEFAULT band=Unknown (system selected) channel=0 frequencyMHz=null`，
+    且不再有 `NoSuchMethodError ... getFrequency`。
+
 ---
 
 ## 装包说明
