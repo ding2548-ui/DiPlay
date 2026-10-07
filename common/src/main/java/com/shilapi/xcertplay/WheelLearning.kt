@@ -423,7 +423,7 @@ internal object LearnedWheelKeys {
         broadcastLogEnabled = enabled
         if (enabled) {
             ensureCarBusReceiver(context)
-            report("broadcast log enabled on ${LeapmotorMediaProtocol.ACTIONS.size} car actions")
+            report("broadcast log enabled on ${LeapmotorMediaProtocol.ALL_ACTIONS.size} car actions")
         } else {
             synchronized(broadcastLog) { broadcastLog.clear() }
             report("broadcast log disabled")
@@ -446,6 +446,11 @@ internal object LearnedWheelKeys {
             // receiver — registering it again would deliver every press twice.
             .map { it.id.removePrefix(WheelBinding.BROADCAST_PREFIX).substringBefore('|') }
             .filter { it != ICU2MMI_ACTION }
+            // Channel A actions already have a receiver (LeapmotorMediaKeys). A `BROADCAST:` binding
+            // on one of them is still honoured — LeapmotorMediaKeys.dispatch() consults
+            // broadcastBindingConsumes() — so registering a second receiver here only doubles the
+            // delivery and must not happen.
+            .filter { it !in LeapmotorMediaProtocol.ACTIONS }
             .toSet()
         wanted.forEach { action -> ensureBroadcastReceiver(application, action) }
         synchronized(broadcastReceivers) {
@@ -487,12 +492,12 @@ internal object LearnedWheelKeys {
     private fun ensureCarBusReceiver(context: Context) {
         if (carBusReceiver != null) return
         val application = context.applicationContext
+        // ONLY the two extra channels here. Channel A (`car.meter.music.BROADCAST` and friends) is
+        // owned by LeapmotorMediaKeys' own receiver; if this one registered it too, every S01 press
+        // would be decoded twice — once per receiver — and the second pass either duplicates the
+        // button or (when a `BROADCAST:` binding exists) re-enters perform() on the same press.
         val filter = IntentFilter().apply {
-            LeapmotorMediaProtocol.ACTIONS.forEach(::addAction)
-            addAction(ICU2MMI_ACTION)
-            // The stock T03 wheel channel (extras ICU_MediaKey / ICU_MediaSwitch) —
-            // reverse-engineered and verified: every command toggles/changes the song.
-            addAction(CUSTOMKEY_ACTION)
+            LeapmotorMediaProtocol.EXTRA_CHANNELS.forEach(::addAction)
         }
         val created = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -515,7 +520,7 @@ internal object LearnedWheelKeys {
         }
             .onSuccess {
                 carBusReceiver = created
-                report("car bus listening on ${filter.countActions()} actions (wheel channels included)")
+                report("car bus listening on ${filter.countActions()} extra wheel channels")
             }
             .onFailure { report("broadcast monitor not registered: ${it.message}") }
     }

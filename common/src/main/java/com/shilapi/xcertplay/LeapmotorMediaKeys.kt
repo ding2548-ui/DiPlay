@@ -54,11 +54,17 @@ internal object LeapmotorMediaProtocol {
     )
 
     /**
-     * Everything the app registers on, channel A first. The two extra channels are also
-     * registered by [LearnedWheelKeys.ensureCarBusReceiver]; a car that emits both would deliver
-     * the press twice, which the shared de-duplication window absorbs.
+     * The actions [LeapmotorMediaKeys] itself registers. This is the single owner of channel A —
+     * [LearnedWheelKeys.ensureCarBusReceiver] must NOT register these as well, or one press would
+     * be decoded twice (and, with a `BROADCAST:` binding present, three times).
      */
-    val ACTIONS = CHANNEL_A + STOCK_HOUSEKEEPING + EXTRA_CHANNELS
+    val ACTIONS = CHANNEL_A + STOCK_HOUSEKEEPING
+
+    /**
+     * Everything the two receivers together listen on, for diagnostics only. Channel A is owned by
+     * [LeapmotorMediaKeys]; the extra channels are owned by [LearnedWheelKeys].
+     */
+    val ALL_ACTIONS = ACTIONS + EXTRA_CHANNELS
 
     /** The byte[] payload → `data.action`, or null when it is not a usable key press. */
     fun actionFromPayload(payload: ByteArray?): String? {
