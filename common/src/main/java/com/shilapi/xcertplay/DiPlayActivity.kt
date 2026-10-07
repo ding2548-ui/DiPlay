@@ -933,7 +933,7 @@ class DiPlayActivity : ComponentActivity() {
         updateActionButton?.isEnabled = false
         updateMessage?.text = "正在检查更新…"
         Thread {
-            val result = runCatching { AppUpdater.latestBuild(AppUpdater.source(this)) }
+            val result = runCatching { AppUpdater.latestBuild(this, AppUpdater.source(this)) }
             val current = AppUpdater.currentBuild(this)
             handler.post {
                 updateBusy = false

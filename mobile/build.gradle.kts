@@ -13,6 +13,12 @@ val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSET
 val buildNumber = providers.environmentVariable("DIPLAY_BUILD_NUMBER").orNull
 val buildCommit = providers.environmentVariable("DIPLAY_BUILD_COMMIT").orNull
 
+// The beta channel is a second variant of this same line, published from the psa-beta branch under
+// its own release-tag namespace. It ships a distinct applicationId so it can sit next to the
+// release build on the head unit, which is what lets a beta APK be tested without uninstalling the
+// release one first. AppUpdater reads the same suffix back to pick its tag namespace.
+val betaChannel = providers.environmentVariable("DIPLAY_CHANNEL").orNull == "beta"
+
 android {
     namespace = "com.shilapi.xcertplay"
     compileSdk {
@@ -25,8 +31,13 @@ android {
         targetSdk = 37
         versionCode = 31
         versionName = buildNumber?.let { run ->
-            buildCommit?.let { sha -> "0.2.12（$run-$sha）" } ?: "0.2.12（$run）"
+            val channelTag = if (betaChannel) "-beta" else ""
+            buildCommit?.let { sha -> "0.2.12（$run-$sha）$channelTag" } ?: "0.2.12（$run）$channelTag"
         } ?: "0.2.12"
+        if (betaChannel) {
+            // Coexists with the release build; see the comment on [betaChannel].
+            applicationIdSuffix = ".psabeta"
+        }
 
         // The ABI is deliberately NOT pinned. Pinning it to armeabi-v7a was done so the v7a-only
         // libdiplay_lwip.so could load, but it forces the whole process to 32 bits — and the car's

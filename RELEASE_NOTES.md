@@ -1,4 +1,9 @@
-# DiPlay 0.2.12 · PSA 车机版
+# DiPlay 0.2.12 · PSA 车机版（beta 测试渠道）
+
+> **这是 PSA 线的 beta 渠道**，从 `psa-beta` 分支发布，包名 `com.shihab.diplay.psabeta`
+> （可与正式包 `com.shihab.diplay` 共存安装），发版 tag 走 `v0.2.12-beta-<run>`，
+> 与正式渠道的 `v0.2.12-<run>` **互不可见**（在线更新各自只看自己的命名空间）。
+> 正式渠道的包请到 `v0.2.12-` 的 release 下载。
 
 Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 **本页是当前整体状态页，每次发布前更新。**
@@ -344,9 +349,43 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
     extras **全量列出来**）、以及 `payload unusable` 行现在也带 extras。
     **这样 T03 若仍不匹配，从一次日志就能读出新映射，不用再跑实车。**
 
-    复测判据：起会话时应有 `car bus listening on 11 actions (wheel channels included)`
-    与 `media keys listening on 11 car actions`；按「下一首」应出现**恰好一行**
+    复测判据：起会话时应有 `media keys listening on 9 car actions`（通道 A 侧）
+    与 `car bus listening on 2 extra wheel channels`（通道 B 侧）—— **两个接收器各报各的**，
+    合起来是全部 11 个；按「下一首」应出现**恰好一行**
     `media key source=com.leapmotor.customkey.music.pauseplay action=nextOne -> CarPlay 4 sent=true`。
+
+22. **WiFi Direct 模式连不上：API 29 的硬门控挡住了 Android 7。**
+    `WifiP2pGroupManager.start()` 原本一进来就 `throw IOException("Wi-Fi P2P credentials require
+    Android 10 (API 29) or newer")` —— 车机是 **API 25**，所以 **P2P 组从来没被创建过**，
+    WiFi Direct 模式自然连不上。（其它无线模式走各自的管理器，不受影响，见下。）
+
+    根因是三条 API 29 依赖：
+    - `WifiP2pConfig.Builder` 的 `setNetworkName/setPassphrase/setGroupOperatingFrequency`（API 29+）
+    - 三参数 `createGroup(Channel, WifiP2pConfig, ActionListener)`（API 29+）
+    - `requestP2pState(Channel, P2pStateListener)`（API 29+，只在 `logP2pState` 里做诊断）
+
+    修法：
+    - 去掉硬门控；**API < 29 时只请求 `SYSTEM_DEFAULT` 模式**（跳过整条显式信道阶梯），
+      并用 **两参数 `createGroup(Channel, ActionListener)`**（API 14+）建组 ——
+      由框架自己生成凭据、自选信道，这也正是 `SYSTEM_DEFAULT` 的语义。
+    - `logP2pState` 在 API < 29 时跳过（纯诊断）。
+    - API < 29 时若配置了固定信道，**在建组前**就明确报错
+      （"This Android version lets the system select the Wi-Fi Direct channel."），
+      而不是建完组再失败。
+
+    **有意未改的两处**（避免牵连）：
+    - 地址选择保持原样 —— `awaitInterfaceAddress` 本来就**优先 IPv4**（拿到 `Inet4Address` 立即返回），
+      只有在没有 IPv4 时才等 2 秒回退。不需要改成 IPv4-only。
+    - "迟到的建组"清理不需要另加：`createActionListener.onSuccess` 里的 `removeDetachedGroup`
+      已经把「已被取代的尝试收到迟到的 onSuccess」处理掉了（主动移除该组）。
+
+    **确认不影响车载热点 / 外置 WiFi**：`CarPlayController` 里每种模式各有独立管理器 ——
+    `WIFI_P2P → WifiP2pGroupManager`（本次改动）、`MANUAL → ManualHotspotManager`（车载热点）、
+    `EXISTING_WIFI → ExistingWifiManager`（外置 WiFi）、`LOCAL_ONLY_HOTSPOT → LocalOnlyHotspotManager`。
+    改动只落在 `WifiP2pGroupManager`，**其余三者一行未动**。
+
+    复测判据：报告里应出现 `Wi-Fi P2P create mode=SYSTEM_DEFAULT frequencyMHz=auto`，
+    并**不再出现** `Wi-Fi P2P credentials require Android 10 (API 29) or newer`。
 
 ---
 

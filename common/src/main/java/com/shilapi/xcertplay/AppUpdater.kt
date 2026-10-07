@@ -26,6 +26,18 @@ object AppUpdater {
     private const val LOCAL_PREFIX = "DiPlay-0.2.12-"
     private const val LOCAL_SUFFIX = ".apk"
 
+    // The beta channel is a second variant of this same line, shipped under its own applicationId
+    // so both can be installed side by side. It publishes under its own tag namespace, and a build
+    // must only ever resolve builds from the namespace it was published into: otherwise the two
+    // channels would hand each other their APKs, and each would report the other's run number as
+    // an available update.
+    private const val BETA_TAG_PREFIX = "v0.2.12-beta-"
+    private const val BETA_APPLICATION_ID_SUFFIX = ".psabeta"
+
+    /** The release-tag namespace this build looks in, decided by the channel it was built as. */
+    fun tagPrefix(context: Context): String =
+        if (context.packageName.endsWith(BETA_APPLICATION_ID_SUFFIX)) BETA_TAG_PREFIX else TAG_PREFIX
+
     private const val CONNECT_TIMEOUT = 10_000
     private const val READ_TIMEOUT = 20_000
 
@@ -63,16 +75,17 @@ object AppUpdater {
      * Resolves the newest build number published for this line. Both lines share the repository, so
      * /releases/latest names whichever line pushed last, and that is regularly the other one. The
      * atom feed lists the recent releases of both, so it is read first and every tag matching
-     * [TAG_PREFIX] is considered; the redirect stays as a fallback for mirrors that do not serve the
+     * [tagPrefix] is considered; the redirect stays as a fallback for mirrors that do not serve the
      * feed. Mirrors may pass a redirect through or stream the page themselves, so both a Location
      * header and the page body are accepted. Tries the selected source first, then every other.
      */
-    fun latestBuild(preferred: String): Int {
+    fun latestBuild(context: Context, preferred: String): Int {
         val order = listOf(preferred) + sources().filter { it != preferred }
+        val prefix = tagPrefix(context)
         var lastError: Exception? = null
         for (source in order) {
             try {
-                val build = fetchLatestBuild(source)
+                val build = fetchLatestBuild(source, prefix)
                 if (build != null) return build
             } catch (failure: Exception) {
                 lastError = failure
@@ -81,40 +94,40 @@ object AppUpdater {
         throw lastError ?: error("无法获取最新构建")
     }
 
-    private fun fetchLatestBuild(source: String): Int? =
-        newestFromFeed(source) ?: newestFromRedirect(source)
+    private fun fetchLatestBuild(source: String, tagPrefix: String): Int? =
+        newestFromFeed(source, tagPrefix) ?: newestFromRedirect(source, tagPrefix)
 
     /** releases.atom carries one <link .../releases/tag/<tag>> per recent release, both lines mixed. */
-    private fun newestFromFeed(source: String): Int? {
+    private fun newestFromFeed(source: String, tagPrefix: String): Int? {
         val connection = open(source, "github.com/$REPO/releases.atom", redirectless = true)
         try {
             if (connection.responseCode != 200) return null
             val body = connection.inputStream.use { readText(it) }
-            return buildNumbers(body).maxOrNull()
+            return buildNumbers(body, tagPrefix).maxOrNull()
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun newestFromRedirect(source: String): Int? {
+    private fun newestFromRedirect(source: String, tagPrefix: String): Int? {
         val connection = open(source, "github.com/$REPO/releases/latest", redirectless = true)
         try {
             val code = connection.responseCode
             if (code in 300..399) {
                 val target = connection.getHeaderField("Location") ?: return null
-                return buildNumbers(target).maxOrNull()
+                return buildNumbers(target, tagPrefix).maxOrNull()
             }
             if (code != 200) return null
             val body = connection.inputStream.use { readText(it) }
-            return buildNumbers(body).maxOrNull()
+            return buildNumbers(body, tagPrefix).maxOrNull()
         } finally {
             connection.disconnect()
         }
     }
 
     /** Every run number this line has published, found anywhere in the given text. */
-    private fun buildNumbers(text: String): List<Int> =
-        Regex(Regex.escape(TAG_PREFIX) + "(\\d+)").findAll(text)
+    private fun buildNumbers(text: String, tagPrefix: String): List<Int> =
+        Regex(Regex.escape(tagPrefix) + "(\\d+)").findAll(text)
             .mapNotNull { it.groupValues[1].toIntOrNull() }
             .toList()
 
@@ -133,7 +146,7 @@ object AppUpdater {
     fun assetName(build: Int) = "$LOCAL_PREFIX$build$LOCAL_SUFFIX"
 
     fun downloadApk(context: Context, build: Int, source: String, onProgress: (Int, Int) -> Unit): File {
-        val path = "github.com/$REPO/releases/download/$TAG_PREFIX$build/$RELEASE_ASSET"
+        val path = "github.com/$REPO/releases/download/${tagPrefix(context)}$build/$RELEASE_ASSET"
         val connection = open(source, path, redirectless = false)
         val directory = context.getExternalFilesDir(null) ?: context.filesDir
         val temporary = File(directory, "${assetName(build)}.part")
