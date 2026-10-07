@@ -82,6 +82,17 @@ internal object DiPlayPreferences {
         prefs(context).edit().putBoolean("wired_lwip", value).apply()
     }
 
+    /**
+     * Whether CarPlay's audio takeover also drops the phone's Bluetooth audio profiles. On by
+     * default: the car's A2DP sink otherwise keeps playing the phone's audio on top of CarPlay.
+     * Only A2DP is dropped — see [BluetoothAudioHandoff] for why the headset profiles are left
+     * alone on this line.
+     */
+    fun a2dpHandoff(context: Context) = prefs(context).getBoolean("a2dp_handoff", true)
+    fun saveA2dpHandoff(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean("a2dp_handoff", value).apply()
+    }
+
     /** Set once the lwIP-default migration has run; see [wiredLwip]. */
     private const val KEY_WIRED_LWIP_DEFAULTED = "wired_lwip_defaulted_v2"
 }

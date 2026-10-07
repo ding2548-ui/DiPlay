@@ -665,4 +665,6 @@
     <string name="carplay_rotation_smoother">更流畅（1920）</string>
     <string name="carplay_rotation_sharper">更清晰（屏幕尺寸）</string>
     <string name="auto_grant_incomplete">未验证全部请求权限。请检查下方各项状态；开启网络 ADB 后重试，或使用手动设置。现有权限保持不变。</string>
+    <string name="a2dp_handoff">CarPlay 播放时断开手机蓝牙音频</string>
+    <string name="a2dp_handoff_desc">CarPlay 在放音乐时，断开已连接手机的蓝牙音频档位，避免同一路声音又从车机蓝牙出声。只断 A2DP，不动免提通话。下次播放生效。</string>
 </resources>

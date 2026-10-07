@@ -667,4 +667,6 @@
     <string name="carplay_rotation_smoother">Smoother (1920)</string>
     <string name="carplay_rotation_sharper">Sharper (the screen\'s size)</string>
     <string name="auto_grant_incomplete">Setup did not verify every requested permission. Check each status below; enable network ADB and retry, or use the manual setup. Existing permissions are kept.</string>
+    <string name="a2dp_handoff">Drop the phone\'s Bluetooth audio while CarPlay plays</string>
+    <string name="a2dp_handoff_desc">While CarPlay carries music, the car\'s Bluetooth audio profiles of the connected phone are disconnected, so the same audio cannot also come out of the car\'s Bluetooth sink. Only A2DP is dropped; hands-free is left alone. Takes effect on the next playback.</string>
 </resources>

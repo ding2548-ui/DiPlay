@@ -23,7 +23,7 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 | 症状 | 现状 | 待办 |
 |---|---|---|
-| 方控切歌时原厂也切歌并同时播放 | 焦点/会话已拿到，但 192/402 报告里**一次按键记录都没有** | **需要一份「连着的时候按方控」的日志** |
+| 方控切歌时原厂也切歌并同时播放 | 已对齐零跑线的夺权状态机（第 20 条） | 复测：看 `audio focus change=-1` 后有没有重新 `request granted=true` |
 | USB 权限弹窗每次插拔都要手点 | 无障碍服务只在 AOSP 弹窗上生效，本车机弹窗来自别处 → 静默 | 本版加 `MANAGE_USB` + 放宽判定（第 19 条），复测 |
 | lwIP 有线通路 | 出画面但没声音、手动断开后要重启应用、整体不如 VPN 稳 | 开关已摘除（第 18 条），代码留着但用不到 |
 
@@ -285,6 +285,25 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
       （确定/确认/允许/同意/OK/Allow/Confirm/Agree/Accept/Yes）；「默认」勾选框也按文本兜底。
     - 服务把**看到的每个含 USB 的窗口**（包名 + 文本前 160 字）与点击结果写进 DiPlay 报告，
       下一份日志就能直接看出弹窗来自哪个包、按钮叫什么。
+
+20. **方控不压制原厂音乐：对齐零跑线的音频夺权状态机（PSA 缺两条关键的）。**
+    按零跑线的《CarPlay 音频夺权功能报告》逐条比对，PSA 缺的是：
+    - **`update(false)` 不释放**（零跑会 `releaseLocked()`）。不释放 → `mediaActive` 永远是 true
+      → 后面的 `update(true)` 被"没变化"挡掉 → **永远走不到重新拿焦点那一步**。
+    - **`regainFocusLocked()` 在 API 25 是死代码**（`focusRequest` 恒为 null，函数还
+      `if (SDK_INT < O) return`）→ **焦点被原厂抢走后永远拿不回来**。
+    - 没有 `BluetoothAudioHandoff`（层③）；没有幂等判断。
+
+    零跑那边「切歌原厂跟着切、然后立刻被暂停」的机制是：原厂为放新歌**抢走焦点** →
+    DiPlay 收到 `AUDIOFOCUS_LOSS` → iPhone 换歌瞬间 pause→play → `update(false)` 释放、
+    `update(true)` **重新请求焦点** → 原厂刚出声就又被压下去。PSA 缺上面两条，循环建立不起来。
+
+    现按零跑重写状态机（`ownershipActive` 幂等 + `acquireLocked`/`releaseLocked` +
+    `requestFocus` 每次重新请求且 API 25 可用），并移植 `BluetoothAudioHandoff`。
+    **与零跑有意不同的一处：只断 A2DP，不断 HFP/HEADSET** —— PSA 的无线通路走蓝牙 RFCOMM 上的
+    iAP2，断耳机组 profile 有风险；而 handoff 的本职只是防止声音从车机 A2DP sink 漏出，A2DP 足够。
+    新增设置开关「CarPlay 播放时断开手机蓝牙音频」（默认开）与全套诊断行。
+    逐条对比见 `D:\Launcher\DiPlay-PSA-音频夺权-对比报告.md`。
 
 ---
 

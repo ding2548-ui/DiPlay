@@ -3976,6 +3976,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayMediaKeys.attach(this, next)
         CarPlayMediaKeys.onDiagnostic = { message -> appendLog(message) }
         UsbAutoConfirmService.onDiagnostic = { message -> appendLog(message) }
+        BluetoothAudioHandoff.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)
         LeapmotorGearMonitor.onDiagnostic = { message -> appendLog(message) }

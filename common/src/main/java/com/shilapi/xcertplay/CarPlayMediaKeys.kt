@@ -63,6 +63,14 @@ internal object CarPlayMediaKeys {
     private var focusHeld = false
     private var appContext: Context? = null
     private var mediaAudioActive = false
+
+    /**
+     * Whether the car's audio ownership is currently claimed. Dedupes the two triggers
+     * ([onMediaAudioChanged] and [onIphonePlaying]) so a repeated event does not re-run the
+     * acquisition, and — more importantly — makes the release/re-acquire cycle around a track skip
+     * possible at all.
+     */
+    private var ownershipActive = false
     private var nowPlaying = CarPlayNowPlaying()
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
@@ -73,10 +81,8 @@ internal object CarPlayMediaKeys {
      * Android 7's focus API has no [AudioFocusRequest], so the pre-26 overload needs a separate
      * listener object. It shares the focus-loss handling with the modern path.
      */
-    private val legacyFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        report("audio focus change=$change")
-        if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
-    }
+    private val legacyFocusListener =
+        AudioManager.OnAudioFocusChangeListener { change -> onFocusChange(change) }
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
@@ -113,9 +119,11 @@ internal object CarPlayMediaKeys {
      * This — not [onMediaAudioChanged] — is the signal that carries on this head unit. The phone is
      * free to keep its audio on the car's Bluetooth link, in which case no music stream ever reaches
      * us and the media-audio callback never fires, while the now-playing state still arrives over
-     * CarPlay. Claiming ownership from here is what moves the car's media keys off the stock player;
-     * going only through [regainFocusLocked] did nothing at all on this API 25 unit, because that
-     * path needs an [AudioFocusRequest] which Android 7 does not have.
+     * CarPlay.
+     *
+     * A pause is not merely a state change: it gives the ownership up, and the resume after it takes
+     * it again. That release/re-claim cycle is what re-takes the focus after a track skip — the stock
+     * player grabs the focus for its own new track and has to be pushed back down.
      */
     private fun onIphonePlaying(expected: CarPlayController, playing: Boolean) {
         mainHandler.post {
@@ -168,77 +176,98 @@ internal object CarPlayMediaKeys {
         }
     }
 
-    // Another car app (its own Spotify, the radio) took audio focus and with it the steering-wheel
-    // keys. When CarPlay starts playing again it becomes the car's media source again, as any player
-    // would; only the start counts, so a car source picked while the iPhone plays on is not undone.
-    private fun regainFocusLocked() {
-        if (focusHeld) return
-        val audio = appContext?.getSystemService(AudioManager::class.java) ?: return
-        // focusRequest is null on Android 7, where start() already took the legacy focus; there is
-        // nothing to re-request and the session keeps the focus it has.
-        val request = focusRequest ?: return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        focusHeld = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        report("audio focus regained=$focusHeld")
-    }
-
-    private fun updateLocked(active: Boolean) {
+    /**
+     * Takes the car's audio ownership: Bluetooth audio handoff, then audio focus, then an active
+     * MediaSession.
+     *
+     * Modelled on the Leapmotor fork's `CarPlayAudioOwnership`, and the *sequence* is what makes the
+     * stock player yield. Focus is requested on every acquisition rather than once per session:
+     * skipping a track makes the stock player grab focus for its own new track, which costs us
+     * AUDIOFOCUS_LOSS, and the iPhone's pause/resume around that skip runs [releaseLocked] and then
+     * this — so the re-request is what pushes the stock player back down. Holding the focus for the
+     * whole session instead (what this used to do) left it playing.
+     */
+    private fun acquireLocked() {
         val context = appContext ?: return
         if (controller == null) return
-        mediaAudioActive = active
-        if (active && session == null) start(context) else if (active) regainFocusLocked()
+        // Before the focus request, as in the Leapmotor fork: drop the phone's Bluetooth audio
+        // profiles so the sound cannot keep leaking through the car's A2DP sink.
+        BluetoothAudioHandoff.onCarPlayMediaActive(context)
+        if (!focusHeld) {
+            focusHeld = requestFocus(context)
+            report("audio focus request granted=$focusHeld")
+        }
+        if (session == null) {
+            // A MediaSession that cannot be built must not take the process down: this unit runs
+            // API 25, where several media-session entry points are missing.
+            session = runCatching {
+                MediaSession(context, "DiPlay CarPlay").apply {
+                    setCallback(callback, mainHandler)
+                    setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
+                    isActive = true
+                }
+            }.getOrElse {
+                report("media session unavailable: ${it.javaClass.simpleName}: ${it.message}")
+                null
+            }
+        }
+        report("media keys active focusGranted=$focusHeld session=${session != null}")
         publishPlaybackStateLocked()
     }
 
-    private fun start(context: Context) {
-        val audio = context.getSystemService(AudioManager::class.java)
-        // AudioFocusRequest and requestAudioFocus(AudioFocusRequest) are API 26. On this API 25 head
-        // unit the class does not exist, so building one throws NoSuchMethodError — an Error, not a
-        // RuntimeException, which would take the process down. Android 7 has only the legacy focus
-        // overload, so use that instead and keep the session alive.
-        val request = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
-                )
-                .setOnAudioFocusChangeListener({ change ->
-                    Log.i(TAG, "audio focus change=$change")
-                    // Only a permanent loss moves the car's media keys elsewhere; transient losses come back.
-                    if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
-                }, mainHandler)
-                .build()
-        } else {
-            @Suppress("DEPRECATION")
-            null
-        }
-        val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audio?.requestAudioFocus(request!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        } else {
-            @Suppress("DEPRECATION")
-            audio?.requestAudioFocus(
-                legacyFocusListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN,
-            ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        }
-        focusRequest = request
-        focusHeld = granted
-        // A MediaSession that cannot be built must not take the process down: this unit runs API 25,
-        // where several media-session entry points are missing.
-        session = runCatching {
-            MediaSession(context, "DiPlay CarPlay").apply {
-                setCallback(callback, mainHandler)
-                setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
-                isActive = true
+    /**
+     * Requests audio focus on both API levels.
+     *
+     * `AudioFocusRequest` and the matching `requestAudioFocus` overload are API 26; on this API 25
+     * unit building one throws `NoSuchMethodError`, which is an Error and not a RuntimeException, so
+     * it would take the process down. Android 7 has only the legacy overload. Either way the same
+     * listener handles the loss.
+     */
+    private fun requestFocus(context: Context): Boolean {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return false
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build(),
+                    )
+                    .setOnAudioFocusChangeListener({ change -> onFocusChange(change) }, mainHandler)
+                    .build()
+                focusRequest = request
+                audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            } else {
+                @Suppress("DEPRECATION")
+                audio.requestAudioFocus(
+                    legacyFocusListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN,
+                ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             }
         }.getOrElse {
-            report("media session unavailable: ${it.javaClass.simpleName}: ${it.message}")
-            null
+            report("audio focus request failed: ${it.javaClass.simpleName}: ${it.message}")
+            false
         }
-        report("media keys active focusGranted=$granted session=${session != null}")
+    }
+
+    private fun onFocusChange(change: Int) {
+        report("audio focus change=$change")
+        // Only a permanent loss moves the car's media keys elsewhere; transient losses come back.
+        if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
+    }
+
+    /**
+     * The single state machine behind both triggers. A repeated event is dropped, and a real change
+     * claims or gives up the ownership — giving it up matters as much as claiming it, because the
+     * stock player only yields while we hold the focus.
+     */
+    private fun updateLocked(active: Boolean) {
+        mediaAudioActive = active
+        if (active == ownershipActive) return
+        ownershipActive = active
+        if (active) acquireLocked() else releaseLocked()
     }
 
     private fun releaseLocked() {
@@ -265,6 +294,7 @@ internal object CarPlayMediaKeys {
         }
         focusRequest = null
         focusHeld = false
+        ownershipActive = false
         report("media keys released")
     }
 
