@@ -830,6 +830,7 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         if (AdbClusterRouter.enabled(this)) {
+            appendLog("Cluster map: adb router branch taken; no presentable cluster display yet")
             ClusterActivityOutput.bind(this, taskId) { onClusterSurface(it) }
             ClusterActivityOutput.setStreamActive(SCREEN_TYPE_ALT in activeScreenStreamTypes)
             applyClusterTurnOverlay()
@@ -981,7 +982,19 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         override fun onDisplayRemoved(displayId: Int) = Unit
-        override fun onDisplayChanged(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            // A display that already exists does not fire onDisplayAdded again when the firmware
+            // promotes it into the presentation category - the Leapmotor unit's HDMI cluster shows
+            // up this way, silently, after resume has already probed and found nothing. Without
+            // this handler the presentation is never shown and the cluster stream renders nowhere.
+            if (isDestroyed || clusterPresentation != null ||
+                !AirPlayPersistence.loadClusterMapEnabled(this@CarPlayHostActivity)) return
+            val display = ClusterMapPresentation.findDisplay(this@CarPlayHostActivity, effectiveClusterTheme())
+                ?: return
+            if (display.displayId != displayId) return
+            appendLog("Cluster map: display ${display.name} became presentable")
+            ensureClusterPresentation()
+        }
     }
 
     private fun clusterDisplayConfig(): AirPlayDisplayConfig? {
@@ -1005,6 +1018,10 @@ class CarPlayHostActivity : ComponentActivity() {
             val size = ClusterMapPresentation.sizeOf(display)
             if (size.x > 0 && size.y > 0) {
                 clusterStreamOnDisplay = true
+                // The negotiation path just proved the display is presentable right now, while
+                // the resume-time check may have run before the firmware promoted it. Pull the
+                // presentation up from here as well, or the stream renders nowhere.
+                mainHandler.post { ensureClusterPresentation() }
                 if (DiLink51ClusterLayout.supported()) {
                     val plan = DiLink51ClusterLayout.plan(size.x, size.y, theme) ?: return null
                     return DiLink51ClusterLayout.streamConfig().also {
