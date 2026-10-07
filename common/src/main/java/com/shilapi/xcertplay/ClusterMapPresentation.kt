@@ -175,7 +175,7 @@ internal class ClusterMapPresentation(
                     val size = sizeOf(display)
                     DiLink4ClusterDisplay.matches(display.name, size.x, size.y)
                 }?.let { return it }
-                return probeClusterDisplay(displays)
+                return probeClusterDisplay(displays.toList())
             }
             return displays.firstOrNull { it.name == name }?.takeIf {
                 if (!DiLink51ClusterLayout.supported()) true else {
