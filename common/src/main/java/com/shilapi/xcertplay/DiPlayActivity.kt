@@ -681,9 +681,6 @@ class DiPlayActivity : ComponentActivity() {
                 render()
                 reconnectForClusterMap()
             }
-            card.addView(button(getString(R.string.meter_navi_broadcast_test), false) {
-                MeterNaviBroadcastTest.toggle(this)
-            }, matchButton(10, 56))
             if (clusterMapEnabled) {
                 toggle(card, getString(R.string.center_map_card),
                     if (clusterDisplay != null || adbCluster) getString(R.string.center_map_card_description)

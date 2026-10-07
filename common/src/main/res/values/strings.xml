@@ -577,7 +577,6 @@
     <string name="adb_cluster_activity_mode">DiLink 4 cluster video via ADB (experimental)</string>
     <string name="adb_cluster_activity_description">Launch the map directly on the verified cluster display through internal ADB. Authorize ADB, then reconnect the iPhone.</string>
     <string name="adb_cluster_authorize">Authorize ADB / retry cluster routing</string>
-    <string name="meter_navi_broadcast_test">Dashboard guidance broadcast test</string>
     <string name="adb_cluster_open">Retry cluster map</string>
     <string name="adb_cluster_routing">Launching cluster map through ADB…</string>
     <string name="adb_cluster_routed">Cluster task routed; waiting for iPhone map</string>

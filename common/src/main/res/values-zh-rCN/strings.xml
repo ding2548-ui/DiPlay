@@ -575,7 +575,6 @@
     <string name="adb_cluster_activity_mode">DiLink 4 仪表视频（ADB，实验性）</string>
     <string name="adb_cluster_activity_description">通过内置ADB直接在已验证仪表副屏启动地图。请先授权ADB，再重新连接iPhone。</string>
     <string name="adb_cluster_authorize">授权 ADB / 重试仪表移动</string>
-    <string name="meter_navi_broadcast_test">仪表盘导航广播测试</string>
     <string name="adb_cluster_open">重试仪表地图</string>
     <string name="adb_cluster_routing">正在通过ADB启动仪表地图…</string>
     <string name="adb_cluster_routed">仪表窗口已移动，等待 iPhone 地图</string>
