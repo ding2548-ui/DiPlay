@@ -826,6 +826,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun ensureClusterPresentation() {
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) {
+            appendLog("Cluster map: switch off; presentation dismissed")
             dismissClusterPresentation()
             return
         }
@@ -845,7 +846,10 @@ class CarPlayHostActivity : ComponentActivity() {
             ensureDiLink51ClusterPresentation(theme)
             return
         }
-        if (clusterPresentation != null) return
+        if (clusterPresentation != null) {
+            appendLog("Cluster map: presentation already shown; keeping it")
+            return
+        }
         val display = ClusterMapPresentation.findDisplay(this, theme) ?: run {
             appendLog("Cluster map: no cluster projection display among ${ClusterMapPresentation.describeDisplays(this)}")
             return
@@ -859,6 +863,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 updateClusterMapShown()
             }
         }
+        appendLog("Cluster map: showing presentation on display=${display.displayId} ${display.name} size=${ClusterMapPresentation.sizeOf(display)}")
         try {
             presentation.show()
             clusterPresentation = presentation
@@ -4636,6 +4641,14 @@ class CarPlayHostActivity : ComponentActivity() {
                 ClusterActivityOutput.setStreamActive(active)
                 MapMirrors.setStreamActive(active)
                 if (active) {
+                    // The stream is running, so the switch is on and negotiation found the display;
+                    // if the presentation is still missing, the show path was skipped somewhere.
+                    // Pull it up from here instead of streaming into nothing.
+                    if (clusterPresentation == null && clusterStreamOnDisplay &&
+                        !AdbClusterRouter.enabled(this)) {
+                        appendLog("Cluster map: stream active without a presentation; showing it now")
+                        ensureClusterPresentation()
+                    }
                     mainHandler.removeCallbacks(hideIdleCenterMap)
                     if (!CenterMapOverlay.shown) CenterMapOverlay.scheduleShow()
                 } else {
