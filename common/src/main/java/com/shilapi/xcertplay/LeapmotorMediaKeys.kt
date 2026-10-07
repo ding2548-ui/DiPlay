@@ -22,15 +22,43 @@ import org.json.JSONObject
  * nothing here may gate on a "media source" value.
  */
 internal object LeapmotorMediaProtocol {
-    /** Primary channel first; the rest are the fallbacks the car also emits. */
-    val ACTIONS = listOf(
+    /**
+     * Channel A, the C-series / S01 wheel: one JSON `data.action` per press.
+     * The first entry is the channel actually observed on the real S01 unit.
+     */
+    private val CHANNEL_A = listOf(
         "car.meter.music.BROADCAST",
         "car.hmi.music.BROADCAST",
         "com.leapmotor.command.music",
         "com.leapmotor.command.multimedia",
+    )
+
+    /**
+     * The rest of the stock player's own ten-action filter (`KGMusicBrowserService.onCreate`).
+     * They carry nothing we forward — the car's housekeeping, source switching and the echo of
+     * what we sent — but listening to them keeps the evidence in the report, which is how a
+     * wheel channel we have not identified yet gets found on a unit we cannot reach.
+     */
+    private val STOCK_HOUSEKEEPING = listOf(
+        "com.leapmotor.command.netRadio",
+        "com.leapmotor.command.fmradio",
+        "com.leapmotor.music.netradio.search",
+        "car.meter.query.BROADCAST",
+        "com.leapmotor.pohone.toxmly.calling",
+    )
+
+    /** Channel B (T03) and the old ICU alias — integer extras, decoded by [WheelLearning]. */
+    val EXTRA_CHANNELS = listOf(
         "com.leapmotor.customkey.music.pauseplay",
         "com.leapmotor.ICU2MMICtrl",
     )
+
+    /**
+     * Everything the app registers on, channel A first. The two extra channels are also
+     * registered by [LearnedWheelKeys.ensureCarBusReceiver]; a car that emits both would deliver
+     * the press twice, which the shared de-duplication window absorbs.
+     */
+    val ACTIONS = CHANNEL_A + STOCK_HOUSEKEEPING + EXTRA_CHANNELS
 
     /** The byte[] payload → `data.action`, or null when it is not a usable key press. */
     fun actionFromPayload(payload: ByteArray?): String? {
@@ -60,6 +88,60 @@ internal object LeapmotorMediaProtocol {
             if (type.isNotEmpty() && !type.equals("music", ignoreCase = true)) return@runCatching null
             root.optJSONObject("data")?.optString("action")?.trim()?.takeIf { it.isNotEmpty() }
         }.getOrNull()
+    }
+
+    // ---- Channel B: the T03 wheel, which rides integer extras instead of a JSON body ----
+    // Reverse-engineered from the stock APK's own receiver (see
+    // `com.leapmotor.multimedia-AppMain-方控指令与切歌暂停实现.md`, §五): one action carries every
+    // wheel key and the identity is the extra value, not the action name. Verified on the
+    // emulator — every command really changed the song / toggled playback through the kugou
+    // tvsdk. The stock receiver bails out when both extras are zero, and so do we.
+
+    /** Extra names as the stock receiver reads them, camelCase aliases included. */
+    private val MEDIA_KEY_EXTRA = arrayOf("ICU_MediaKey", "mediaKey")
+    private val MEDIA_SWITCH_EXTRA = arrayOf("ICU_MediaSwitch", "mediaSwitch")
+
+    /** True when this action is one that carries the wheel in integer extras. */
+    fun isExtraChannel(action: String?): Boolean = action != null && action in EXTRA_CHANNELS
+
+    /** Reads the first present extra among [keys]; 0 when none of them is set. */
+    private fun intExtra(intent: Intent, vararg keys: String): Int {
+        for (key in keys) {
+            val value = runCatching { intent.getIntExtra(key, Int.MIN_VALUE) }.getOrDefault(Int.MIN_VALUE)
+            if (value != Int.MIN_VALUE) return value
+        }
+        return 0
+    }
+
+    /**
+     * The channel-B wheel press as `data.action` vocabulary, or null when this broadcast is not a
+     * key (an echo, or an extra set we do not know). `ICU_MediaSwitch` 2 = next, 1 = previous;
+     * `ICU_MediaKey` 1 = play/pause.
+     */
+    fun extraChannelAction(intent: Intent?): String? {
+        val source = intent ?: return null
+        val switch = intExtra(source, *MEDIA_SWITCH_EXTRA)
+        val key = intExtra(source, *MEDIA_KEY_EXTRA)
+        return when {
+            key == 1 -> "playpause"
+            switch == 2 -> "nextOne"
+            switch == 1 -> "preOne"
+            else -> null
+        }
+    }
+
+    /** A readable dump of an extra-channel broadcast, so an unknown unit tells us what it sends. */
+    fun extraChannelDetail(intent: Intent?): String {
+        val source = intent ?: return "none"
+        val extras = source.extras ?: return "no extras"
+        return extras.keySet().sorted().joinToString(" ") { name ->
+            val value = runCatching { extras.get(name) }.getOrNull()
+            when (value) {
+                null -> "$name=null"
+                is ByteArray -> "$name=byte[${value.size}]"
+                else -> "$name=$value"
+            }
+        }
     }
 }
 
@@ -211,6 +293,23 @@ internal object LeapmotorMediaKeys {
 
     private fun handle(intent: Intent?) {
         val actionName = intent?.action ?: return
+        // Channel B (T03 / ICU): the wheel rides integer extras and there is no `receiver` body at
+        // all, so it must be decoded before the byte[] path — otherwise every press falls through
+        // to "payload unusable" and the wheel looks dead.
+        if (LeapmotorMediaProtocol.isExtraChannel(actionName)) {
+            val fromExtras = LeapmotorMediaProtocol.extraChannelAction(intent)
+            if (fromExtras != null) {
+                dispatch(fromExtras, actionName)
+                return
+            }
+            // Not a key press we recognise. Dump the extras: an unreachable unit (T03) is
+            // identified from these lines alone.
+            report(
+                "media key extra-channel unmatched action=$actionName " +
+                    "extras=[${LeapmotorMediaProtocol.extraChannelDetail(intent)}]",
+            )
+            return
+        }
         val payload = runCatching {
             @Suppress("DEPRECATION")
             intent.getByteArrayExtra("receiver")
@@ -224,10 +323,16 @@ internal object LeapmotorMediaKeys {
                         ?: ""
                     text.contains("\"${SELF_MARKER_KEY}\":\"${SELF_MARKER_VALUE}\"")
                 }.getOrDefault(false)
-                report(
-                    if (marked) "media key ignored: self-marked command action=$actionName"
-                    else "media key payload unusable action=$actionName bytes=${payload?.size ?: 0}",
-                )
+                if (!marked) {
+                    // No JSON body and no `action` string. On an unidentified unit that is itself
+                    // the finding, so dump whatever did arrive instead of a bare byte count.
+                    report(
+                        "media key payload unusable action=$actionName bytes=${payload?.size ?: 0} " +
+                            "extras=[${LeapmotorMediaProtocol.extraChannelDetail(intent)}]",
+                    )
+                    return
+                }
+                report("media key ignored: self-marked command action=$actionName")
                 return
             }
         dispatch(action, actionName)

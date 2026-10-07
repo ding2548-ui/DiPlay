@@ -121,6 +121,11 @@ internal object LearnedWheelKeys {
     fun attach(context: Context, next: CarPlayController) {
         controller = next
         ensureReceiver(context)
+        // The car-bus receiver (channel B integer extras + the BROADCAST: bindings) used to be
+        // created only by setBroadcastLogEnabled(), which is off by default — so on a T03 the
+        // wheel channel had no receiver at all and every press vanished silently. It is part of
+        // the wheel path, not of the diagnostics, so it is registered unconditionally here.
+        ensureCarBusReceiver(context)
     }
 
     /** Registers the MEDIA_BUTTON receiver; needed for learning even before any session. */
@@ -508,7 +513,10 @@ internal object LearnedWheelKeys {
                 application.registerReceiver(created, filter)
             }
         }
-            .onSuccess { carBusReceiver = created }
+            .onSuccess {
+                carBusReceiver = created
+                report("car bus listening on ${filter.countActions()} actions (wheel channels included)")
+            }
             .onFailure { report("broadcast monitor not registered: ${it.message}") }
     }
 
