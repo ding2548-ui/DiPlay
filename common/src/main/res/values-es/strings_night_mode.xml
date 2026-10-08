@@ -1,10 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="carplay_night_mode">Modo día/noche de CarPlay</string>
+    <string name="settings_app_appearance">Apariencia de la app</string>
+    <string name="settings_app_appearance_dark">Oscura</string>
+    <string name="settings_app_appearance_light">Clara</string>
+    <string name="settings_app_appearance_auto">Automática</string>
+    <string name="settings_app_appearance_description">Automática sigue el ajuste de día/noche guardado de CarPlay; mientras CarPlay está abierto, sigue el resultado actual. Clara y Oscura permanecen fijas y no requieren reconectar.</string>
+    <string name="settings_switch_to_light_appearance">Cambiar a apariencia clara</string>
+    <string name="settings_switch_to_dark_appearance">Cambiar a apariencia oscura</string>
     <string name="carplay_night_system">Seguir el sistema Android</string>
     <string name="carplay_night_ambient">Automático (luz ambiental)</string>
     <string name="carplay_night_day">Siempre de día</string>
     <string name="carplay_night_night">Siempre de noche</string>
-    <string name="carplay_night_hint">Guarda y vuelve a CarPlay para aplicar. El modo automático usa el umbral y el retardo de abajo; sin sensor de luz, sigue Android.</string>
+    <string name="carplay_night_schedule">Programado</string>
+    <string name="carplay_night_start">Inicio del modo noche</string>
+    <string name="carplay_night_end">Fin del modo noche</string>
+    <string name="carplay_night_schedule_hint">Usa la hora local de la unidad. El inicio y el fin deben ser distintos; se admiten periodos que cruzan la medianoche.</string>
+    <string name="carplay_night_schedule_same_time">La hora de inicio y la de fin deben ser distintas.</string>
+    <string name="carplay_night_hint">Guarda y vuelve a CarPlay para aplicar.</string>
+    <string name="carplay_night_ambient_hint">El modo automático usa el umbral y el retardo de abajo; sin sensor de luz, sigue Android.</string>
     <string name="carplay_night_time_note">La apariencia automática de CarPlay también usa la hora del iPhone: de noche, Siempre de día puede seguir mostrando el modo oscuro.</string>
 </resources>

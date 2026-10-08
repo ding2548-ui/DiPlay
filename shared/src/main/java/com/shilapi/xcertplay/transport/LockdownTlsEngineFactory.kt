@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.transport
 
 import android.annotation.SuppressLint
+import com.shilapi.xcertplay.compat.Base64Compat
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
@@ -9,7 +10,6 @@ import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Base64
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
@@ -64,7 +64,7 @@ object LockdownTlsEngineFactory {
         if (begin < 0 || end < 0) throw GeneralSecurityException("Invalid PKCS#8 private key PEM")
         val encoded = pem.copyOfRange(begin + BEGIN_PRIVATE_KEY.size, end)
         return try {
-            Base64.getMimeDecoder().decode(encoded)
+            Base64Compat.decodeMime(encoded)
         } catch (error: IllegalArgumentException) {
             throw GeneralSecurityException("Invalid PKCS#8 private key PEM", error)
         } finally {

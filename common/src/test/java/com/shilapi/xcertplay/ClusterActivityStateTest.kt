@@ -39,7 +39,38 @@ class ClusterActivityStateTest {
         event(ClusterActivityState.SIMPLE, 1, time = 200)
         assertEquals(ClusterActivityState.Snapshot(Theme.SIMPLE, false), state.snapshot())
         event(ClusterActivityState.MINI_MAP, 1, time = 210)
-        assertEquals(ClusterActivityState.Snapshot(Theme.SIMPLE, true), state.snapshot())
+        assertEquals(ClusterActivityState.Snapshot(Theme.SIMPLE, true, true), state.snapshot())
+    }
+
+    @Test fun smallWindowFollowsTheNewestVisibleMapActivity() {
+        event(ClusterActivityState.MINI_MAP, 1)
+        assertTrue(state.snapshot().smallWindow)
+        event(ClusterActivityState.FULL_MAP, 1, time = 200)
+        assertFalse(state.snapshot().smallWindow)
+        event(ClusterActivityState.MINI_MAP, 1, time = 300)
+        assertTrue(state.snapshot().smallWindow)
+        event(ClusterActivityState.MINI_MAP, 23, time = 301)
+        assertFalse(state.snapshot().smallWindow)
+    }
+
+    @Test fun smallWindowAloneRemainsVisibleAndSwitchesBothDirections() {
+        event(ClusterActivityState.MINI_MAP, 1, time = 100)
+        assertEquals(ClusterActivityState.Snapshot(null, true, true), state.snapshot())
+        event(ClusterActivityState.FULL_MAP, 1, time = 200)
+        assertEquals(ClusterActivityState.Snapshot(Theme.MAP, true, false), state.snapshot())
+        event(ClusterActivityState.MINI_MAP, 1, time = 300)
+        assertEquals(ClusterActivityState.Snapshot(Theme.MAP, true, true), state.snapshot())
+    }
+
+    @Test fun coveredMapOnlyReconnectsWhenItReturnsInADifferentWindowMode() {
+        val small = ClusterActivityState.Snapshot(Theme.SCENARIO, true, true)
+        val covered = ClusterActivityState.Snapshot(Theme.SCENARIO, false, false)
+        val full = ClusterActivityState.Snapshot(Theme.MAP, true, false)
+        assertFalse(ClusterActivityState.shouldReconnectSmallWindowStream(small, covered, true))
+        assertTrue(ClusterActivityState.shouldReconnectSmallWindowStream(covered, full, true))
+        assertFalse(ClusterActivityState.shouldReconnectSmallWindowStream(covered, small, true))
+        assertFalse(ClusterActivityState.shouldReconnectSmallWindowStream(full, full, true))
+        assertTrue(ClusterActivityState.shouldReconnectSmallWindowStream(full, small, false))
     }
 
     @Test fun pausedButVisibleClusterSurvivesFocusMovingToTheHeadUnit() {
@@ -72,5 +103,12 @@ class ClusterActivityStateTest {
     @Test fun matchingClassNameFromAnotherPackageCannotSelectATheme() {
         state.event("unrelated.app", ClusterActivityState.FULL_MAP, 1, 1, 100)
         assertNull(state.snapshot().theme)
+    }
+
+    @Test fun automapPackageReportsTheSameSmallAndFullWindows() {
+        state.event("com.byd.automap", ClusterActivityState.MINI_MAP, 1, 1, 100)
+        assertEquals(ClusterActivityState.Snapshot(null, true, true), state.snapshot())
+        state.event("com.byd.automap", ClusterActivityState.FULL_MAP, 1, 1, 200)
+        assertEquals(ClusterActivityState.Snapshot(Theme.MAP, true, false), state.snapshot())
     }
 }

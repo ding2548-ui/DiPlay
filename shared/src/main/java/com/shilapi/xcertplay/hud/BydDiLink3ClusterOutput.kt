@@ -94,6 +94,9 @@ internal object BydDiLink3ClusterOutput {
             },
             loadRecovery = { journal.pending },
             saveRecovery = journal::save,
+            projectionStillWanted = {
+                desiredMode == BydDiLink3ClusterMode.Mode.PROJECTION && !adbClusterRouteSelected(app)
+            },
         ).also { session = it }
     }
 

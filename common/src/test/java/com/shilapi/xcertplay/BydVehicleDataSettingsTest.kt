@@ -191,11 +191,13 @@ class BydVehicleDataSettingsTest {
     @Test fun clusterSongSwitchStaysInTheBydNavigationSectionOnly() {
         shadowOf(context.packageManager).installPackage(PackageInfo().apply { packageName = "com.byd.amapservice" })
         openSettings()
+        openCategory(R.string.settings_navigation)
 
         assertTrue(texts().any { it.text == activity.getString(R.string.byd_navigation) })
         assertEquals(1, switches().count { it.contentDescription == activity.getString(R.string.cluster_song) })
+        openCategory(R.string.settings_advanced)
         texts().single { it.text == activity.getString(R.string.advanced_vehicle_data) }.performClick()
-        assertEquals(1, switches().count { it.contentDescription == activity.getString(R.string.cluster_song) })
+        assertEquals(0, switches().count { it.contentDescription == activity.getString(R.string.cluster_song) })
     }
 
     @Test fun withoutBydNavigationTheClusterSongSwitchIsUnderAdvancedVehicleData() {
@@ -719,6 +721,17 @@ class BydVehicleDataSettingsTest {
             DiPlayActivity::class.java,
             Intent(context, DiPlayActivity::class.java).putExtra("page", "settings"),
         ).setup()
+        openCategory(R.string.settings_advanced)
+    }
+
+    private fun openCategory(title: Int) {
+        val description = activity.getString(R.string.settings_open_category, activity.getString(title))
+        var target = descendants(activity.window.decorView).firstOrNull { it.contentDescription == description }
+        if (target == null) {
+            activity.onBackPressedDispatcher.onBackPressed()
+            target = descendants(activity.window.decorView).first { it.contentDescription == description }
+        }
+        target.performClick()
     }
 
     private fun switches(): Sequence<Switch> = descendants(activity.window.decorView).filterIsInstance<Switch>()

@@ -17,6 +17,10 @@ internal class VideoStats(
     private var touchSamples = 0
     private var touchLatencySumNs = 0L
     private var maxTouchLatencyNs = 0L
+    private val decodeMicros = IntArray(1024)
+    private var decodeSamples = 0
+    private var late = 0
+    private var pacingDelayNanos = 0L
 
     @Synchronized fun onReceived(size: Int) {
         val now = nanoTime()
@@ -38,6 +42,25 @@ internal class VideoStats(
 
     @Synchronized fun onRecovery() { recoveries++ }
 
+    /** Time from queueing a frame into the decoder to dequeueing its output. */
+    @Synchronized fun onDecodeLatency(ns: Long) {
+        if (decodeSamples < decodeMicros.size) decodeMicros[decodeSamples++] = (ns / 1000).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    /** A paced frame left the decoder after its display time and was shown at once. */
+    @Synchronized fun onLate() { late++ }
+
+    /** Smooth video's current display delay ([PacingDelay]). */
+    @Synchronized fun onPacingDelay(ns: Long) { pacingDelayNanos = ns }
+
+    private fun decodeSummary(): String {
+        if (decodeSamples == 0) return ""
+        val sorted = decodeMicros.copyOf(decodeSamples).also { it.sort() }
+        fun percentileMs(p: Int) = sorted[(decodeSamples - 1) * p / 100] / 1000
+        val delay = if (pacingDelayNanos > 0) " delay=%dms".format(pacingDelayNanos / 1_000_000) else ""
+        return " decode p50=%dms p90=%dms late=%d".format(percentileMs(50), percentileMs(90), late) + delay
+    }
+
     @Synchronized fun logIfDue(): String? {
         val now = nanoTime()
         val elapsedNs = now - windowStartNs
@@ -50,12 +73,13 @@ internal class VideoStats(
             received / seconds, rendered / seconds, maxArrivalGapNs / 1_000_000,
             (bytes * 8 / 1000 / seconds).toLong(), recoveries,
             touchAvgMs, maxTouchLatencyNs / 1_000_000, touchSamples, TouchLatencyProbe.maxSendNs / 1_000_000,
-        )
+        ) + decodeSummary()
         TouchLatencyProbe.maxSendNs = 0
         Log.i(TAG, line)
         windowStartNs = now
         received = 0; rendered = 0; recoveries = 0; bytes = 0; maxArrivalGapNs = 0
         touchSamples = 0; touchLatencySumNs = 0; maxTouchLatencyNs = 0
+        decodeSamples = 0; late = 0
         return line
     }
 

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="default_connection_mode">默认连接模式</string>
+    <string name="default_connection_last_used">上次使用</string>
+    <string name="default_connection_wireless">无线</string>
+    <string name="default_connection_usb">USB</string>
+    <string name="default_connection_description">打开 DiPlay 时，使用默认连接模式和选定的 iPhone。手动连接按钮使用你选择的模式。</string>
+</resources>

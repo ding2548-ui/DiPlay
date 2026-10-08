@@ -1,10 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="carplay_night_mode">Денний/нічний режим CarPlay</string>
+    <string name="settings_app_appearance">Вигляд застосунку</string>
+    <string name="settings_app_appearance_dark">Темний</string>
+    <string name="settings_app_appearance_light">Світлий</string>
+    <string name="settings_app_appearance_auto">Авто</string>
+    <string name="settings_app_appearance_description">Авто наслідує збережене налаштування денного/нічного режиму CarPlay, а поки CarPlay відкрито — поточний результат. Світлий і темний вигляд залишаються фіксованими та не потребують перепідключення.</string>
+    <string name="settings_switch_to_light_appearance">Перемкнути на світлий вигляд</string>
+    <string name="settings_switch_to_dark_appearance">Перемкнути на темний вигляд</string>
     <string name="carplay_night_system">Як у системі Android</string>
     <string name="carplay_night_ambient">Автоматично (за освітленістю)</string>
     <string name="carplay_night_day">Завжди денний</string>
     <string name="carplay_night_night">Завжди нічний</string>
-    <string name="carplay_night_hint">Збережіть і поверніться до CarPlay. Автоматичний режим використовує поріг і затримку нижче; без датчика світла — налаштування Android.</string>
+    <string name="carplay_night_schedule">За розкладом</string>
+    <string name="carplay_night_start">Початок нічного режиму</string>
+    <string name="carplay_night_end">Кінець нічного режиму</string>
+    <string name="carplay_night_schedule_hint">Використовується місцевий час головного пристрою. Час початку й завершення має відрізнятися; період може переходити через північ.</string>
+    <string name="carplay_night_schedule_same_time">Час початку й завершення має відрізнятися.</string>
+    <string name="carplay_night_hint">Збережіть і поверніться до CarPlay.</string>
+    <string name="carplay_night_ambient_hint">Автоматичний режим використовує поріг і затримку нижче; без датчика світла — налаштування Android.</string>
     <string name="carplay_night_time_note">Автоматичне оформлення CarPlay також враховує час iPhone: уночі навіть режим «Завжди денний» може залишатися темним.</string>
 </resources>

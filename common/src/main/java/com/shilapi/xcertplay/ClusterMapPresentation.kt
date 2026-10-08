@@ -43,6 +43,8 @@ internal class ClusterMapPresentation(
 ) : Presentation(context, display) {
     private var waitingLabel: TextView? = null
     private var turnCardView: ClusterTurnCardView? = null
+    private var videoView: View? = null
+    private var streamActive = false
     var outputSurface: Surface? = null
         private set
     var mapVisible = true
@@ -56,7 +58,7 @@ internal class ClusterMapPresentation(
         val dark = DiLink51ClusterLayout.dark(context, theme)
         val backdrop = if (dark) Color.rgb(15, 22, 30) else Color.rgb(207, 218, 229)
         val root = FrameLayout(context).apply {
-            setBackgroundColor(if (plan == null) Color.BLACK else if (plan.fullMap) backdrop else Color.TRANSPARENT)
+            setBackgroundColor(if (plan == null) Color.rgb(233, 238, 246) else if (plan.fullMap) backdrop else Color.TRANSPARENT)
         }
         if (plan != null) {
             window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
@@ -91,6 +93,7 @@ internal class ClusterMapPresentation(
                 }
             }
             root.addView(textureView, videoParams)
+            videoView = textureView
             if (plan.fullMap) root.addView(InstrumentContrastView(context, plan, backdrop), FrameLayout.LayoutParams(-1, -1))
             Log.i(TAG, "layout=$theme viewport=$plan source=${plan.sourceLeft},${plan.sourceTop} dark=$dark")
         } else {
@@ -115,22 +118,49 @@ internal class ClusterMapPresentation(
                 }
             })
             root.addView(surfaceView, videoParams)
+            videoView = surfaceView
         }
         waitingLabel = TextView(context).apply {
             text = context.getString(R.string.cluster_waiting_for_map)
-            setTextColor(if (plan != null && !dark) Color.DKGRAY else Color.WHITE)
+            setTextColor(if (plan != null && dark) Color.WHITE else Color.DKGRAY)
+            if (plan == null) setBackgroundColor(Color.rgb(233, 238, 246))
             textSize = 26f
             gravity = Gravity.CENTER
         }
         root.addView(waitingLabel, FrameLayout.LayoutParams(videoParams))
         turnCardView = ClusterTurnCardView(context).apply { visibility = View.GONE }
         root.addView(turnCardView, FrameLayout.LayoutParams(-1, -1))
+        // Start with the placeholder visible; SurfaceView would otherwise cover the light
+        // backdrop with an empty black surface before the first stream notification.
+        // SurfaceView ignores fractional alpha before API 34. Keep its decoder surface
+        // visible and fade an opaque ordinary View over it instead.
+        if (videoView !is SurfaceView) videoView?.alpha = if (streamActive) 1f else 0f
+        waitingLabel?.apply {
+            alpha = if (streamActive) 0f else 1f
+            visibility = if (streamActive) View.GONE else View.VISIBLE
+        }
         setContentView(root)
     }
 
-    /** Hides the placeholder once the phone streams the cluster screen. */
+    /**
+     * Cross-fades the waiting placeholder over the live map. TextureView can also fade the
+     * video; legacy SurfaceView stays visible under the placeholder to preserve its surface.
+     */
     fun setStreamActive(active: Boolean) {
-        waitingLabel?.visibility = if (active) View.GONE else View.VISIBLE
+        if (streamActive == active) return
+        // Update before cancelling: a cancelled fade must not hide the newly restored label.
+        streamActive = active
+        val video = videoView
+        val label = waitingLabel
+        video?.animate()?.cancel()
+        label?.animate()?.cancel()
+        if (video == null || label == null) return
+        label.visibility = View.VISIBLE
+        // Animate from the current opacity so a stream reversal does not jump or restart.
+        if (video !is SurfaceView) video.animate().alpha(if (active) 1f else 0f).setDuration(300).start()
+        label.animate().alpha(if (active) 0f else 1f).setDuration(300).withEndAction {
+            if (streamActive == active) label.visibility = if (active) View.GONE else View.VISIBLE
+        }.start()
     }
 
     /** Window alpha hides the pixels without destroying the TextureView/decoder surface. */
@@ -173,9 +203,8 @@ internal class ClusterMapPresentation(
                 if (DiLink51ClusterLayout.supported()) return null
                 displays.firstOrNull { display ->
                     val size = sizeOf(display)
-                    DiLink4ClusterDisplay.matches(display.name, size.x, size.y)
-                }?.let { return it }
-                return probeClusterDisplay(displays.toList())
+                    DiLink4ClusterDisplay.accepts(display.name, size.x, size.y)
+                }
             }
             return displays.firstOrNull { it.name == name }?.takeIf {
                 if (!DiLink51ClusterLayout.supported()) true else {

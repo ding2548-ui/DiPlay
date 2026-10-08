@@ -65,4 +65,20 @@ class StreamReceiveStatsTest {
         assertTrue(output.last().contains("packets=1 bytes=20 readMaxMs=0"))
         assertTrue(output.last().contains("seqForwardGaps=1"))
     }
+
+    @Test fun decryptTimingIsReportedOnlyWhenRecordedAndThenReset() {
+        var clock = 0L
+        val output = mutableListOf<String>()
+        val stats = StreamReceiveStats("video", output::add) { clock }
+        stats.received(1_000)
+        stats.decrypted(2_000_000, 500_000)
+        stats.decrypted(500_000, 250_000)
+        stats.processed()
+        clock = 5_000_000_000L
+        stats.flush()
+        assertTrue(output.last().endsWith(" decryptAvgUs=1250 decryptMaxUs=2000 decryptMBps=300"))
+        clock = 10_000_000_000L
+        stats.flush()
+        assertTrue(!output.last().contains("decrypt"))
+    }
 }

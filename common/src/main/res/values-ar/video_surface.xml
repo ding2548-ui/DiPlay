@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture_surface_output_unavailable">تعديلات الصورة غير متاحة مع إخراج الفيديو المستخدم لهذه الشاشة. ستبقى تعديلاتك المحفوظة كما هي.</string>
+</resources>

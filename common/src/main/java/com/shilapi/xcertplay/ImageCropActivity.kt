@@ -35,12 +35,18 @@ class ImageCropActivity : Activity() {
     private lateinit var cropView: SquareCropView
     private lateinit var statusView: TextView
 
+    private var interfaceOverride: android.content.res.Configuration? = null
+
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(AppLocale.wrap(newBase))
+        val base = AppLocale.wrap(newBase)
+        super.attachBaseContext(base)
+        interfaceOverride = InterfaceSize.attach(this, base)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLocale.enforce(this)
+        interfaceOverride?.let { InterfaceSize.enforce(resources, it) }
         val uri = intent.data
         if (uri == null) {
             finish()

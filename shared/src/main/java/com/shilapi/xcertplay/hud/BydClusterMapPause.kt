@@ -22,10 +22,6 @@ internal object BydClusterMapPause {
     private val shell = BydAdbShell(TAG)
     @Volatile private var context: Context? = null
 
-    // Only the ticker thread touches this, so nothing blocking ever runs under a lock that
-    // initialize() or the UI needs.
-    private var lastMode: BydClusterNaviMode? = null
-
     /** Whether DiPlay's map window is on the cluster. */
     @Volatile var clusterMapShown = false
 
@@ -36,6 +32,13 @@ internal object BydClusterMapPause {
     @Volatile internal var readMode: (Context) -> BydClusterNaviMode? = { app ->
         BydClusterNaviMode.parseRead(shell.run(app, BydClusterNaviMode.READ_COMMAND))
     }
+
+    /** Latest wheel-menu navi mode from ADB, or null when it cannot be read. */
+    @Volatile var lastNaviMode: BydClusterNaviMode? = null
+        private set
+
+    /** Called on the ticker thread whenever the ADB navi mode changes, including to unknown. */
+    @Volatile var onNaviMode: ((BydClusterNaviMode?) -> Unit)? = null
 
     /** Never waits for the ticker: an adb read in flight does not hold up opening or reconnecting. */
     fun initialize(appContext: Context) {
@@ -50,18 +53,22 @@ internal object BydClusterMapPause {
     private fun tick() {
         val app = context ?: return
         val control = streamControl
-        if (control == null || !clusterMapShown || !BydOutputSettings.clusterStreamPause(app)) {
+        val pauseMap = control != null && clusterMapShown && BydOutputSettings.clusterStreamPause(app)
+        val followNavi = onNaviMode != null
+        if (!pauseMap && !followNavi) {
             control?.invoke(true)
             shell.close()
-            lastMode = null
+            lastNaviMode = null
             return
         }
         val mode = readMode(app)
-        if (mode != lastMode) {
-            lastMode = mode
+        if (mode != lastNaviMode) {
+            lastNaviMode = mode
             Log.i(TAG, "cluster mode ${mode?.label ?: "unknown"}")
+            onNaviMode?.invoke(mode)
         }
+        // Following the layout must not keep a previous pause latched after it is disabled.
         // An unknown mode keeps the map streaming, as without ADB.
-        control(mode?.showsMap != false)
+        control?.invoke(!pauseMap || mode?.showsMap != false)
     }
 }

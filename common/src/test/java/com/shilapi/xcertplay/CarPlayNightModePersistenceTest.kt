@@ -40,13 +40,22 @@ class CarPlayNightModePersistenceTest {
         }
     }
 
-    @Test fun allFourModesRoundTripWithoutChangingOtherPreferences() {
+    @Test fun allModesRoundTripWithoutChangingOtherPreferences() {
         AirPlayPersistence.saveFps(context, 60)
         for (mode in CarPlayNightMode.entries) {
             AirPlayPersistence.saveCarPlayNightMode(context, mode)
             assertEquals(mode, AirPlayPersistence.loadCarPlayNightMode(context))
             assertEquals(60, AirPlayPersistence.loadFps(context))
         }
+    }
+    @Test fun scheduleTimesPersistAndInvalidStoredMinutesUseDefaults() {
+        assertEquals(CarPlayNightSchedule(), AirPlayPersistence.loadCarPlayNightSchedule(context))
+        val custom = CarPlayNightSchedule(19 * 60 + 30, 5 * 60 + 15)
+        AirPlayPersistence.saveCarPlayNightSchedule(context, custom)
+        assertEquals(custom, AirPlayPersistence.loadCarPlayNightSchedule(context))
+        prefs.edit().putInt("carplay_night_start_minute", -1)
+            .putInt("carplay_night_end_minute", 24 * 60).apply()
+        assertEquals(CarPlayNightSchedule(), AirPlayPersistence.loadCarPlayNightSchedule(context))
     }
     @Test fun existingSavedDefaultsAreNotOverwritten() {
         prefs.edit().putInt("ambient_delay_seconds", 5).putInt("ambient_lux_threshold", 50).commit()

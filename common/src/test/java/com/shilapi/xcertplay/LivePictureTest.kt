@@ -80,4 +80,46 @@ class LivePictureTest {
         assertEquals(100, CarPlayPicture.value(CarPlayPicture.preferences(context), CarPlayPicture.CONTRAST))
         assertEquals(100, contrast.progress)
     }
+
+    @Test fun compatibleSurfaceOutputExplainsUnavailableControlsAndKeepsPreferences() {
+        CarPlayPicture.preferences(context).edit().putInt(CarPlayPicture.CONTRAST, 125).commit()
+        var closed = false
+        val panel = CarPlayPicturePanel(context, adjustmentsAvailable = false) { closed = true }
+        fun descendants(view: View): List<View> = listOf(view) +
+            if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) }
+            else emptyList()
+        val views = descendants(panel)
+        assertTrue(views.filterIsInstance<android.widget.TextView>().any {
+            it.text == context.getString(R.string.picture_surface_output_unavailable)
+        })
+        assertTrue(views.filterIsInstance<SeekBar>().all { !it.isEnabled })
+        assertFalse(views.filterIsInstance<Switch>().single().isEnabled)
+        val reset = views.filterIsInstance<Button>().single { it.text == context.getString(R.string.picture_reset) }
+        assertFalse(reset.isEnabled)
+        reset.performClick()
+        assertEquals(125, CarPlayPicture.value(CarPlayPicture.preferences(context), CarPlayPicture.CONTRAST))
+        views.filterIsInstance<Button>().single { it.text == context.getString(R.string.picture_done) }.performClick()
+        assertTrue(closed)
+    }
+
+    @Test fun picturePanelUsesAndCanRepaintToTheLightOverlayPalette() {
+        val panel = CarPlayPicturePanel(context, initialPalette = DiPlayPalette.LIGHT) {}
+        fun descendants(view: View): List<View> = listOf(view) +
+            if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) }
+            else emptyList()
+
+        assertEquals(
+            DiPlayPalette.LIGHT.overlayBackground,
+            (panel.background as android.graphics.drawable.ColorDrawable).color,
+        )
+        assertTrue(descendants(panel).filterIsInstance<android.widget.TextView>()
+            .filterNot { it is Button }
+            .all { it.currentTextColor == DiPlayPalette.LIGHT.overlayPrimaryText })
+
+        panel.applyPalette(DiPlayPalette.DARK)
+        assertEquals(
+            DiPlayPalette.DARK.overlayBackground,
+            (panel.background as android.graphics.drawable.ColorDrawable).color,
+        )
+    }
 }

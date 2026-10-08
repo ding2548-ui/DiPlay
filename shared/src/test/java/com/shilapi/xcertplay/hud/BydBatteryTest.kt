@@ -106,11 +106,28 @@ class BydBatteryTest {
     }
 
     @Test
+    fun readsSysCarProtocolWhenRoIsEmpty() {
+        // A 2024 Tang on DiLink 5 (dynasty di5, 2025 firmware) sets only sys.car.protocol.
+        val reading = BydBattery.read { command ->
+            when (command) {
+                "getprop ro.car.protocol" -> "\n"
+                "getprop sys.car.protocol" -> "CANFD\n"
+                else -> car.entries.firstOrNull { command.endsWith(" ${it.key}") }?.value
+            }
+        }!!
+        assertEquals(BydBatteryProtocol.CANFD, reading.protocol)
+        assertEquals(150, reading.rangeKm)
+    }
+
+    @Test
     fun missingOrUnknownProtocolNeverFallsBackToCanfd() {
         for (protocol in listOf(null, "", "\r\n", "SOMEIP", "error: closed")) {
             val commands = mutableListOf<String>()
             assertNull(BydBattery.read { command -> commands.add(command); protocol })
-            assertEquals(listOf("getprop ro.car.protocol"), commands)
+            // A blank ro.car.protocol also asks sys.car.protocol; an unknown value is not second-guessed.
+            val asked = if (protocol.isNullOrBlank()) listOf("getprop ro.car.protocol", "getprop sys.car.protocol")
+                else listOf("getprop ro.car.protocol")
+            assertEquals(asked, commands)
         }
     }
 

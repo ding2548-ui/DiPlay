@@ -22,6 +22,14 @@ class AudioChannelPersistenceTest {
     @Test fun freshInstallUsesAutomaticRouting() {
         assertEquals(0, AirPlayPersistence.loadMediaAudioChannel(context))
         assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
+        org.junit.Assert.assertTrue(AirPlayPersistence.loadAudioFocusAutoYield(context))
+    }
+
+    @Test fun audioFocusAutoYieldCanBeSavedAndRestored() {
+        AirPlayPersistence.saveAudioFocusAutoYield(context, false)
+        org.junit.Assert.assertFalse(AirPlayPersistence.loadAudioFocusAutoYield(context))
+        AirPlayPersistence.saveAudioFocusAutoYield(context, true)
+        org.junit.Assert.assertTrue(AirPlayPersistence.loadAudioFocusAutoYield(context))
     }
 
     @Test fun legacyNavigationChannelIsInheritedWithoutChangingMedia() {

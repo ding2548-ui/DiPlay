@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carapp_hw_status_title">xcertplay 硬體狀態</string>
+    <string name="carapp_hw_not_configured">尚未設定硬體傳輸方式。內建 I2C 需要 /dev/i2c-N 路徑及作業系統／SELinux 權限；CH341 需要已設定的 VID/PID。</string>
+</resources>

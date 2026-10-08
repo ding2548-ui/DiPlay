@@ -7,12 +7,15 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AudioEffect
 import com.shilapi.xcertplay.airplay.AudioStreamId
+import com.shilapi.xcertplay.airplay.AudioFormat
+import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -212,6 +215,169 @@ class TelephonyMicrophoneTest {
         assertTrue(ShadowLog.getLogsForTag("xcertplay-usb").any { it.msg.contains("microphone start failed") })
     }
 
+    @Test fun telephonyKeepsRecordingWhenTheEchoCancellerLibraryIsMissing() {
+        sink.close()
+        sink = AndroidMediaSink(context = context, callEchoCancellation = true)
+        registerCallDownlink()
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        assertEquals(AudioRecord.RECORDSTATE_RECORDING, awaitCapture().recordingState)
+        assertTrue(microphoneLog(), microphoneLog().contains("microphone echo canceller enabled=false"))
+        sink.onMicrophoneStopped(telephony)
+    }
+
+    @Test fun defaultCallCaptureKeepsPlatformEffectsWithoutStartingExperimentalProcessing() {
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        assertEquals(AudioRecord.RECORDSTATE_RECORDING, awaitCapture().recordingState)
+        assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
+        assertFalse(microphoneLog().contains("echo canceller"))
+    }
+
+    @Test fun softwareCallCaptureDisablesPlatformAecBeforeProcessingAndReleasesBothOnClose() {
+        val fake = FakeCallEchoCanceller()
+        provideCallFrame()
+        val uplink = MicrophoneUplink(config("telephony"), echoReference = EchoReference(16_000),
+            echoCancellerFactory = { _, _, _ -> fake })
+        try {
+            assertTrue(uplink.start())
+            awaitCapture()
+            assertTrue(fake.processed.await(5, TimeUnit.SECONDS))
+            assertEquals(false, fake.platformAecEnabledAtProcessing)
+            val effects = ShadowAudioEffect.getAudioEffects()
+            assertFalse(effects.single { it is AcousticEchoCanceler }.enabled)
+            assertTrue(effects.single { it.javaClass.simpleName == "NoiseSuppressor" }.enabled)
+            effects.forEach { assertEquals(recorder.get()!!.audioSessionId, Shadow.extract<ShadowAudioEffect>(it).audioSession) }
+        } finally { uplink.close() }
+        assertTrue(fake.closed)
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+        assertEquals(AudioRecord.STATE_UNINITIALIZED, recorder.get()!!.state)
+    }
+
+    @Test fun softwareProcessingFailureRestoresPlatformAecAndKeepsTheSameRecorderRunning() {
+        val fake = FakeCallEchoCanceller(succeeds = false)
+        val nextRead = CountDownLatch(1)
+        provideCallFrame(nextRead)
+        val uplink = MicrophoneUplink(config("telephony"), echoReference = EchoReference(16_000),
+            echoCancellerFactory = { _, _, _ -> fake })
+        try {
+            assertTrue(uplink.start())
+            val record = awaitCapture()
+            // The next read is reached only after processing/fallback and packet sending finish.
+            assertTrue(nextRead.await(5, TimeUnit.SECONDS))
+            assertEquals(false, fake.platformAecEnabledAtProcessing)
+            assertTrue(fake.closed)
+            assertEquals(AudioRecord.RECORDSTATE_RECORDING, record.recordingState)
+            assertTrue(ShadowAudioEffect.getAudioEffects().all { it.enabled })
+            assertTrue(microphoneLog().contains("platform AEC restored"))
+        } finally { uplink.close() }
+    }
+
+    @Test fun failedPlatformAecDisableKeepsTheOriginalCallEffectsAndClosesSoftware() {
+        ConfigurableAudioEffect.disableStatus = AudioEffect.ERROR_INVALID_OPERATION
+        val fake = FakeCallEchoCanceller()
+        val uplink = MicrophoneUplink(config("telephony"), echoReference = EchoReference(16_000),
+            echoCancellerFactory = { _, _, _ -> fake })
+        try {
+            assertTrue(uplink.start())
+            awaitCapture()
+            assertTrue(fake.closed)
+            assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
+            assertTrue(ShadowAudioEffect.getAudioEffects().all { it.enabled })
+            assertTrue(microphoneLog().contains("platform AEC could not be disabled"))
+            assertTrue(microphoneLog().contains("microphone echo canceller enabled=false"))
+        } finally { uplink.close() }
+    }
+
+    @Test fun unmatchedCallRatesAndStereoCaptureKeepPlatformAecWithoutCreatingSoftware() {
+        var created = 0
+        for (captureConfig in listOf(config("telephony").copy(sampleRate = 48_000),
+                config("telephony").copy(channels = 2))) {
+            val uplink = MicrophoneUplink(captureConfig, echoReference = EchoReference(16_000),
+                echoCancellerFactory = { _, _, _ -> created++; FakeCallEchoCanceller() })
+            try {
+                assertTrue(uplink.start())
+                assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
+                assertTrue(ShadowAudioEffect.getAudioEffects().all { it.enabled })
+            } finally { uplink.close() }
+        }
+        assertEquals(0, created)
+    }
+
+    @Test fun eachCallDownlinkOwnsItsReferenceAndReplacementsDoNotReuseOldPcm() {
+        sink.close()
+        sink = AndroidMediaSink(context = context, callEchoCancellation = true)
+        registerCallDownlink()
+        val second = AudioStreamId(101, "telephony")
+        registerCallDownlink(second)
+        val references = org.robolectric.util.ReflectionHelpers.getField<Map<AudioStreamId, EchoReference>>(sink, "callEchoReferences")
+        val firstReference = references.getValue(telephony)
+        assertNotSame(firstReference, references.getValue(second))
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        awaitCapture()
+        val uplinks = org.robolectric.util.ReflectionHelpers.getField<Map<AudioStreamId, MicrophoneUplink>>(sink, "microphoneUplinks")
+        assertSame(firstReference, org.robolectric.util.ReflectionHelpers.getField<EchoReference>(uplinks.getValue(telephony), "echoReference"))
+
+        sink.onAudioStopped(second)
+        assertEquals(setOf(telephony), references.keys)
+        sink.onMicrophoneStopped(telephony)
+        sink.onAudioStopped(telephony)
+        assertTrue(references.isEmpty())
+        registerCallDownlink()
+        assertNotSame(firstReference, references.getValue(telephony))
+        sink.close()
+        assertTrue(references.isEmpty())
+    }
+
+    @Test fun actualDownlinkRateMismatchKeepsThePlatformCallPath() {
+        sink.close()
+        sink = AndroidMediaSink(context = context, callEchoCancellation = true)
+        registerCallDownlink()
+        sink.onMicrophoneStarted(telephony, config("telephony").copy(sampleRate = 48_000))
+        awaitCapture()
+        assertTrue(microphoneLog(), microphoneLog().contains("echo canceller skipped rate=48000"))
+        assertTrue(ShadowAudioEffect.getAudioEffects().all { it.enabled })
+    }
+
+    private fun registerCallDownlink(id: AudioStreamId = telephony) {
+        // Register the real renderer through its production callback without starting a playback
+        // worker: these tests check capture ownership, not whether Robolectric renders audio.
+        sink.onAudioRtp(id, AudioFormat(AudioCodecKind.LPCM, 16_000, 1, id.type, "telephony"), byteArrayOf(), 0)
+    }
+
+    private fun provideCallFrame(nextRead: CountDownLatch? = null) {
+        val produced = AtomicBoolean()
+        ShadowAudioRecord.setSourceProvider { record ->
+            recorder.compareAndSet(null, record)
+            readStarted.countDown()
+            object : ShadowAudioRecord.AudioRecordSource {
+                override fun readInByteArray(buffer: ByteArray, offset: Int, size: Int, blocking: Boolean): Int {
+                    if (produced.compareAndSet(false, true)) return config("telephony").frameBytes
+                    nextRead?.countDown()
+                    Thread.sleep(5)
+                    return 0
+                }
+            }
+        }
+    }
+
+    private class FakeCallEchoCanceller(private val succeeds: Boolean = true) : CallEchoCanceller {
+        override val frameSamples = 320
+        val processed = CountDownLatch(1)
+        @Volatile var closed = false
+        @Volatile var platformAecEnabledAtProcessing: Boolean? = null
+        override fun process(frame: ByteArray, reference: ShortArray): Boolean {
+            platformAecEnabledAtProcessing = ShadowAudioEffect.getAudioEffects().filterIsInstance<AcousticEchoCanceler>().singleOrNull()?.enabled
+            processed.countDown()
+            return succeeds
+        }
+        override fun close() { closed = true }
+    }
+
+    @Test fun speechRecognitionNeverStartsTheEchoCanceller() {
+        sink.onMicrophoneStarted(speechRecognition, config("speechrecognition"))
+        awaitCapture()
+        assertFalse(microphoneLog().contains("echo canceller"))
+    }
+
     private fun awaitCapture(): AudioRecord {
         assertTrue("Microphone capture did not start", readStarted.await(5, TimeUnit.SECONDS))
         return requireNotNull(recorder.get())
@@ -236,14 +402,17 @@ class TelephonyMicrophoneTest {
     class ConfigurableAudioEffect : ShadowAudioEffect() {
         @Implementation
         override fun native_setEnabled(enabled: Boolean): Int =
-            if (enableStatus == AudioEffect.SUCCESS) super.native_setEnabled(enabled) else enableStatus
+            if (!enabled && disableStatus != AudioEffect.SUCCESS) disableStatus
+            else if (enableStatus == AudioEffect.SUCCESS) super.native_setEnabled(enabled) else enableStatus
 
         companion object {
             var enableStatus = AudioEffect.SUCCESS
+            var disableStatus = AudioEffect.SUCCESS
 
             @Resetter @JvmStatic
             fun resetStatus() {
                 enableStatus = AudioEffect.SUCCESS
+                disableStatus = AudioEffect.SUCCESS
             }
         }
     }

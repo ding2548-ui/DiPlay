@@ -26,7 +26,8 @@ internal data class BydBatteryReading(
 
 /**
  * Reads the traction battery through the adb shell (autoservice binder), where apps would need a BYD
- * signature. The head unit's ro.car.protocol selects the SDK addresses, not its Android version.
+ * signature. The head unit's ro.car.protocol (or sys.car.protocol) selects the SDK addresses, not its
+ * Android version.
  */
 internal object BydBattery {
     private const val REMAINING = "service call autoservice 7 i32 1005 i32 882901008" // float kWh
@@ -34,7 +35,10 @@ internal object BydBattery {
 
     /** Unknown protocols give no reading; CAN has no verified remaining-energy address. */
     fun read(shell: (String) -> String?): BydBatteryReading? {
-        val protocol = when (shell("getprop ro.car.protocol")?.trim()) {
+        // Most firmware sets ro.car.protocol; the Tang's DiLink 5 (dynasty di5, 2025) sets only sys.car.protocol.
+        val property = shell("getprop ro.car.protocol")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: shell("getprop sys.car.protocol")?.trim()
+        val protocol = when (property) {
             "CAN" -> BydBatteryProtocol.CAN
             "CANFD" -> BydBatteryProtocol.CANFD
             else -> return null

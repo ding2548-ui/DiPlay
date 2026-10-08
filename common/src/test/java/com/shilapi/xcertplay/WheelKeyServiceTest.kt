@@ -6,12 +6,19 @@ import android.media.AudioManager
 import android.os.Looper
 import android.view.KeyEvent
 import android.widget.Button
+import com.shilapi.xcertplay.hud.BydOutputSettings
+import com.shilapi.xcertplay.hud.BydCarPlayCall
+import com.shilapi.xcertplay.hud.CarPlayCallState
+import com.shilapi.xcertplay.iap2.message.Iap2Messages
+import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.time.Duration
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.Mockito.*
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
@@ -37,7 +44,12 @@ class WheelKeyServiceTest {
         service.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
     }
 
-    @After fun tearDown() { service.onDestroy() }
+    @After fun tearDown() {
+        service.onDestroy()
+        BydOutputSettings.setCarPlayCallControls(service, false)
+        BydCarPlayCall.end()
+        CarPlayBackgroundSession.clear()
+    }
 
     private val knobs = mutableListOf<com.shilapi.xcertplay.airplay.AirPlayKnobState>()
     private var phone: Any? = "phone-one"
@@ -58,9 +70,9 @@ class WheelKeyServiceTest {
         service.javaClass.getDeclaredMethod("onServiceConnected").apply { isAccessible = true }.invoke(service)
     }
 
-    private fun key(code: Int, down: Boolean, repeat: Int = 0): Boolean = service.javaClass
+    private fun key(code: Int, down: Boolean, repeat: Int = 0, time: Long = 0): Boolean = service.javaClass
         .getDeclaredMethod("onKeyEvent", KeyEvent::class.java).apply { isAccessible = true }.invoke(service,
-            KeyEvent(0, 0, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code, repeat, 0, -1, 0),
+            KeyEvent(time, time, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code, repeat, 0, -1, 0),
         ) as Boolean
 
     private fun zoomOn() {
@@ -79,7 +91,7 @@ class WheelKeyServiceTest {
         assertFalse(key(KeyEvent.KEYCODE_F3, true))
         assertFalse(key(KeyEvent.KEYCODE_F3, false))
         assertEquals(0, learned)
-        assertEquals(KeyEvent.KEYCODE_F1, WheelZoomSettings.key(service, WheelZoomSettings.Role.MODE).code)
+        assertEquals(KeyEvent.KEYCODE_F1, WheelZoomSettings.key(service, WheelZoomSettings.Role.MODE)?.code)
     }
 
     @Test fun cancelAndTimeoutDoNotLeaveTheNextKeyCaptured() {
@@ -202,7 +214,157 @@ class WheelKeyServiceTest {
         assertTrue(learn())
         assertEquals(true to true, press(KeyEvent.KEYCODE_F4))
         assertEquals(1, learned)
-        assertEquals(KeyEvent.KEYCODE_F4, WheelZoomSettings.key(service, WheelZoomSettings.Role.MODE).code)
+        assertEquals(KeyEvent.KEYCODE_F4, WheelZoomSettings.key(service, WheelZoomSettings.Role.MODE)?.code)
         assertTrue(knobs.isEmpty())
+    }
+
+    @Test fun experimentalVoiceKeysRemainWithTheCarUntilOptIn() {
+        service.session = { "active-phone" }
+        BydOutputSettings.setCarPlayCallControls(service, false)
+        assertEquals(false to false, press(327))
+        assertEquals(false to false, press(328))
+        BydOutputSettings.setCarPlayCallControls(service, true)
+        assertEquals(true to true, press(327))
+        assertEquals(true to true, press(328))
+        BydOutputSettings.setCarPlayCallControls(service, false)
+        assertEquals(false to false, press(327))
+    }
+
+    @Test
+    fun theAllowedListKeepsOtherServicesAndRebindsAListedButStoppedService() {
+        val ours = "com.shihab.diplay/com.shilapi.xcertplay.WheelKeyService"
+        val car = "com.byd.airconditioning/.gesture.AcGestureService:com.android.systemui/.custom.StatusBarAccessibilityService"
+        assertEquals(null to "$car:$ours", WheelKeyService.allowedServices("$car\n", ours))
+        assertEquals(car to "$car:$ours", WheelKeyService.allowedServices("$ours:$car", ours))
+        assertEquals("" to ours, WheelKeyService.allowedServices(ours, ours))
+        for (empty in listOf("", "null", " \n")) assertEquals(null to ours, WheelKeyService.allowedServices(empty, ours))
+        assertNull(WheelKeyService.allowedServices(null, ours))
+    }
+
+    private var siriRequests = 0
+
+    private fun siriSetUp() {
+        WheelZoomSettings.setEnabled(service, false)
+        WheelZoomSettings.setSiriKey(service, true)
+        WheelZoomSettings.assign(service, WheelZoomSettings.Role.SIRI, WheelKey(KeyEvent.KEYCODE_F6, 0, "?"))
+        service.session = { phone }
+        service.requestSiri = { siriRequests++; true }
+    }
+
+    @Test fun aHeldSiriKeySentAsRepeatedPressesOpensSiriOnce() {
+        siriSetUp()
+        for (time in 0L..500L step 100) {
+            assertTrue(key(KeyEvent.KEYCODE_F6, true, time = time))
+            assertTrue(key(KeyEvent.KEYCODE_F6, false, time = time))
+        }
+        assertEquals(1, siriRequests)
+        assertTrue(key(KeyEvent.KEYCODE_F6, true, time = 2_000))
+        assertTrue(key(KeyEvent.KEYCODE_F6, false, time = 2_000))
+        assertEquals(2, siriRequests)
+    }
+
+    @Test fun siriKeyKeepsTheCarsActionWithoutCarPlayInACallOrWhenOff() {
+        siriSetUp()
+        phone = null
+        assertFalse(key(KeyEvent.KEYCODE_F6, true))
+        assertFalse(key(KeyEvent.KEYCODE_F6, false))
+        phone = "phone-one"
+        service.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
+        assertFalse(key(KeyEvent.KEYCODE_F6, true))
+        assertFalse(key(KeyEvent.KEYCODE_F6, false))
+        service.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
+        WheelZoomSettings.setSiriKey(service, false)
+        assertFalse(key(KeyEvent.KEYCODE_F6, true))
+        assertFalse(key(KeyEvent.KEYCODE_F6, false))
+        WheelZoomSettings.setEnabled(service, true) // the stored Siri key must not come back through the zoom roles
+        assertFalse(key(KeyEvent.KEYCODE_F6, true))
+        assertFalse(key(KeyEvent.KEYCODE_F6, false))
+        assertEquals(0, siriRequests)
+    }
+
+    @Test fun theSiriKeyCanBeLearnedWithOnlyTheSiriSettingOn() {
+        siriSetUp()
+        assertTrue(WheelKeyService.learn(WheelZoomSettings.Role.SIRI) { _, _ -> learned++ })
+        assertTrue(key(KeyEvent.KEYCODE_F7, true))
+        assertTrue(key(KeyEvent.KEYCODE_F7, false))
+        assertEquals(1, learned)
+        assertEquals(KeyEvent.KEYCODE_F7, WheelZoomSettings.key(service, WheelZoomSettings.Role.SIRI)?.code)
+    }
+
+    @Test fun theSiriKeyMatchesOnlyWhileTheSettingIsOn() {
+        siriSetUp()
+        val assigned = WheelKey(KeyEvent.KEYCODE_F6, 0, "?")
+        assertTrue(WheelZoomSettings.isSiriKey(service, assigned))
+        assertFalse(WheelZoomSettings.isSiriKey(service, WheelKey(KeyEvent.KEYCODE_F6, 1, "?")))
+        WheelZoomSettings.setSiriKey(service, false)
+        assertFalse(WheelZoomSettings.isSiriKey(service, assigned))
+    }
+
+    @Test fun theSiriKeyRefusesAKeyThatAnActiveRoleUses() {
+        WheelZoomSettings.setSiriKey(service, true)
+        WheelZoomSettings.assign(service, WheelZoomSettings.Role.SIRI, WheelKey(KeyEvent.KEYCODE_F6, 0, "?"))
+        var taken: WheelZoomSettings.Role? = null
+        assertTrue(WheelKeyService.learn(WheelZoomSettings.Role.SIRI, refused = { taken = it }) { _, _ -> learned++ })
+        assertTrue(key(KeyEvent.KEYCODE_F1, true))
+        assertTrue(key(KeyEvent.KEYCODE_F1, false))
+        assertEquals(WheelZoomSettings.Role.MODE, taken)
+        assertEquals(0, learned)
+        assertEquals(KeyEvent.KEYCODE_F6, WheelZoomSettings.key(service, WheelZoomSettings.Role.SIRI)?.code)
+    }
+
+    @Test fun aZoomKeyRefusesTheSiriKey() {
+        WheelZoomSettings.setSiriKey(service, true)
+        WheelZoomSettings.assign(service, WheelZoomSettings.Role.SIRI, WheelKey(KeyEvent.KEYCODE_F6, 0, "?"))
+        var taken: WheelZoomSettings.Role? = null
+        assertTrue(WheelKeyService.learn(WheelZoomSettings.Role.MODE, refused = { taken = it }) { _, _ -> learned++ })
+        assertTrue(key(KeyEvent.KEYCODE_F6, true))
+        assertTrue(key(KeyEvent.KEYCODE_F6, false))
+        assertEquals(WheelZoomSettings.Role.SIRI, taken)
+        assertEquals(KeyEvent.KEYCODE_F1, WheelZoomSettings.key(service, WheelZoomSettings.Role.MODE)?.code)
+    }
+
+    @Test fun onlyConflictsWithAnActiveSiriKeyAreRefused() {
+        val mode = WheelKey(KeyEvent.KEYCODE_F1, 0, "?")
+        // Zoom and joystick keep their own rules; the Siri setting is off.
+        assertNull(WheelZoomSettings.conflict(service, WheelZoomSettings.Role.ZOOM_IN, mode))
+        WheelZoomSettings.setSiriKey(service, true)
+        assertEquals(WheelZoomSettings.Role.MODE, WheelZoomSettings.conflict(service, WheelZoomSettings.Role.SIRI, mode))
+        WheelZoomSettings.setEnabled(service, false)
+        assertNull(WheelZoomSettings.conflict(service, WheelZoomSettings.Role.SIRI, mode))
+    }
+
+    @Test fun theSiriKeyWinsOverAnotherRoleWithTheSameKey() {
+        siriSetUp()
+        // MODE keeps F1 while zoom is off, so learning allowed the same key for Siri.
+        WheelZoomSettings.assign(service, WheelZoomSettings.Role.SIRI, WheelKey(KeyEvent.KEYCODE_F1, 0, "?"))
+        assertTrue(key(KeyEvent.KEYCODE_F1, true, time = 0))
+        assertTrue(key(KeyEvent.KEYCODE_F1, false, time = 0))
+        assertEquals(1, siriRequests)
+        // Zoom turned on later still leaves the key to Siri.
+        WheelZoomSettings.setEnabled(service, true)
+        assertTrue(key(KeyEvent.KEYCODE_F1, true, time = 1_000))
+        assertTrue(key(KeyEvent.KEYCODE_F1, false, time = 1_000))
+        assertEquals(2, siriRequests)
+    }
+
+    @Test fun aHeldSiriCallKeyCannotEndTheCallThatArrivesBeforeItsRelease() {
+        siriSetUp()
+        val controller = mock(CarPlayController::class.java)
+        `when`(controller.activeAirPlaySessionToken()).thenReturn(Any())
+        CarPlayBackgroundSession.store(controller, mock(AndroidMediaSink::class.java), 1, 1,
+            this, mock(CarPlaySessionDisplay::class.java)) { it() }
+        BydOutputSettings.setCarPlayCallControls(service, true)
+        WheelZoomSettings.assign(service, WheelZoomSettings.Role.SIRI, WheelKey(KeyEvent.KEYCODE_ENDCALL, 0, "?"))
+        assertTrue(key(KeyEvent.KEYCODE_ENDCALL, true))
+        assertEquals(1, siriRequests)
+        BydCarPlayCall.onFrame(Iap2Messages.buildRaw(CarPlayCallState.CALL_STATE_UPDATE) {
+            u8(2, 4); string(4, "new-call")
+        })
+        assertTrue(key(KeyEvent.KEYCODE_ENDCALL, false))
+        verify(controller, never()).endCall()
+        assertTrue(key(KeyEvent.KEYCODE_ENDCALL, true))
+        assertTrue(key(KeyEvent.KEYCODE_ENDCALL, false))
+        verify(controller, times(1)).endCall()
+        assertEquals(1, siriRequests)
     }
 }

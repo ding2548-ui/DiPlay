@@ -1,12 +1,12 @@
 package com.shilapi.xcertplay.mfi
 
+import com.shilapi.xcertplay.compat.Base64Compat
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.util.Base64
 import java.util.UUID
 import com.shilapi.xcertplay.iap2.message.Iap2AuthenticationMessages
 
@@ -92,7 +92,7 @@ class RemoteMfiAuthenticationClient(
             )
         }
         val requestId = UUID.randomUUID().toString()
-        val encodedChallenge = Base64.getEncoder().encodeToString(challenge.copyOf())
+        val encodedChallenge = Base64Compat.encode(challenge.copyOf())
         val response = request(
             method = "POST",
             path = SIGN_PATH,
@@ -255,7 +255,7 @@ class RemoteMfiAuthenticationClient(
     }
 
     private fun decodeBase64(encoded: String, field: String): ByteArray = try {
-        Base64.getDecoder().decode(encoded)
+        Base64Compat.decode(encoded)
     } catch (failure: IllegalArgumentException) {
         throw MfiInvalidDataException("Remote $field is not valid base64", failure)
     }

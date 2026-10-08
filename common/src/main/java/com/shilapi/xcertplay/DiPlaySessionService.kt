@@ -22,25 +22,17 @@ class DiPlaySessionService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        val manager = getSystemService(NotificationManager::class.java)
-        // NotificationChannel and the channelId Builder overload are API 26. This head unit is
-        // API 25, where the class does not exist: touching it throws NoSuchMethodError / NoClassDef
-        // FoundError, an Error, so it would kill the process instead of degrading. Android 7 has no
-        // channels at all and shows the single notification as-is.
-        val channels = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        if (channels) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL, "CarPlay connection", NotificationManager.IMPORTANCE_LOW),
-            )
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(NotificationChannel(CHANNEL, "CarPlay connection", NotificationManager.IMPORTANCE_LOW))
+            Notification.Builder(this, CHANNEL)
+        } else {
+            // Android 7.x has no notification channels; the priority stands in for the channel importance.
+            @Suppress("DEPRECATION")
+            Notification.Builder(this).setPriority(Notification.PRIORITY_LOW)
         }
         val open = PendingIntent.getActivity(this, 0, Intent(this, CarPlayHostActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = if (channels) {
-            Notification.Builder(this, CHANNEL)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
         val notification = builder
             .setSmallIcon(R.drawable.ic_diplay_notification)
             .setContentTitle("DiPlay")

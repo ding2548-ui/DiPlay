@@ -70,7 +70,38 @@ class DiLink3ClusterRecoveryTest {
         // Exercise the same serial-worker operation used by the periodic retry.
         worker.submit { ReflectionHelpers.callInstanceMethod<Void>(output, "applyLatest") }
             .get(5, TimeUnit.SECONDS)
-        assertEquals(listOf(BydDiLink3ClusterMode.Mode.PROJECTION.command, stock, stock), Shell.commands.toList())
+        assertEquals(listOf(BydDiLink3ClusterMode.Mode.PROJECTION.entryCommand,
+            BydDiLink3ClusterMode.Mode.PROJECTION.command, stock, stock), Shell.commands.toList())
+        assertFalse(prefs.contains("restore_stock_mode"))
+    }
+
+    @Test fun adbRoutePreservesNativeCastingDuringPreparationMapAndCleanup() {
+        app.getSharedPreferences("xcertplay_airplay", 0).edit()
+            .putBoolean("adb_cluster_activity_enabled", true).commit()
+        output.prepareDisplay(app) { false }
+        output.setDesired(app, mapShown = true, guidanceActive = false)
+        drain()
+        output.setDesired(app, mapShown = false, guidanceActive = true)
+        drain()
+        output.setDesired(app, mapShown = false, guidanceActive = false)
+        drain()
+        assertTrue(Shell.commands.isEmpty())
+        assertFalse(prefs.contains("restore_stock_mode"))
+    }
+
+    @Test fun adbRouteDefersOldRecoveryWithoutDiscardingTheJournal() {
+        prefs.edit().putBoolean("restore_stock_mode", true).commit()
+        app.getSharedPreferences("xcertplay_airplay", 0).edit()
+            .putBoolean("adb_cluster_activity_enabled", true).commit()
+        output.restoreIfNeeded(app)
+        drain()
+        assertTrue(Shell.commands.isEmpty())
+        assertTrue(prefs.getBoolean("restore_stock_mode", false))
+        app.getSharedPreferences("xcertplay_airplay", 0).edit()
+            .putBoolean("adb_cluster_activity_enabled", false).commit()
+        output.restoreIfNeeded(app)
+        drain()
+        assertEquals(listOf(stock), Shell.commands.toList())
         assertFalse(prefs.contains("restore_stock_mode"))
     }
 

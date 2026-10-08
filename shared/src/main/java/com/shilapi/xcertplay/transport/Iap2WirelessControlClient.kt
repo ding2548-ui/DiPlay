@@ -30,6 +30,9 @@ class Iap2WirelessControlClient(
         beforeStartSession: () -> Unit = {},
         onStartSessionSent: (Iap2StartSessionSent) -> Unit = {},
         onIncoming: (Iap2Frame) -> Unit = {},
+        // Evaluated only in the authenticated control loop when its original deadline expires.
+        // The caller must prove that the current CarPlay session is usable before keeping it alive.
+        keepAliveAfterDeadline: () -> Boolean = { false },
         onProgress: (String) -> Unit = {},
     ): Iap2WirelessControlResult {
         require(identification.wireless != null) {
@@ -39,29 +42,29 @@ class Iap2WirelessControlClient(
             "timeoutMillis must be in 1..$MAX_TIMEOUT_MILLIS or NO_TIMEOUT_MILLIS"
         }
 
-        val deadlineNanos = if (timeoutMillis == NO_TIMEOUT_MILLIS) {
-            Long.MAX_VALUE
-        } else {
-            deadlineAfter(timeoutMillis)
-        }
+        val deadline = WirelessControlDeadline(timeoutMillis)
         val identified = identification.withVehicleStatusFrom(vehicleStatusProvider)
         if (identified.vehicleStatusEnabled != identification.vehicleStatusEnabled) {
             onProgress("iap2 no battery reading: not declaring an electric vehicle")
         }
-        Iap2IdentificationClient(session).identify(identified, requireRemaining(deadlineNanos))
+        Iap2IdentificationClient(session).identify(identified, deadline.requireRemaining())
         onProgress("iap2 identification accepted")
         var stage = Iap2WirelessControlStage.IDENTIFIED
 
-        mfi.run(session, requireRemaining(deadlineNanos), onProgress)
+        mfi.run(session, deadline.requireRemaining(), onProgress)
         stage = Iap2WirelessControlStage.AUTHENTICATED
         onProgress("iap2 authentication accepted")
 
         for (subscription in Iap2WiredControlClient.subscriptions()) {
-            send(subscription, deadlineNanos)
+            session.send(subscription, deadline.requireRemaining())
         }
         stage = Iap2WirelessControlStage.SUBSCRIBED
         onProgress("iap2 subscriptions sent")
         onReady()
+
+        fun sendControl(frame: Iap2Frame) {
+            session.send(frame, deadline.requireRemaining(keepAliveAfterDeadline))
+        }
 
         var forwardedFrames = 0
         var wifiConfigurationsSent = 0
@@ -74,7 +77,7 @@ class Iap2WirelessControlClient(
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
             while (true) {
-                val remaining = remainingMillis(deadlineNanos)
+                val remaining = deadline.remainingMillis(keepAliveAfterDeadline)
                 if (remaining == 0L) {
                     return Iap2WirelessControlResult(
                         Iap2WirelessControlTerminal.TIMED_OUT,
@@ -87,8 +90,8 @@ class Iap2WirelessControlClient(
                         wirelessCarPlayAvailableSeen,
                     )
                 }
-                location.tick { send(it, deadlineNanos) }
-                vehicleStatus.tick { send(it, deadlineNanos) }
+                location.tick(::sendControl)
+                vehicleStatus.tick(::sendControl)
                 val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining))
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
@@ -104,7 +107,7 @@ class Iap2WirelessControlClient(
                             wirelessCarPlayAvailableSeen,
                         )
                     }
-                    if (remainingMillis(deadlineNanos) == 0L) {
+                    if (deadline.remainingMillis(keepAliveAfterDeadline) == 0L) {
                         return Iap2WirelessControlResult(
                             Iap2WirelessControlTerminal.TIMED_OUT,
                             stage,
@@ -138,7 +141,7 @@ class Iap2WirelessControlClient(
                                 "iap2 0x5703 ignored: maximum Wi-Fi configuration sends reached",
                             )
                         } else {
-                            send(accessoryWiFiConfiguration(endpoint), deadlineNanos)
+                            sendControl(accessoryWiFiConfiguration(endpoint))
                             stage = later(
                                 stage,
                                 if (postTransport) {
@@ -161,7 +164,7 @@ class Iap2WirelessControlClient(
                         onProgress("iap2 rx=0x4300 carplay-availability")
                         onProgress(carPlayAvailabilityDiagnostic(incoming))
                         beforeStartSession()
-                        sendStartSession(endpoint, { send(it, deadlineNanos) }, onStartSessionSent)
+                        sendStartSession(endpoint, ::sendControl, onStartSessionSent)
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
                         onProgress("iap2 tx=0x4301 carplay-start-session")
@@ -192,7 +195,7 @@ class Iap2WirelessControlClient(
                                     "maximum Wi-Fi configuration sends reached",
                             )
                         } else {
-                            send(accessoryWiFiConfiguration(endpoint), deadlineNanos)
+                            sendControl(accessoryWiFiConfiguration(endpoint))
                             stage = later(
                                 stage,
                                 Iap2WirelessControlStage.POST_TRANSPORT_WIFI_CONFIG_SENT,
@@ -206,12 +209,12 @@ class Iap2WirelessControlClient(
                     }
 
                     Iap2VehicleStatus.START_VEHICLE_STATUS_UPDATES, Iap2VehicleStatus.STOP_VEHICLE_STATUS_UPDATES -> {
-                        vehicleStatus.handle(incoming) { send(it, deadlineNanos) }
+                        vehicleStatus.handle(incoming, ::sendControl)
                     }
 
                     Iap2LocationMessages.START_LOCATION_INFORMATION,
                     Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
-                        location.handle(incoming) { send(it, deadlineNanos) }
+                        location.handle(incoming, ::sendControl)
                     }
 
                     else -> {
@@ -226,10 +229,6 @@ class Iap2WirelessControlClient(
         }
     }
 
-    private fun send(frame: Iap2Frame, deadlineNanos: Long) {
-        session.send(frame, requireRemaining(deadlineNanos))
-    }
-
     companion object {
         private const val REQUEST_ACCESSORY_WIFI_CONFIGURATION = 0x5702
         private const val ACCESSORY_WIFI_CONFIGURATION = 0x5703
@@ -240,10 +239,8 @@ class Iap2WirelessControlClient(
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         private const val MAX_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L
-        private const val MAX_RECV_TIMEOUT_MILLIS = 5 * 60 * 1_000L
         private const val MAX_PRE_TRANSPORT_WIFI_CONFIGURATION_SENDS = 5
         private const val MAX_POST_TRANSPORT_WIFI_CONFIGURATION_SENDS = 2
-        private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** Malformed optional availability metadata must not change existing control behavior. */
         internal fun carPlayAvailabilityDiagnostic(frame: Iap2Frame): String = try {
@@ -285,25 +282,6 @@ class Iap2WirelessControlClient(
             current: Iap2WirelessControlStage,
             next: Iap2WirelessControlStage,
         ): Iap2WirelessControlStage = if (current.ordinal >= next.ordinal) current else next
-
-        private fun deadlineAfter(timeoutMillis: Long): Long {
-            val now = System.nanoTime()
-            val delta = timeoutMillis * NANOS_PER_MILLISECOND
-            return if (Long.MAX_VALUE - now < delta) Long.MAX_VALUE else now + delta
-        }
-
-        private fun requireRemaining(deadlineNanos: Long): Long = remainingMillis(deadlineNanos).also {
-            if (it == 0L) throw IphoneUsbException.TimedOut("Timed out during wireless iAP2 control bring-up")
-        }
-
-        private fun remainingMillis(deadlineNanos: Long): Long {
-            val remaining = deadlineNanos - System.nanoTime()
-            if (remaining <= 0) return 0L
-            return min(
-                MAX_RECV_TIMEOUT_MILLIS,
-                (remaining + NANOS_PER_MILLISECOND - 1) / NANOS_PER_MILLISECOND,
-            )
-        }
     }
 }
 
@@ -389,4 +367,37 @@ internal fun sendStartSession(
 ) {
     send(Iap2WirelessControlClient.carPlayStartSession(endpoint))
     onSent(Iap2StartSessionSent(System.nanoTime()))
+}
+
+/** A bounded bring-up deadline that a proven live session can extend for ongoing control updates. */
+internal class WirelessControlDeadline(timeoutMillis: Long, private val nowNanos: () -> Long = System::nanoTime) {
+    private var extendedForLiveSession = false
+    private val deadlineNanos = if (timeoutMillis == Iap2WirelessControlClient.NO_TIMEOUT_MILLIS) {
+        Long.MAX_VALUE
+    } else {
+        val now = nowNanos()
+        val delta = timeoutMillis * NANOS_PER_MILLISECOND
+        if (now > Long.MAX_VALUE - delta) Long.MAX_VALUE else now + delta
+    }
+
+    fun remainingMillis(keepAlive: () -> Boolean = { false }): Long {
+        if (extendedForLiveSession) return if (keepAlive()) MAX_POLL_MILLIS else 0L
+        if (deadlineNanos == Long.MAX_VALUE) return MAX_POLL_MILLIS
+        val remaining = deadlineNanos - nowNanos()
+        if (remaining <= 0) {
+            if (!keepAlive()) return 0L
+            extendedForLiveSession = true
+            return MAX_POLL_MILLIS
+        }
+        return min(MAX_POLL_MILLIS, (remaining + NANOS_PER_MILLISECOND - 1) / NANOS_PER_MILLISECOND)
+    }
+
+    fun requireRemaining(keepAlive: () -> Boolean = { false }): Long = remainingMillis(keepAlive).also {
+        if (it == 0L) throw IphoneUsbException.TimedOut("Timed out during wireless iAP2 control bring-up")
+    }
+
+    private companion object {
+        const val NANOS_PER_MILLISECOND = 1_000_000L
+        const val MAX_POLL_MILLIS = 5 * 60 * 1_000L
+    }
 }

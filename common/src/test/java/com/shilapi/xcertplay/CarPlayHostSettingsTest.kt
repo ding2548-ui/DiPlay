@@ -111,6 +111,36 @@ class CarPlayHostSettingsTest {
         assertTrue(field("menuOpen") as Boolean)
     }
 
+    @Test fun fullSettingsShortcutDiscardsPreviewWithoutRestartingTheSession() {
+        val controller = attachController()
+        invoke("openSettingsMenu")
+        val original = AirPlayPersistence.loadDisplayScalePercent(activity)
+        resolutionSlider().progress = 0
+        fullSettingsButton().performClick()
+        assertFalse(field("menuOpen") as Boolean)
+        assertNull(field("settingsBaseline"))
+        assertEquals(original, field("displayScalePercent"))
+        assertEquals(original, AirPlayPersistence.loadDisplayScalePercent(activity))
+        assertSame(controller, field("controller"))
+        assertEquals(0, field("restartGeneration"))
+        val intent = shadowOf(activity).nextStartedActivity
+        assertEquals(DiPlayActivity::class.java.name, intent.component!!.className)
+        assertEquals("settings", intent.getStringExtra("page"))
+    }
+
+    @Test fun returningFromFullSettingsReloadsSavedConnectionPreferences() {
+        attachController()
+        invoke("openSettingsMenu")
+        fullSettingsButton().performClick()
+        AirPlayPersistence.saveMfiTarget(activity, MfiTarget.LOCAL)
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        AirPlayPersistence.saveManualHotspotSsid(activity, "Updated in full settings")
+        invoke("onResume")
+        assertEquals(MfiTarget.LOCAL, field("mfiTarget"))
+        assertEquals(WirelessHotspotMode.MANUAL, field("wirelessHotspotMode"))
+        assertEquals("Updated in full settings", field("manualHotspotSsid"))
+    }
+
     @Test fun openingAndCancellingKeepsTheCurrentControllerAndRestoresControls() {
         val controller = attachController()
         invoke("openSettingsMenu")
@@ -168,6 +198,29 @@ class CarPlayHostSettingsTest {
         invoke("cancelSettingsEdits")
         assertEquals(WirelessHotspotMode.WIFI_P2P, field("wirelessHotspotMode"))
         assertEquals(MfiTarget.USB_CH341, field("mfiTarget"))
+    }
+
+    @Test fun lightAppearanceRepaintsAnOpenMenuWithoutLosingDraftState() {
+        invoke("openSettingsMenu")
+        setField("manualHotspotSsid", "Unsaved hotspot")
+        val oldMenu = menu()
+        val scroll = views(oldMenu).filterIsInstance<android.widget.ScrollView>().single()
+        scroll.scrollTo(0, 120)
+
+        AirPlayPersistence.saveAppAppearance(activity, AppAppearance.LIGHT)
+        invoke("refreshAppAppearance")
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        assertNotSame(oldMenu, menu())
+        assertEquals("Unsaved hotspot", field("manualHotspotSsid"))
+        assertEquals(false, field("appNight"))
+        assertEquals(
+            DiPlayPalette.LIGHT.overlayBackground,
+            (menu().background as android.graphics.drawable.ColorDrawable).color,
+        )
+        val heading = views(menu()).filterIsInstance<TextView>()
+            .first { it.text == activity.getString(R.string.carplay_settings) }
+        assertEquals(DiPlayPalette.LIGHT.overlayPrimaryText, heading.currentTextColor)
     }
 
     @Test fun savingPersistsSettingsAndRestartsOnce() {
@@ -458,6 +511,8 @@ class CarPlayHostSettingsTest {
         .first { it.max == CarPlayDisplayScale.MAX_PERCENT - CarPlayDisplayScale.MIN_PERCENT }
     private fun gestureButton() = views(menu()).filterIsInstance<Button>()
         .first { it.text == activity.getString(R.string.settings_gesture_fingers, field("gestureFingerCount")) }
+    private fun fullSettingsButton() = views(menu()).filterIsInstance<Button>()
+        .first { it.text == activity.getString(R.string.app_name) + " " + activity.getString(R.string.settings) }
     private fun views(view: View): Sequence<View> = sequence {
         yield(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(views(view.getChildAt(index)))

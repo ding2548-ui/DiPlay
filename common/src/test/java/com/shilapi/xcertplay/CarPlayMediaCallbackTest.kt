@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.media.MediaMetadata
 import android.view.KeyEvent
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
@@ -14,6 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
@@ -41,6 +43,20 @@ class CarPlayMediaCallbackTest {
         press(CarPlayMediaButton.KEYCODE_BYD_AUTO_MEDIA_PLAY_PAUSE)
 
         assertEquals(List(3) { CarPlayMediaButton.PLAY_PAUSE }, sent)
+    }
+
+    @Test fun experimentalPlayPauseKeyNeedsOptInAndStopsAfterDisable() {
+        var enabled = false
+        val experimental = CarPlayMediaCallback(experimentalDiLink3Keys = { enabled }) { index, _ -> sent += index }
+        val key = button(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, 331, 0))
+        experimental.onMediaButtonEvent(key)
+        assertEquals(emptyList<Int>(), sent)
+        enabled = true
+        experimental.onMediaButtonEvent(key)
+        assertEquals(listOf(CarPlayMediaButton.PLAY_PAUSE), sent)
+        enabled = false
+        experimental.onMediaButtonEvent(key)
+        assertEquals(listOf(CarPlayMediaButton.PLAY_PAUSE), sent)
     }
 
     @Test
@@ -85,6 +101,38 @@ class CarPlayMediaCallbackTest {
         assertSame(cached, CarPlayMediaKeys.nextArtwork(7, mapOf(7 to cached), previous))
         assertNull(CarPlayMediaKeys.nextArtwork(7, mapOf(7 to null), previous))
         assertNull(CarPlayMediaKeys.nextArtwork(null, mapOf(7 to cached), previous))
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun wideArtworkIsPaddedToASquareNotStretched() {
+        val wide = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val square = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
+
+        val padded = CarPlayMediaKeys.squareArtwork(wide)
+
+        assertEquals(384, padded.width)
+        assertEquals(384, padded.height)
+        assertEquals(Color.TRANSPARENT, padded.getPixel(192, 0))
+        assertEquals(Color.RED, padded.getPixel(192, 192))
+        assertEquals(Color.TRANSPARENT, padded.getPixel(192, 383))
+        assertSame(square, CarPlayMediaKeys.squareArtwork(square))
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun smallOrTallArtworkIsPaddedWithoutUpscaling() {
+        val small = CarPlayMediaKeys.squareArtwork(Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888))
+        val tall = CarPlayMediaKeys.squareArtwork(
+            Bitmap.createBitmap(100, 1000, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) },
+        )
+
+        assertEquals(200, small.width)
+        assertEquals(200, small.height)
+        assertEquals(384, tall.width)
+        assertEquals(384, tall.height)
+        assertEquals(Color.TRANSPARENT, tall.getPixel(0, 192))
+        assertEquals(Color.RED, tall.getPixel(192, 192))
     }
 
     @Test

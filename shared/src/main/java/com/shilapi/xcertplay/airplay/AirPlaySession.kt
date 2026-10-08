@@ -45,6 +45,13 @@ interface AirPlayMediaHandler {
     fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? = null
     fun onAudio(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Map<String, Any?>? = null
     fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? = null
+    /** CarPlay's main buffered audio (type 103): the SETUP response, or null to decline it. */
+    fun onBufferedAudio(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? = null
+    /**
+     * SETRATE, SETRATEANCHORTIME, GETANCHOR and FLUSHBUFFERED for the buffered stream: the response
+     * plist (the anchor), or null for an empty 200.
+     */
+    fun onBufferedAudioControl(session: AirPlaySession, method: String, body: Map<String, Any?>): Map<String, Any?>? = null
     fun onFeedback(session: AirPlaySession): Map<String, Any?>? = null
     fun onTeardown(session: AirPlaySession, type: Int) {}
     fun onSessionClosed(session: AirPlaySession) {}
@@ -93,6 +100,7 @@ class AirPlaySession(
     @Volatile private var mainScreenToken: Any? = null
 
     private val closed = AtomicBoolean(false)
+    internal val isClosed: Boolean get() = closed.get()
     private val notified = AtomicBoolean(false)
     private var eventServer: ServerSocket? = null
     private var eventSocket: Socket? = null
@@ -534,6 +542,19 @@ class AirPlaySession(
             "TEARDOWN" -> return handleTeardown(request)
         }
 
+        if (config.bufferedAudioOutputEnabled && request.method in BUFFERED_AUDIO_METHODS) {
+            val body = if (request.body.isEmpty() && request.method == "GETANCHOR") emptyMap() else {
+                runCatching { asMap(BplistCodec.decode(request.body)) }.getOrNull()
+                    ?: return RtspMessage.Response(status = 400)
+            }
+            val response = media.onBufferedAudioControl(this, request.method, body)
+            if (request.method != "GETANCHOR") debugLog("airplay ${request.method} $body -> ${response ?: "ok"}")
+            return if (response == null) RtspMessage.Response(status = 200) else RtspMessage.Response(
+                headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
+                body = BplistCodec.encode(response),
+            )
+        }
+
         val path = request.path.lowercase()
         return when {
             path.endsWith("/pair-setup") -> RtspMessage.Response(
@@ -695,6 +716,15 @@ class AirPlaySession(
                         result.add(streamResponse)
                     }
                 }
+                STREAM_TYPE_MAIN_BUFFERED_AUDIO -> {
+                    val streamResponse = if (config.bufferedAudioOutputEnabled) media.onBufferedAudio(this, stream) else null
+                    debugLog("airplay buffered audio stream accepted=${streamResponse != null} " +
+                        "dataPort=${streamResponse?.get("dataPort") ?: "none"}")
+                    if (streamResponse != null) {
+                        activeStreams.add(type)
+                        result.add(streamResponse)
+                    }
+                }
                 STREAM_TYPE_DATA -> {
                     val streamResponse = media.onDataStream(this, stream)
                     debugLog(
@@ -836,7 +866,10 @@ class AirPlaySession(
         try {
             val socket = server.accept()
             socket.setSoLinger(true, 0)
-            debugLog("airplay event connection accepted from ${socket.remoteSocketAddress}")
+            // Avoid Nagle coalescing on this interactive event connection: small HID/event writes
+            // need not wait for earlier unacknowledged data.
+            socket.tcpNoDelay = true
+            debugLog("airplay event connection accepted from ${socket.remoteSocketAddress} noDelay=${socket.tcpNoDelay}")
             eventSocket = socket
             val shared = pairVerify.shared
             if (shared == null) {
@@ -942,6 +975,8 @@ class AirPlaySession(
         const val STREAM_TYPE_ALT_AUDIO = 101
         const val STREAM_TYPE_MAIN_HIGH_AUDIO = 102
         const val STREAM_TYPE_DATA = 130
+        const val STREAM_TYPE_MAIN_BUFFERED_AUDIO = 103
+        private val BUFFERED_AUDIO_METHODS = setOf("SETRATE", "SETRATEANCHORTIME", "GETANCHOR", "FLUSHBUFFERED")
 
         const val READ_CHUNK_BYTES = 16 * 1024
         const val ZOOM_DIRECTION_IN = 0
@@ -952,6 +987,9 @@ class AirPlaySession(
 }
 
 /** The features SETUP enables; video in car only when configured and the iPhone [proposed] it. */
+/** The session feature the iPhone proposes for main buffered audio. */
+internal const val MAIN_BUFFERED_FEATURE = "mainBuffered"
+
 internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): List<String> {
     val features = mutableListOf<String>()
     if (config.hevc) features.add("hevc")
@@ -959,6 +997,7 @@ internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): Li
     features.add("viewAreas")
     if (config.cluster != null) features.add("altScreen")
     if (config.videoInCar && proposed.orEmpty().contains(VideoInCar.FEATURE)) features.add(VideoInCar.FEATURE)
+    if (config.bufferedAudioOutputEnabled && proposed.orEmpty().contains(MAIN_BUFFERED_FEATURE)) features.add(MAIN_BUFFERED_FEATURE)
     return features
 }
 

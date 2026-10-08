@@ -13,7 +13,9 @@ internal class MicrophoneCaptureStats(
     private val report: (String) -> Unit,
     private val nowNs: () -> Long = System::nanoTime,
 ) {
-    private val metadata = metadata(config)
+    private val type = typeAndSource(config.audioType).first
+    private val format = format(config)
+    private var metadata = metadata(config)
     private var windowStart = nowNs()
     private var readStart = windowStart
     private var capturedBytes = 0L
@@ -33,6 +35,9 @@ internal class MicrophoneCaptureStats(
         routedDeviceType = routeType
         emit("Microphone: start $metadata routedDeviceType=${routeType ?: "unknown"}")
     }
+
+    /** Call before the capture thread starts; [metadata] is not volatile. */
+    fun useVoiceCommunicationSource() { metadata = "type=$type source=VOICE_COMMUNICATION $format" }
 
     fun reading() { readStart = nowNs() }
 
@@ -91,14 +96,18 @@ internal class MicrophoneCaptureStats(
     companion object {
         private const val REPORT_INTERVAL_NS = 5_000_000_000L
 
+        private fun typeAndSource(audioType: String): Pair<String, String> = when (audioType) {
+            "telephony" -> "telephony" to "VOICE_COMMUNICATION"
+            "speechrecognition" -> "speechrecognition" to "VOICE_RECOGNITION"
+            else -> "other" to "MIC"
+        }
+
+        private fun format(config: MicrophoneConfig): String = "codec=${config.codec.name} " +
+            "rate=${config.sampleRate} channels=${config.channels} frameMs=${config.frameMillis}"
+
         private fun metadata(config: MicrophoneConfig): String {
-            val (type, source) = when (config.audioType) {
-                "telephony" -> "telephony" to "VOICE_COMMUNICATION"
-                "speechrecognition" -> "speechrecognition" to "VOICE_RECOGNITION"
-                else -> "other" to "MIC"
-            }
-            return "type=$type source=$source codec=${config.codec.name} " +
-                "rate=${config.sampleRate} channels=${config.channels} frameMs=${config.frameMillis}"
+            val (type, source) = typeAndSource(config.audioType)
+            return "type=$type source=$source ${format(config)}"
         }
 
         private fun failureMessage(

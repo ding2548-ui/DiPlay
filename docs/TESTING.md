@@ -2,6 +2,10 @@
 
 Use the [installation guide](INSTALL.md). With the car parked, verify wired and wireless connection, picture, touch and music. Test disconnect/reconnect, then settings Apply/Cancel. Save a diagnostic report after reproducing an issue.
 
+For the USB trailer, software-window video and RFCOMM reliability changes, complete the
+[connection reliability matrix](CONNECTION_RELIABILITY.md#vehicle-acceptance-before-release).
+Record the exact candidate APK and each untested setup before a release.
+
 ## Custom stream resolution
 
 In the home settings and the in-session menu, confirm the accepted range is **30–160%**. Try 160%, cancel an edit, save an unrelated setting, and reconnect; the exact saved percentage must survive. Enter 161% in the numeric dialog and confirm it stays open with an error. Reset must only change the draft to 100% until Save/Apply is selected.

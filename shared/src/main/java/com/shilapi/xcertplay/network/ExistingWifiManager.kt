@@ -115,7 +115,9 @@ class ExistingWifiManager(
                     hosts = addresses
                     interfaceIndex = iface.index
                     interfaceName = name
-                    connectivity.registerNetworkCallback(wifiNetworkRequest(), callback)
+                    connectivity.registerNetworkCallback(requestWithoutDefaultCapabilities()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), callback)
                     callbackRegistered = true
                 }
                 // Close the gap between reading the link and registering the callback.
@@ -194,4 +196,15 @@ class ExistingWifiManager(
             }
         }
     }
+
+    // NetworkRequest.Builder.clearCapabilities needs API 30; before that, drop the defaults one by one.
+    private fun requestWithoutDefaultCapabilities(): NetworkRequest.Builder =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            NetworkRequest.Builder().clearCapabilities()
+        } else {
+            NetworkRequest.Builder()
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)
+        }
 }
