@@ -42,11 +42,20 @@ internal object CenterMapOverlay {
     /** The CarPlay screen, asked to show the card once no DiPlay screen is in front. */
     var requestShow: (() -> Unit)? = null
 
+    /**
+     * The host's own visibility flag (onStart/onStop). The ActivityManager importance
+     * heuristic below misreports a foreground service as "in front" on some Android 7
+     * firmwares, which kept the card deferred forever; the lifecycle flag is authoritative.
+     */
+    var hostSaysVisible: (() -> Boolean)? = null
+
     /** Diagnostic sink, so the deferral decision reaches the exported report too. */
     var logger: ((String) -> Unit)? = null
     private val showIfBackground = Runnable {
-        if (!diPlayInFront()) requestShow?.invoke()
-        else logger?.invoke("Centre map: card deferred, DiPlay is still in front")
+        val host = hostSaysVisible?.invoke()
+        val inFront = host ?: diPlayInFront()
+        if (!inFront) requestShow?.invoke()
+        else logger?.invoke("Centre map: card deferred, DiPlay is still in front (host=$host system=${diPlayInFront()})")
     }
 
     fun permitted(context: Context): Boolean = Settings.canDrawOverlays(context)
@@ -278,6 +287,9 @@ internal object CenterMapOverlay {
         ActivityManager.getMyMemoryState(state)
         return state.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
+
+    /** The host lifecycle flag first; the system heuristic is only the fallback. */
+    fun diPlayInFrontSafe(): Boolean = hostSaysVisible?.invoke() ?: diPlayInFront()
 
     private const val PREFS = "diplay_center_map"
     private const val KEY_X = "x"

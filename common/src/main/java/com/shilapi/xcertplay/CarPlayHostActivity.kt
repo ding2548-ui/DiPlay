@@ -503,6 +503,7 @@ class CarPlayHostActivity : ComponentActivity() {
         NavigationWidgetUpdater.attach(applicationContext)
         CenterMapOverlay.requestShow = ::showCenterMap
         CenterMapOverlay.logger = { appendLog(it) }
+        CenterMapOverlay.hostSaysVisible = { isActivityStarted }
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
         languagePreferenceAtCreate = AppLocale.preference(this)
@@ -1179,9 +1180,9 @@ class CarPlayHostActivity : ComponentActivity() {
         appendLog("Centre map: home screen ${if (visible) "in front" else "not in front"}")
         if (!AirPlayPersistence.loadCenterMapAutoHide(this)) {
             homeMonitor?.stop()
-            if (!isActivityStarted && !CenterMapOverlay.diPlayInFront()) showCenterMap()
+            if (!isActivityStarted && !CenterMapOverlay.diPlayInFrontSafe()) showCenterMap()
         } else if (!visible) CenterMapOverlay.hide()
-        else if (!isActivityStarted && !CenterMapOverlay.diPlayInFront()) showCenterMap()
+        else if (!isActivityStarted && !CenterMapOverlay.diPlayInFrontSafe()) showCenterMap()
     }
 
     private fun onCenterMapSurface(surface: Surface?) {
@@ -1238,6 +1239,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CenterMapOverlay.hide()
         if (CenterMapOverlay.requestShow == (::showCenterMap)) CenterMapOverlay.requestShow = null
         CenterMapOverlay.logger = null
+        CenterMapOverlay.hostSaysVisible = null
         if (MapMirrors.sink === mirrorSink) {
             MapMirrors.sink = null
             MapMirrors.setStreamActive(false)
