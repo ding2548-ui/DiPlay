@@ -309,8 +309,8 @@ class CarPlayHostActivity : ComponentActivity() {
             applyClusterTurnOverlay()
         }
     }
-    // Copies of stream 111 outside the dashboard (centre card, launcher maps) each get their own decoder.
-    private val mirrorSink: (String, Surface?) -> Unit = { key, surface -> sink?.setMirrorSurface(SCREEN_TYPE_ALT, key, surface) }
+    // Copies of the CarPlay main screen (centre card, launcher maps) each get their own decoder.
+    private val mirrorSink: (String, Surface?) -> Unit = { key, surface -> sink?.setMirrorSurface(SCREEN_TYPE_MAIN, key, surface) }
     private val mirrorsChanged: () -> Unit = {
         updateClusterMapShown()
         if (MapMirrors.launcherShowsMap) CenterMapOverlay.hide()
@@ -320,7 +320,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var homeScreenVisible: Boolean? = null
     private var isActivityStarted = false
     private val hideIdleCenterMap = Runnable {
-        if (SCREEN_TYPE_ALT !in activeScreenStreamTypes) CenterMapOverlay.hide()
+        if (SCREEN_TYPE_MAIN !in activeScreenStreamTypes) CenterMapOverlay.hide()
     }
     private var activeDisplaySize: DisplaySize? = null
     private var pendingDisplaySize: DisplaySize? = null
@@ -1139,7 +1139,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!AirPlayPersistence.loadCenterMapFollowsDashboard(this)) return
         if (MapMirrors.launcherShowsMap) return // the launcher has the map on its own screen
         // Without the stream the card would stay black; it follows once the stream starts.
-        if (SCREEN_TYPE_ALT !in activeScreenStreamTypes) return
+        if (SCREEN_TYPE_MAIN !in activeScreenStreamTypes) return
         if (!CenterMapOverlay.permitted(this)) {
             appendLog("Centre map: no permission to draw over other apps")
             return
@@ -1160,7 +1160,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val shown = CenterMapOverlay.show(applicationContext, MapMirrors.streamAspect, ::onCenterMapSurface) {
             startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        appendLog("Centre map: card ${if (shown) "shown" else "failed"} streamActive=${SCREEN_TYPE_ALT in activeScreenStreamTypes}")
+        appendLog("Centre map: card ${if (shown) "shown" else "failed"} streamActive=${SCREEN_TYPE_MAIN in activeScreenStreamTypes}")
     }
 
     private fun onHomeScreenVisible(visible: Boolean) {
@@ -1175,7 +1175,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun onCenterMapSurface(surface: Surface?) {
         MapMirrors.set(MapMirrors.CARD, surface)
-        appendLog(if (surface != null) "Centre map: mirroring the dashboard stream" else "Centre map: mirror stopped")
+        appendLog(if (surface != null) "Centre map: mirroring the CarPlay main screen" else "Centre map: mirror stopped")
     }
 
     // The dashboard map pause must not stop the stream while a copy of the map is on screen.
@@ -4665,7 +4665,6 @@ class CarPlayHostActivity : ComponentActivity() {
                 appendLog("Cluster map: stream active=$active")
                 clusterPresentation?.setStreamActive(active)
                 ClusterActivityOutput.setStreamActive(active)
-                MapMirrors.setStreamActive(active)
                 if (active) {
                     // The stream is running, so the switch is on and negotiation found the display;
                     // if the presentation is still missing, the show path was skipped somewhere.
@@ -4675,14 +4674,21 @@ class CarPlayHostActivity : ComponentActivity() {
                         appendLog("Cluster map: stream active without a presentation; showing it now")
                         ensureClusterPresentation()
                     }
-                    mainHandler.removeCallbacks(hideIdleCenterMap)
-                    if (!CenterMapOverlay.shown) CenterMapOverlay.scheduleShow()
+                }
+            } else if (type == SCREEN_TYPE_MAIN) {
+                // The centre card and the launcher embeds mirror the main screen; the
+                // dashboard-map switch still gates the card itself.
+                MapMirrors.setStreamActive(active)
+                if (active) {
+                    if (AirPlayPersistence.loadClusterMapEnabled(this)) {
+                        mainHandler.removeCallbacks(hideIdleCenterMap)
+                        if (!CenterMapOverlay.shown) CenterMapOverlay.scheduleShow()
+                    }
                 } else {
                     mainHandler.postDelayed(hideIdleCenterMap, CENTER_MAP_IDLE_MILLIS)
+                    // No main stream, nothing to mirror: take the showmap window down.
+                    ShowmapOverlay.hide()
                 }
-            } else if (type == SCREEN_TYPE_MAIN && !active) {
-                // No main stream, nothing to mirror: take the showmap window down.
-                ShowmapOverlay.hide()
             }
             updateDebugOverlays()
         }
