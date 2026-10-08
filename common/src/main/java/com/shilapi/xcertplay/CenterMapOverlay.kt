@@ -41,7 +41,13 @@ internal object CenterMapOverlay {
 
     /** The CarPlay screen, asked to show the card once no DiPlay screen is in front. */
     var requestShow: (() -> Unit)? = null
-    private val showIfBackground = Runnable { if (!diPlayInFront()) requestShow?.invoke() }
+
+    /** Diagnostic sink, so the deferral decision reaches the exported report too. */
+    var logger: ((String) -> Unit)? = null
+    private val showIfBackground = Runnable {
+        if (!diPlayInFront()) requestShow?.invoke()
+        else logger?.invoke("Centre map: card deferred, DiPlay is still in front")
+    }
 
     fun permitted(context: Context): Boolean = Settings.canDrawOverlays(context)
 
