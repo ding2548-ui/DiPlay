@@ -32,6 +32,16 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 - **界面汉化**、零跑档位识别、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
 - **在线更新**（设置 → 在线更新）：检查 GitHub 上的新构建 → 自动下载（支持直连 / 代理）→ 静默安装。
 - CarPlay 应用列表里那个「回到原车」的图标按钮，名称与图标都是**零跑**（不再是 BYD）。
+- **仪表盘地图的二级开关**（Android 7 修复，**beta 渠道真机实测通过**）：
+  - **中控屏上的仪表盘地图**（悬浮卡片）：修复窗口类型——原硬编码
+    `TYPE_APPLICATION_OVERLAY`（API 26+），Android 7 上被框架拒收且异常被吞、卡片永不出现；
+    现按 SDK 分支，API < 26 降级 `TYPE_PHONE`。
+  - **前台误判修复**：CarPlay 前台服务运行时系统进程重要性启发式把已退到桌面的进程
+    误报为前台、卡片永远被延迟；现以 Activity 生命周期标志（`onStart`/`onStop`）为权威判定。
+    「主屏幕地图与仪表盘同步」「离开桌面时自动隐藏」随之恢复。
+  - **与其他启动器共享实时地图**：新增 Android 11 以下旧握手——启动器在 ATTACH 的
+    Bundle 里传入自己的 `Surface`，DiPlay 把地图镜像直接画进去（需启动器按
+    `docs/LAUNCHER_INTEGRATION.md` 的 Legacy handshake 适配）。
 
 ## ⚠️ 已知限制
 

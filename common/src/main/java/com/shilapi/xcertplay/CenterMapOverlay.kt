@@ -41,7 +41,14 @@ internal object CenterMapOverlay {
 
     /** The CarPlay screen, asked to show the card once no DiPlay screen is in front. */
     var requestShow: (() -> Unit)? = null
-    private val showIfBackground = Runnable { if (!diPlayInFront()) requestShow?.invoke() }
+
+    /**
+     * The host's own visibility flag (onStart/onStop). The ActivityManager importance
+     * heuristic below misreports a foreground service as "in front" on some Android 7
+     * firmwares, which kept the card deferred forever; the lifecycle flag is authoritative.
+     */
+    var hostSaysVisible: (() -> Boolean)? = null
+    private val showIfBackground = Runnable { if (!diPlayInFrontSafe()) requestShow?.invoke() }
 
     fun permitted(context: Context): Boolean = Settings.canDrawOverlays(context)
 
@@ -93,10 +100,19 @@ internal object CenterMapOverlay {
             .putLong(KEY_ASPECT, java.lang.Double.doubleToRawLongBits(aspect)).apply()
         val height = (width / aspect).toInt()
         val radius = 24f * metrics.density / 2
+        // TYPE_APPLICATION_OVERLAY only exists since API 26; older firmware (this Android 7
+        // head unit among them) rejects type 2038 with a BadTokenException. TYPE_PHONE is the
+        // pre-O overlay type and works on Android 7 with the same SYSTEM_ALERT_WINDOW grant.
+        val windowType = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
         val params = WindowManager.LayoutParams(
             width,
             height,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, // the TextureView needs it
             PixelFormat.TRANSLUCENT,
@@ -263,6 +279,9 @@ internal object CenterMapOverlay {
         ActivityManager.getMyMemoryState(state)
         return state.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
+
+    /** The host lifecycle flag first; the system heuristic is only the fallback. */
+    fun diPlayInFrontSafe(): Boolean = hostSaysVisible?.invoke() ?: diPlayInFront()
 
     private const val PREFS = "diplay_center_map"
     private const val KEY_X = "x"
