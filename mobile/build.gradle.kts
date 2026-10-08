@@ -95,6 +95,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // Needed for the channel-dependent app_name/diplay strings in defaultConfig.
+        resValues = true
     }
 }
 
