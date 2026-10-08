@@ -48,15 +48,7 @@ internal object CenterMapOverlay {
      * firmwares, which kept the card deferred forever; the lifecycle flag is authoritative.
      */
     var hostSaysVisible: (() -> Boolean)? = null
-
-    /** Diagnostic sink, so the deferral decision reaches the exported report too. */
-    var logger: ((String) -> Unit)? = null
-    private val showIfBackground = Runnable {
-        val host = hostSaysVisible?.invoke()
-        val inFront = host ?: diPlayInFront()
-        if (!inFront) requestShow?.invoke()
-        else logger?.invoke("Centre map: card deferred, DiPlay is still in front (host=$host system=${diPlayInFront()})")
-    }
+    private val showIfBackground = Runnable { if (!diPlayInFrontSafe()) requestShow?.invoke() }
 
     fun permitted(context: Context): Boolean = Settings.canDrawOverlays(context)
 

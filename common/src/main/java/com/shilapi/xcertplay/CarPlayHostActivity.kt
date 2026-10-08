@@ -502,7 +502,6 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         NavigationWidgetUpdater.attach(applicationContext)
         CenterMapOverlay.requestShow = ::showCenterMap
-        CenterMapOverlay.logger = { appendLog(it) }
         CenterMapOverlay.hostSaysVisible = { isActivityStarted }
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
@@ -1126,27 +1125,12 @@ class CarPlayHostActivity : ComponentActivity() {
 
     /** Shows the dashboard map as a card on the centre screen while DiPlay is in the background. */
     private fun showCenterMap() {
-        if (isDestroyed || shuttingDown.get() || sink == null || isActivityStarted) {
-            appendLog("Centre map: skipped state destroyed=$isDestroyed shuttingDown=${shuttingDown.get()} sink=${sink != null} activityStarted=$isActivityStarted")
-            return
-        }
-        if (!AirPlayPersistence.loadCenterMapOverlay(this) || !AirPlayPersistence.loadClusterMapEnabled(this)) {
-            appendLog("Centre map: skipped switches overlay=${AirPlayPersistence.loadCenterMapOverlay(this)} clusterMap=${AirPlayPersistence.loadClusterMapEnabled(this)}")
-            return
-        }
-        if (!AirPlayPersistence.loadCenterMapFollowsDashboard(this)) {
-            appendLog("Centre map: skipped follows-dashboard switch is off")
-            return
-        }
-        if (MapMirrors.launcherShowsMap) { // the launcher has the map on its own screen
-            appendLog("Centre map: skipped launcher already shows the map")
-            return
-        }
+        if (isDestroyed || shuttingDown.get() || sink == null || isActivityStarted) return
+        if (!AirPlayPersistence.loadCenterMapOverlay(this) || !AirPlayPersistence.loadClusterMapEnabled(this)) return
+        if (!AirPlayPersistence.loadCenterMapFollowsDashboard(this)) return
+        if (MapMirrors.launcherShowsMap) return // the launcher has the map on its own screen
         // Without the stream the card would stay black; it follows once the stream starts.
-        if (SCREEN_TYPE_ALT !in activeScreenStreamTypes) {
-            appendLog("Centre map: skipped stream not active active=${activeScreenStreamTypes}")
-            return
-        }
+        if (SCREEN_TYPE_ALT !in activeScreenStreamTypes) return
         if (!CenterMapOverlay.permitted(this)) {
             appendLog("Centre map: no permission to draw over other apps")
             return
@@ -1155,20 +1139,15 @@ class CarPlayHostActivity : ComponentActivity() {
         if (AirPlayPersistence.loadCenterMapAutoHide(this) && HomeScreenMonitor.hasAccess(this)) {
             val monitor = homeMonitor ?: HomeScreenMonitor(this, ::onHomeScreenVisible).also { homeMonitor = it }
             if (!monitor.running) {
-                appendLog("Centre map: waiting for the first home-screen answer")
                 monitor.start() // its first answer shows the card
                 return
             }
             if (homeScreenVisible != true) {
-                appendLog("Centre map: not on the home screen; card stays hidden")
                 CenterMapOverlay.hide()
                 return
             }
         }
-        if (CenterMapOverlay.shown) {
-            appendLog("Centre map: card already shown")
-            return
-        }
+        if (CenterMapOverlay.shown) return
         val shown = CenterMapOverlay.show(applicationContext, MapMirrors.streamAspect, ::onCenterMapSurface) {
             startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
@@ -1238,7 +1217,6 @@ class CarPlayHostActivity : ComponentActivity() {
         homeMonitor?.stop()
         CenterMapOverlay.hide()
         if (CenterMapOverlay.requestShow == (::showCenterMap)) CenterMapOverlay.requestShow = null
-        CenterMapOverlay.logger = null
         CenterMapOverlay.hostSaysVisible = null
         if (MapMirrors.sink === mirrorSink) {
             MapMirrors.sink = null
