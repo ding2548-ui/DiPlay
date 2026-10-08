@@ -163,7 +163,7 @@ internal object ShowmapOverlay {
         }
     }
 
-    private fun hide() {
+    internal fun hide() {
         val view = root ?: return
         root = null
         params = null
