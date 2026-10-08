@@ -4304,7 +4304,8 @@ class CarPlayHostActivity : ComponentActivity() {
         resetSidePanel() // a new session starts without the side panel
         updateClusterMapShown()
         CarPlayMediaKeys.attach(this, next)
-        CarPlayMediaKeys.onDiagnostic = { message -> appendLog(message) }
+        // CarPlayMediaKeys now reports through its own log tag only (upstream 0.2.13+), so it no
+        // longer has the onDiagnostic hook this line used to set.
         UsbAutoConfirmService.onDiagnostic = { message -> appendLog(message) }
         BluetoothAudioHandoff.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }

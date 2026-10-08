@@ -195,12 +195,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var vehicleProbeOutcome: BydVehicleProbeOutcome? = null
     private var adbCheckGeneration = 0
     private var adbStatus: TextView? = null
-    @Volatile private var updateStage = UpdateStage.IDLE
-    @Volatile private var updateGeneration = 0
-    @Volatile private var updateProgress: Int? = null
-    private var updateRelease: UpdateRelease? = null
-    private var updateFile: File? = null
-    private var updateMessage: String? = null
     private var carButtonCard: LinearLayout? = null
     private var bydAdbControls: LinearLayout? = null
     private var adbSwitchChangePending = false
@@ -2002,7 +1996,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         content.addView(label(getString(R.string.carplay_at_home_in_your_car), 20, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
         section(content, getString(R.string.about_public_preview_prefix, version())) { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
-            card.addView(updateRow())
         }
         // The updater moved to its own settings section ("在线更新"): only one live copy of its view
         // references can exist, and settings is where the Leapmotor line keeps it.
