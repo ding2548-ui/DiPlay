@@ -83,9 +83,9 @@ jobs:
           # are derived from this flag, so a build can never be published into the wrong one.
           if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
             echo "DIPLAY_CHANNEL=beta" >> "$GITHUB_ENV"
-            echo "beta versionName will be stamped 0.2.12（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）-beta"
+            echo "beta versionName will be stamped 0.2.15（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）-beta"
           else
-            echo "release versionName will be stamped 0.2.12（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）"
+            echo "release versionName will be stamped 0.2.15（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）"
           fi
       - name: Platform-signed release APK
         if: env.DIPLAY_RELEASE_ENABLED == 'true'
@@ -141,18 +141,18 @@ jobs:
           # prefix, so a shared namespace would let the release channel and the beta channel hand
           # each other their APKs through releases.atom or /releases/latest.
           if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
-            TAG="v0.2.12-beta-${GITHUB_RUN_NUMBER}"
-            TITLE="DiPlay 0.2.12（${GITHUB_RUN_NUMBER}）· PSA beta 测试版"
+            TAG="v0.2.15-beta-${GITHUB_RUN_NUMBER}"
+            TITLE="DiPlay 0.2.15（${GITHUB_RUN_NUMBER}）· PSA beta 测试版"
           else
-            TAG="v0.2.12-${GITHUB_RUN_NUMBER}"
-            TITLE="DiPlay 0.2.12（${GITHUB_RUN_NUMBER}）· PSA"
+            TAG="v0.2.15-${GITHUB_RUN_NUMBER}"
+            TITLE="DiPlay 0.2.15（${GITHUB_RUN_NUMBER}）· PSA"
           fi
           NOTES="$RUNNER_TEMP/release-notes.md"
           {
             if [ -f RELEASE_NOTES.md ]; then
               cat RELEASE_NOTES.md
             else
-              printf 'DiPlay 0.2.12（%s）\n' "$GITHUB_RUN_NUMBER"
+              printf 'DiPlay 0.2.15（%s）\n' "$GITHUB_RUN_NUMBER"
             fi
             echo
             echo '---'

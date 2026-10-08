@@ -77,47 +77,17 @@ class P2pStartupRecoveryTest {
         val plan = P2pStartupRecovery.plan(5180, preferred)
         assertEquals(preferred, plan.first())
         assertEquals(1, plan.count { it.frequencyMHz == 2437 })
-        assertEquals(listOf(2437, 5180, 2412, 2462, 5745, null), plan.map { it.frequencyMHz })
-    }
-
-    @Test fun nextToAFiveGhzStationTwoGhzComesBeforeAnotherFiveGhzChannel() {
-        // A Tang on its home network at 5200 MHz: 5745 made the radio switch channels.
-        assertEquals(listOf(5200, 2437, 2412, 2462, 5180, 5745, null), P2pStartupRecovery.plan(5200).map { it.frequencyMHz })
-        // A remembered 5745 no longer goes first there, but stays as a late fallback.
-        val remembered = P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5745)
-        assertEquals(listOf(5200, 2437, 2412, 2462, 5180, 5745, null),
-            P2pStartupRecovery.plan(5200, remembered).map { it.frequencyMHz })
-        // The station's own channel remembered still goes first; away from a station nothing changes.
-        assertEquals(5200, P2pStartupRecovery.plan(5200, P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5200)).first().frequencyMHz)
-        assertEquals(listOf(5745, 5180, 2437, 2412, 2462, null), P2pStartupRecovery.plan(null, remembered).map { it.frequencyMHz })
-        // A station on a DFS 5 GHz channel is not aligned to, but still keeps the group off 5 GHz first.
-        assertEquals(listOf(2437, 2412, 2462, 5180, 5745, null), P2pStartupRecovery.plan(5500).map { it.frequencyMHz })
+        assertEquals(listOf(2437, 5180, 5745, 2412, 2462, null), plan.map { it.frequencyMHz })
     }
 
     @Test fun rejectedRememberedSystemConfigurationFallsBackToExplicitChannels() {
         val attempted = mutableListOf<Int?>()
-        val result = P2pStartupRecovery.create(2437, {}, P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)) {
+        val result = P2pStartupRecovery.create(5180, {}, P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)) {
             attempted += it.frequencyMHz
             if (it.frequencyMHz == null) throw P2pCreateRejected(WifiP2pManager.ERROR, "rejected")
         }
-        assertEquals(listOf(null, 2437), attempted)
-        assertEquals(2437, result.frequencyMHz)
-    }
-
-    @Test fun rememberedSystemDefaultCannotBypassTwoGhzBesideAFiveGhzStation() {
-        val remembered = P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)
-        val plan = P2pStartupRecovery.plan(5200, remembered)
-        assertEquals(listOf(5200, 2437, 2412, 2462, 5180, 5745, null), plan.map { it.frequencyMHz })
-        val attempts = mutableListOf<Int?>()
-        val result = P2pStartupRecovery.create(5200, {}, remembered) {
-            attempts += it.frequencyMHz
-            if (it.frequencyMHz != 2437) throw P2pCreateRejected(WifiP2pManager.ERROR, "rejected")
-        }
-        assertEquals(listOf(5200, 2437), attempts)
-        assertEquals(2437, result.frequencyMHz)
-        // Proven default configuration remains first outside the new 5 GHz station policy.
-        assertEquals(remembered, P2pStartupRecovery.plan(null, remembered).first())
-        assertEquals(remembered, P2pStartupRecovery.plan(2437, remembered).first())
+        assertEquals(listOf(null, 5180), attempted)
+        assertEquals(5180, result.frequencyMHz)
     }
 
     @Test fun unsafeRememberedFrequenciesDoNotBypassTheChannelPolicy() {
@@ -141,7 +111,7 @@ class P2pStartupRecoveryTest {
             attempts += it
             if (it.mode != P2pCreationMode.SYSTEM_DEFAULT) throw P2pCreateRejected(WifiP2pManager.ERROR, "rejected")
         }
-        assertEquals(listOf(5180, 2437, 2412, 2462, 5745, null), attempts.map { it.frequencyMHz })
+        assertEquals(listOf(5180, 5745, 2437, 2412, 2462, null), attempts.map { it.frequencyMHz })
         assertEquals(P2pCreationMode.SYSTEM_DEFAULT, mode.mode)
         assertEquals(5, retries)
     }
@@ -166,8 +136,7 @@ class P2pStartupRecoveryTest {
         }
         assertEquals(P2pCreationMode.FIXED_2_GHZ, result.mode)
         assertEquals(2437, result.frequencyMHz)
-        // Next to a 5 GHz station, 2.4 GHz is tried right after the station's own channel.
-        assertEquals(listOf(5200, 5200, 2437), attempts)
+        assertEquals(listOf(5200, 5200, 5180, 5180, 5745, 5745, 2437), attempts)
     }
 
     @Test fun everyConfigurationRejectedStopsAfterBoundedAttempts() {
@@ -212,14 +181,9 @@ class P2pStartupRecoveryTest {
     }
 
     @Test fun planNeverRequestsDfsSixGhzInvalidOrPhoneUnfriendlyStationFrequencies() {
-        for (station in listOf(0, -1, 5955, 2472, 2484)) {
+        for (station in listOf(0, -1, 5191, 5260, 5500, 5955, 2472, 2484)) {
             val plan = P2pStartupRecovery.plan(station)
             assertEquals(listOf(5180, 5745, 2437, 2412, 2462, null), plan.map { it.frequencyMHz })
-        }
-        // 5 GHz stations the group cannot align to (off-grid or DFS) keep it on 2.4 GHz first.
-        for (station in listOf(5191, 5260, 5500)) {
-            val plan = P2pStartupRecovery.plan(station)
-            assertEquals(listOf(2437, 2412, 2462, 5180, 5745, null), plan.map { it.frequencyMHz })
         }
         val plan = P2pStartupRecovery.plan(5200)
         assertEquals(5200, plan.first().frequencyMHz)
@@ -306,7 +270,7 @@ class P2pStartupRecoveryTest {
         var calls = 0
         val original = P2pConfigBuildCompatibilityFailure(NoSuchMethodError())
         try {
-            P2pStartupRecovery.create(2437, { fail("Unexpected guard") }, P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)) {
+            P2pStartupRecovery.create(5180, { fail("Unexpected guard") }, P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)) {
                 calls++
                 throw original
             }
@@ -355,65 +319,6 @@ class P2pStartupRecoveryTest {
             assertEquals(1, requests)
             assertEquals(0, creations)
         }
-    }
-
-    @Test fun fiveGhzBandStaysInsideTheBandAndIgnoresStationOnTwoGhzAndRememberedAuto() {
-        val remembered = P2pCreationRequest(P2pCreationMode.FIXED_2_GHZ, 2437)
-        val plan = P2pStartupRecovery.plan(2437, remembered, preferredChannel = WifiP2pChannels.AUTO_5_GHZ)
-        assertEquals(listOf(
-            P2pCreationRequest(P2pCreationMode.BAND_5_GHZ),
-            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5180),
-            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5745),
-            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5220),
-            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5785),
-        ), plan)
-        assertTrue(plan.none { it.mode == P2pCreationMode.SYSTEM_DEFAULT })
-    }
-
-    @Test fun bandPlanPutsAnInBandStationChannelFirstWithoutRepeatingIt() {
-        assertEquals(listOf(
-            P2pCreationRequest(P2pCreationMode.ALIGNED_5_GHZ, 5745),
-            P2pCreationRequest(P2pCreationMode.BAND_5_GHZ),
-            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5180),
-            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5220),
-            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5785),
-        ), P2pStartupRecovery.plan(5745, preferredChannel = WifiP2pChannels.AUTO_5_GHZ))
-        assertEquals(listOf(
-            P2pCreationRequest(P2pCreationMode.ALIGNED_2_GHZ, 2412),
-            P2pCreationRequest(P2pCreationMode.BAND_2_GHZ),
-            P2pCreationRequest(P2pCreationMode.FIXED_2_GHZ, 2437),
-            P2pCreationRequest(P2pCreationMode.FIXED_2_GHZ, 2462),
-        ), P2pStartupRecovery.plan(2412, preferredChannel = WifiP2pChannels.AUTO_2_4_GHZ))
-    }
-
-    @Test fun legacyBandPlanUsesOnlyExplicitChannels() {
-        assertEquals(listOf(5180, 5745, 5220, 5785),
-            P2pStartupRecovery.plan(null, preferredChannel = WifiP2pChannels.AUTO_5_GHZ, bandRequests = false)
-                .map { it.frequencyMHz })
-    }
-
-    @Test fun rejectedBandWalksItsChannelsThenStopsWithoutSwitchingBand() {
-        val attempts = mutableListOf<P2pCreationRequest>()
-        val failure = assertThrows(P2pChannelUnavailableException::class.java) {
-            P2pStartupRecovery.create(null, {}, preferredChannel = WifiP2pChannels.AUTO_5_GHZ) {
-                attempts += it
-                throw P2pCreateRejected(WifiP2pManager.ERROR, "rejected")
-            }
-        }
-        assertEquals(P2pStartupRecovery.plan(null, preferredChannel = WifiP2pChannels.AUTO_5_GHZ), attempts)
-        assertTrue(attempts.all { it.mode == P2pCreationMode.BAND_5_GHZ || WifiP2pBand.FIVE_GHZ.contains(it.frequencyMHz) })
-        assertTrue(failure.message!!.contains("5 GHz band"))
-    }
-
-    @Test fun bandBuilderFailureNeverFallsBackToTheUnpinnedDefault() {
-        var calls = 0
-        assertThrows(P2pChannelUnavailableException::class.java) {
-            P2pStartupRecovery.create(null, { fail("Unexpected fallback") }, preferredChannel = WifiP2pChannels.AUTO_2_4_GHZ) {
-                calls++
-                throw P2pConfigBuildCompatibilityFailure(NoSuchMethodError("vendor framework"))
-            }
-        }
-        assertEquals(1, calls)
     }
 
     private fun reportedBuilderFailure(returnDescriptor: String = "Ljava/lang/String;") = NoSuchMethodError(

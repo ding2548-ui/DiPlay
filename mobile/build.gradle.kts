@@ -8,8 +8,10 @@ val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSET
     .orNull?.let { file(it).canonicalFile }
 
 // CI stamps the run number and the short commit sha into versionName, so the first line of a
-// diagnostic report names the exact build that produced it: "0.2.12（186-b815324）". The run
+// diagnostic report names the exact build that produced it: "0.2.15（186-b815324）". The run
 // number alone only says when a build ran, not what was in it.
+// The major version follows the upstream release the source is based on: the tree merged upstream
+// 0.2.15, so the app reports 0.2.15 even though this line's own release tags moved with it.
 val buildNumber = providers.environmentVariable("DIPLAY_BUILD_NUMBER").orNull
 val buildCommit = providers.environmentVariable("DIPLAY_BUILD_COMMIT").orNull
 
@@ -32,8 +34,8 @@ android {
         versionCode = 31
         versionName = buildNumber?.let { run ->
             val channelTag = if (betaChannel) "-beta" else ""
-            buildCommit?.let { sha -> "0.2.12（$run-$sha）$channelTag" } ?: "0.2.12（$run）$channelTag"
-        } ?: "0.2.12"
+            buildCommit?.let { sha -> "0.2.15（$run-$sha）$channelTag" } ?: "0.2.15（$run）$channelTag"
+        } ?: "0.2.15"
         if (betaChannel) {
             // Coexists with the release build; see the comment on [betaChannel].
             applicationIdSuffix = ".psabeta"

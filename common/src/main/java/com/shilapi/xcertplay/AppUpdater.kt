@@ -18,12 +18,12 @@ object AppUpdater {
     private const val SOURCE_KEY = "update_source"
 
     // Both lines publish into this one repository, so the release tag prefix is what tells this
-    // updater which builds are its own. This line tags v0.2.12-<run_number> and attaches a single
+    // updater which builds are its own. This line tags v0.2.15-<run_number> and attaches a single
     // asset named mobile-release.apk; the Leapmotor line tags v2.0-<run> with a differently named
     // asset, and offering one of those here would install the wrong build.
-    private const val TAG_PREFIX = "v0.2.12-"
+    private const val TAG_PREFIX = "v0.2.15-"
     private const val RELEASE_ASSET = "mobile-release.apk"
-    private const val LOCAL_PREFIX = "DiPlay-0.2.12-"
+    private const val LOCAL_PREFIX = "DiPlay-0.2.15-"
     private const val LOCAL_SUFFIX = ".apk"
 
     // The beta channel is a second variant of this same line, shipped under its own applicationId
@@ -31,7 +31,7 @@ object AppUpdater {
     // must only ever resolve builds from the namespace it was published into: otherwise the two
     // channels would hand each other their APKs, and each would report the other's run number as
     // an available update.
-    private const val BETA_TAG_PREFIX = "v0.2.12-beta-"
+    private const val BETA_TAG_PREFIX = "v0.2.15-beta-"
     private const val BETA_APPLICATION_ID_SUFFIX = ".psabeta"
 
     /** The release-tag namespace this build looks in, decided by the channel it was built as. */
@@ -62,7 +62,7 @@ object AppUpdater {
     }
 
     /**
-     * The CI stamps the run number into the version name. This line writes 0.2.12（189-6f275b6c）,
+     * The CI stamps the run number into the version name. This line writes 0.2.15（189-6f275b6c）,
      * the Leapmotor line writes 2.11（90）, so only the opening bracket is relied on.
      */
     fun currentBuild(context: Context): Int? {

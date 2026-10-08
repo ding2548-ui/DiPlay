@@ -2,26 +2,8 @@ package com.shilapi.xcertplay.transport
 
 import android.bluetooth.BluetoothSocket
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
 import java.util.ArrayDeque
 import kotlin.math.min
-
-/** Nullable platform getters matter on head units that expose a socket without usable streams. */
-internal interface BluetoothRfcommSocketAccess {
-    fun inputStream(): InputStream?
-    fun outputStream(): OutputStream?
-    fun close()
-}
-
-class BluetoothRfcommStreamException internal constructor(
-    val operation: Operation,
-    val reason: Reason,
-    cause: Throwable? = null,
-) : IOException("Bluetooth RFCOMM ${operation.name.lowercase()} failed: ${reason.name.lowercase()}", cause) {
-    enum class Operation { INPUT_STREAM, OUTPUT_STREAM, READ, WRITE }
-    enum class Reason { STREAM_UNAVAILABLE, STREAM_ACCESS_FAILED, READ_FAILED, WRITE_FAILED }
-}
 
 /**
  * A bounded [BlockingDuplexByteStream] over an already-open RFCOMM socket.
@@ -29,41 +11,25 @@ class BluetoothRfcommStreamException internal constructor(
  * Android's RFCOMM input has no per-read timeout, so one daemon reader performs the blocking
  * reads. [close] closes the owned socket, which unblocks that reader.
  */
-class BluetoothRfcommDuplexStream internal constructor(
-    private val socket: BluetoothRfcommSocketAccess,
-    private val onDiagnostic: (String) -> Unit = {},
+class BluetoothRfcommDuplexStream(
+    private val socket: BluetoothSocket,
 ) : BlockingDuplexByteStream {
-    constructor(socket: BluetoothSocket, onDiagnostic: (String) -> Unit = {}) : this(
-        object : BluetoothRfcommSocketAccess {
-            override fun inputStream(): InputStream? = socket.inputStream
-            override fun outputStream(): OutputStream? = socket.outputStream
-            override fun close() = socket.close()
-        },
-        onDiagnostic,
-    )
-
     private val lock = Object()
     private val sendLock = Object()
+    private val input = socket.inputStream
+    private val output = socket.outputStream
     private val pending = ArrayDeque<ByteArray>()
     private var pendingBytes = 0
     private var peerEnded = false
     private var closed = false
     private var socketCloseStarted = false
     private var failure: IOException? = null
-    private var readCalls = 0L
-    private var receivedBytes = 0L
-
-    // Acquire both streams before starting any reader or iAP2 protocol thread. Android getters
-    // have platform-nullability, and some vendor sockets return null after connect() succeeds.
-    private val input = acquireStream(BluetoothRfcommStreamException.Operation.INPUT_STREAM, socket::inputStream)
-    private val output = acquireStream(BluetoothRfcommStreamException.Operation.OUTPUT_STREAM, socket::outputStream)
 
     private val reader = Thread(::readLoop, "xcertplay-bluetooth-rfcomm-reader").apply {
         isDaemon = true
     }
 
     init {
-        report("Bluetooth RFCOMM streams ready input=true output=true")
         reader.start()
     }
 
@@ -76,13 +42,9 @@ class BluetoothRfcommDuplexStream internal constructor(
             try {
                 output.write(data)
                 output.flush()
-            } catch (error: Exception) {
-                val io = BluetoothRfcommStreamException(
-                    BluetoothRfcommStreamException.Operation.WRITE,
-                    BluetoothRfcommStreamException.Reason.WRITE_FAILED,
-                    error,
-                )
-                throw fail(io)
+            } catch (io: IOException) {
+                fail(io)
+                throw io
             }
         }
     }
@@ -160,10 +122,8 @@ class BluetoothRfcommDuplexStream internal constructor(
                 }
 
                 val buffer = ByteArray(readSize)
-                readCalls++
                 when (val count = input.read(buffer)) {
                     -1 -> {
-                        if (!isStopping()) reportReadTerminal("ENDED")
                         synchronized(lock) {
                             peerEnded = true
                             lock.notifyAll()
@@ -174,7 +134,6 @@ class BluetoothRfcommDuplexStream internal constructor(
                     0 -> Unit
                     else -> synchronized(lock) {
                         if (closed) return
-                        receivedBytes += count
                         pending.addLast(if (count == buffer.size) buffer else buffer.copyOf(count))
                         pendingBytes += count
                         lock.notifyAll()
@@ -183,27 +142,16 @@ class BluetoothRfcommDuplexStream internal constructor(
             }
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
-            if (!isStopping()) {
+            if (!isClosed()) {
                 readFailure = IOException("Bluetooth RFCOMM reader was interrupted", interrupted)
             }
         } catch (io: IOException) {
-            if (!isStopping()) readFailure = BluetoothRfcommStreamException(
-                BluetoothRfcommStreamException.Operation.READ,
-                BluetoothRfcommStreamException.Reason.READ_FAILED,
-                io,
-            )
+            if (!isClosed()) readFailure = io
         } catch (failure: Throwable) {
-            if (!isStopping()) readFailure = BluetoothRfcommStreamException(
-                BluetoothRfcommStreamException.Operation.READ,
-                BluetoothRfcommStreamException.Reason.READ_FAILED,
-                failure,
-            )
+            readFailure = IOException("Bluetooth RFCOMM reader failed", failure)
             if (failure is Error) throw failure
         } finally {
-            readFailure?.let {
-                reportReadTerminal("FAILED")
-                fail(it)
-            }
+            readFailure?.let(::fail)
             val closeFailure = closeSocketOnce()
             if (readFailure == null && closeFailure != null && !isClosed() && !endedCleanly()) {
                 fail(closeFailure)
@@ -214,68 +162,21 @@ class BluetoothRfcommDuplexStream internal constructor(
     private fun takePendingLocked(maxBytes: Int): ByteArray? {
         val chunk = pending.pollFirst() ?: return null
         pendingBytes -= chunk.size
-        if (chunk.size <= maxBytes) {
-            lock.notifyAll()
-            return chunk
-        }
+        if (chunk.size <= maxBytes) return chunk
 
         val head = chunk.copyOf(maxBytes)
         val tail = chunk.copyOfRange(maxBytes, chunk.size)
         pending.addFirst(tail)
         pendingBytes += tail.size
-        lock.notifyAll()
         return head
     }
 
-    private fun fail(io: IOException): IOException {
+    private fun fail(io: IOException) {
         synchronized(lock) {
-            failure?.let { return it }
-            // Closing a socket intentionally unblocks both read and write/flush. Such a write
-            // exception during bootstrap handoff is cancellation, not a new transport failure.
-            if (closed) return IOException("Bluetooth RFCOMM stream is closed")
-            failure = io
+            if (failure == null) failure = io
             lock.notifyAll()
         }
-        reportFailure(io)
-        closeSocketOnce()?.let { if (it !== io) io.addSuppressed(it) }
-        return io
-    }
-
-    private fun <T : Any> acquireStream(
-        operation: BluetoothRfcommStreamException.Operation,
-        acquire: () -> T?,
-    ): T {
-        try {
-            return acquire() ?: throw BluetoothRfcommStreamException(
-                operation, BluetoothRfcommStreamException.Reason.STREAM_UNAVAILABLE,
-            )
-        } catch (error: Throwable) {
-            val failure = if (error is BluetoothRfcommStreamException) error else
-                BluetoothRfcommStreamException(operation, BluetoothRfcommStreamException.Reason.STREAM_ACCESS_FAILED, error)
-            reportFailure(failure)
-            closeSocketOnce()?.let(failure::addSuppressed)
-            if (error is Error) throw error
-            throw failure
-        }
-    }
-
-    private fun reportFailure(error: IOException) {
-        val streamFailure = error as? BluetoothRfcommStreamException
-        report("Bluetooth RFCOMM stream result=FAILED operation=${streamFailure?.operation ?: "UNKNOWN"} " +
-            "reason=${streamFailure?.reason ?: "UNKNOWN"} failureClass=${error.javaClass.simpleName} " +
-            "causeClass=${error.cause?.javaClass?.simpleName ?: "none"} " +
-            "nestedCauseClass=${error.cause?.cause?.javaClass?.simpleName ?: "none"}")
-    }
-
-    private fun reportReadTerminal(result: String) {
-        report("Bluetooth RFCOMM reader result=$result beforeFirstByte=${receivedBytes == 0L} " +
-            "readCalls=$readCalls receivedBytes=$receivedBytes")
-    }
-
-    private fun report(message: String) {
-        try { onDiagnostic(message) } catch (_: Exception) {
-            // A diagnostic callback cannot prevent transport setup or owned-socket cleanup.
-        }
+        closeSocketOnce()
     }
 
     private fun closeSocketOnce(): IOException? {
@@ -293,8 +194,6 @@ class BluetoothRfcommDuplexStream internal constructor(
     }
 
     private fun isClosed(): Boolean = synchronized(lock) { closed }
-
-    private fun isStopping(): Boolean = synchronized(lock) { closed || failure != null }
 
     private fun endedCleanly(): Boolean = synchronized(lock) { closed || peerEnded }
 

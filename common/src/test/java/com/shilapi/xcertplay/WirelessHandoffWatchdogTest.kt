@@ -86,7 +86,7 @@ class WirelessHandoffWatchdogTest {
         assertEquals(0, confirmations)
     }
 
-    @Test fun renderedVideoWithoutTunnelPreservesBootstrapAndReportsFallbackOnce() {
+    @Test fun renderedVideoWithoutTunnelReleasesOnlyBootstrapAndReportsFallbackOnce() {
         proofCall("rendered", 0, session)
         timeout()
         timeout()
@@ -94,7 +94,7 @@ class WirelessHandoffWatchdogTest {
         assertEquals(0, hotspotCloses)
         assertSame(session, ReflectionHelpers.getField(controller, "activeSession"))
         assertEquals(listOf(CarPlayStatus.WirelessActiveFallback), statuses)
-        verify(bootstrap, never()).close()
+        verify(bootstrap, times(1)).close()
         assertTrue(diagnostics.any { it.startsWith("STEP handoff/fallback:") && it.contains("tunnel iAP2 unavailable") })
         assertFalse(diagnostics.any { it.startsWith("STEP handoff/complete:") })
         assertEquals(0, confirmations)
@@ -115,61 +115,6 @@ class WirelessHandoffWatchdogTest {
         assertEquals(0, hotspotCloses)
         assertEquals(listOf(CarPlayStatus.WirelessActive), statuses)
         verify(bootstrap, times(1)).close()
-    }
-
-    @Test fun aLateTunnelPromotesFallbackAndClosesBluetoothOnlyOnce() {
-        proofCall("rendered", 0, session)
-        timeout()
-        assertEquals(listOf(CarPlayStatus.WirelessActiveFallback), statuses)
-        val closing = CountDownLatch(1)
-        doAnswer { closing.countDown(); null }.`when`(bootstrap).close()
-        tunnelReady(0)
-        tunnelReady(0)
-        assertTrue(closing.await(2, TimeUnit.SECONDS))
-        awaitHandoff()
-        assertEquals(listOf(CarPlayStatus.WirelessActiveFallback, CarPlayStatus.WirelessActive), statuses)
-        verify(bootstrap, times(1)).close()
-        assertFalse(flag("wirelessHandoffFellBack").get())
-        assertEquals(0, hotspotCloses)
-    }
-
-    @Test fun aQueuedTunnelCompletionCannotCloseTheNextGenerationsBootstrap() {
-        val replacement = mock(BluetoothSocket::class.java)
-        val lock = ReflectionHelpers.getField<Any>(controller, "wirelessResourceLock")
-        synchronized(lock) {
-            tunnelReady(0)
-            // Force replacement to win before the queued completion can claim its resources.
-            ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
-            ReflectionHelpers.setField(controller, "bluetoothSocket", replacement)
-            flag("wirelessActiveReported").set(false)
-            flag("wirelessTunnelReady").set(false)
-        }
-        awaitHandoff()
-        verify(bootstrap, never()).close()
-        verify(replacement, never()).close()
-        assertTrue(statuses.isEmpty())
-    }
-
-    @Test fun tunnelReadinessWithoutAHandoffRequestDoesNotReleaseBluetooth() {
-        flag("wirelessHandoffRequested").set(false)
-        tunnelReady(0)
-        awaitHandoff()
-        verify(bootstrap, never()).close()
-        assertTrue(statuses.isEmpty())
-        assertTrue(flag("wirelessTunnelReady").get())
-    }
-
-    @Test fun onlyTheCurrentRenderedSessionMayKeepTheBluetoothControlLoopAlive() {
-        assertFalse(keepControlAlive(0))
-        proofCall("rendered", 0, session)
-        assertTrue(keepControlAlive(0))
-        assertFalse(keepControlAlive(1))
-        proofCall("end", 0, session)
-        assertFalse(keepControlAlive(0))
-        proofCall("activate", 0, session)
-        proofCall("rendered", 0, session)
-        flag("wirelessFailureReported").set(true)
-        assertFalse(keepControlAlive(0))
     }
 
     @Test fun endedSessionCannotUseItsOldRenderedFrame() {
@@ -218,20 +163,6 @@ class WirelessHandoffWatchdogTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
     private fun flag(name: String): AtomicBoolean = ReflectionHelpers.getField(controller, name)
-    private fun tunnelReady(generation: Int) {
-        controller.javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, generation)
-    }
-    private fun keepControlAlive(generation: Int): Boolean =
-        controller.javaClass.getDeclaredMethod("keepBluetoothControlAlive", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, generation) as Boolean
-    private fun awaitHandoff() {
-        for (thread in Thread.getAllStackTraces().keys.filter { it.name == "xcertplay-wireless-handoff" }) {
-            thread.join(2_000)
-            assertFalse("Handoff worker did not finish", thread.isAlive)
-        }
-        shadowOf(Looper.getMainLooper()).idle()
-    }
     private fun proofCall(name: String, vararg args: Any) {
         proof.javaClass.declaredMethods.single { it.name == name }.apply { isAccessible = true }.invoke(proof, *args)
     }
