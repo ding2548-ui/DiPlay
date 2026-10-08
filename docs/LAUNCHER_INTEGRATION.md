@@ -85,6 +85,23 @@ Service action: `com.shihab.diplay.action.EMBED_MAP`. The package differs betwee
 | DiPlay → launcher | `102` STREAM_STATE | `streamActive` (boolean) | The map started or stopped |
 | DiPlay → launcher | `199` ERROR | `error`: `disabled`, `unsupported` or `bad_request` | The map cannot be shown |
 
+### Legacy handshake (head units below Android 11)
+
+`SurfaceControlViewHost` exists only on Android 11+. On older firmware (an Android 7 head unit
+among them), DiPlay instead draws straight into **a Surface you hand over**. `Surface` is
+`Parcelable` on every API level, so the ATTACH bundle simply carries it:
+
+| Difference vs the table above | Value |
+|---|---|
+| ATTACH (`1`) data | `surface` (Parcelable `Surface`, from `surfaceView.holder.surface`), `width`, `height` (int, px) — no `hostToken`, no `displayId` |
+| ATTACHED (`101`) data | `streamActive` (boolean) only — no `surfacePackage` |
+
+Everything else (RESIZE, DETACH, STREAM_STATE, ERROR) is unchanged. RESIZE is accepted but has no
+effect: draw into your own SurfaceView and scale it yourself. Because DiPlay has no view of its
+own in this mode, the "waiting" text and the tap-to-open-CarPlay behaviour are your launcher's job;
+DiPlay only mirrors the decoded map into your Surface. A launcher that sends no `surface` still
+gets `unsupported` on these units.
+
 Turning sharing off releases every attached map and sends `ERROR` with `disabled` to its launcher. Treat this as a detach. Enabling sharing again requires a fresh `ATTACH`; old views do not reconnect automatically.
 
 The map is 8:3. If your view has another shape, DiPlay fills it and crops the edges, keeping the car position near the centre. While there is no map, the view shows a "waiting" text. A tap on the map opens CarPlay.

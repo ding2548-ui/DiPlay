@@ -502,6 +502,32 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
     复测判据：报告里应出现 `Wi-Fi P2P ready mode=SYSTEM_DEFAULT band=Unknown (system selected) channel=0 frequencyMHz=null`，
     且不再有 `NoSuchMethodError ... getFrequency`。
 
+27. **仪表盘地图的二级开关在 Android 7 上不可用：窗口类型是 API 26 专有，本版修复。**
+    「仪表盘上的CarPlay地图」总开关下的二级功能在本车机（API 25）全部失灵，根因有两层：
+
+    - **悬浮卡片（主因）**：`CenterMapOverlay` 把卡片窗口硬编码为
+      `TYPE_APPLICATION_OVERLAY`（类型值 2038，**API 26 才引入**）。编译期该常量内联为
+      字面量，API 25 真机不报编译错、而是在 `addView` 时被框架以 `BadTokenException`
+      拒收 → 异常被 `catch (RuntimeException)` 吞掉 → 卡片永不出现（报告日志
+      `Centre map: card failed`）。全文件此前没有任何 `SDK_INT` 分支。
+      现按 SDK 分支：API ≥ 26 用 `TYPE_APPLICATION_OVERLAY`（行为不变），
+      **API < 26 降级为 `TYPE_PHONE`**（预 API 26 的悬浮窗类型，Android 7 直接可用，
+      权限要求同为 `SYSTEM_ALERT_WINDOW`，与参考实现一致）。
+      **「跟随仪表盘显示」与「离开桌面时自动隐藏」两个下挂开关没有独立的 API 门槛，
+      卡片修好后即随之恢复**。
+    - **与其他启动器共享实时地图**：`MapEmbedService` 依赖
+      `SurfaceControlViewHost.SurfacePackage`（API 30 引入），此前在 Android 11 以下
+      一律回 `unsupported`。本版增加**旧握手降级**：Android 11 以下的启动器在
+      `MSG_ATTACH` 的 Bundle 里直接放入自己的 `Surface`（key `surface`，
+      Surface 本身自 API 1 起可跨进程传递），DiPlay 把地图镜像直接画进该 Surface
+      （不代管视图，因此"等待地图"文字与点击打开 CarPlay 由启动器自行处理）；
+      不带 Surface 仍回 `unsupported`。开关关闭时两种握手都回 `disabled`。
+      启动器侧需要按此协议适配（见 `docs/LAUNCHER_INTEGRATION.md`）。
+
+    复测判据（beta 真机）：总开关打开 → 开「中控屏上的仪表盘地图」→ 授予
+    「显示在其他应用上层」→ 退出到桌面，卡片应在约 0.6 秒后出现，可拖动/双指缩放；
+    报告里 `Centre map: card shown WxH at X,Y`（不再出现 `card failed`）。
+
 ---
 
 ## 装包说明

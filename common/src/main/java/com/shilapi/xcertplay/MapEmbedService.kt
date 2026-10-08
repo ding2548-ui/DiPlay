@@ -36,7 +36,7 @@ import com.shilapi.xcertplay.host.R
 class MapEmbedService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { handle(it); true })
-    private val embeds = HashMap<IBinder, Embed>()
+    private val embeds = HashMap<IBinder, EmbedView>()
     private var nextId = 0
     private var destroyed = false
     private var stopObservingSharing: (() -> Unit)? = null
@@ -87,7 +87,26 @@ class MapEmbedService : Service() {
 
     private fun attach(client: Messenger, caller: String, data: Bundle) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            refuse(client, caller, ERROR_UNSUPPORTED)
+            if (!AirPlayPersistence.loadLauncherMapSharing(this)) {
+                refuse(client, caller, ERROR_DISABLED)
+                return
+            }
+            // Firmware below Android 11 has no SurfaceControlViewHost. A launcher that knows
+            // the legacy handshake passes its own Surface instead (Surface is Parcelable on
+            // every API level); the map is then drawn straight into it, without the waiting
+            // label or the tap-to-open behaviour, which stay the launcher's job.
+            @Suppress("DEPRECATION")
+            val shared = data.getParcelable<Surface>(KEY_SURFACE)
+            if (shared == null) {
+                refuse(client, caller, ERROR_UNSUPPORTED)
+                return
+            }
+            embeds.remove(client.binder)?.release()
+            val embed = LegacyEmbed(client, "launcher:${nextId++}", shared)
+            embeds[client.binder] = embed
+            runCatching { client.binder.linkToDeath({ main.post { embeds.remove(client.binder)?.release() } }, 0) }
+            Log.i(TAG, "$caller shows the map on its own surface ${shared.isValid}")
+            send(client, MSG_ATTACHED, Bundle().apply { putBoolean(KEY_STREAM_ACTIVE, MapMirrors.streamActive) })
             return
         }
         val error = when {
@@ -133,6 +152,44 @@ class MapEmbedService : Service() {
     }
 
     /** One map in one launcher view. Main thread. */
+    private interface EmbedView {
+        fun resize(width: Int, height: Int)
+        fun release()
+        fun sharingDisabled()
+    }
+
+    /** The pre-Android-11 handshake: the launcher hands over its own Surface. Main thread. */
+    private inner class LegacyEmbed(
+        private val client: Messenger,
+        private val key: String,
+        private val shared: Surface,
+    ) : EmbedView {
+        private var released = false
+        private val streamListener: (Boolean) -> Unit = { active ->
+            send(client, MSG_STREAM_STATE, Bundle().apply { putBoolean(KEY_STREAM_ACTIVE, active) })
+        }
+
+        init {
+            // The Surface belongs to the launcher: bind the mirror to it, never release it here.
+            MapMirrors.set(key, shared)
+            MapMirrors.addStreamListener(streamListener)
+        }
+
+        override fun resize(width: Int, height: Int) = Unit
+
+        override fun release() {
+            if (released) return
+            released = true
+            MapMirrors.removeStreamListener(streamListener)
+            MapMirrors.set(key, null)
+        }
+
+        override fun sharingDisabled() {
+            release()
+            send(client, MSG_ERROR, Bundle().apply { putString(KEY_ERROR, ERROR_DISABLED) })
+        }
+    }
+
     @RequiresApi(Build.VERSION_CODES.R)
     private inner class Embed(
         context: Context,
@@ -142,7 +199,7 @@ class MapEmbedService : Service() {
         display: android.view.Display,
         width: Int,
         height: Int,
-    ) {
+    ) : EmbedView {
         private val host = SurfaceControlViewHost(context, display, hostToken)
         private var released = false
         private var surface: Surface? = null
@@ -198,11 +255,11 @@ class MapEmbedService : Service() {
             host.setView(root, width.coerceAtLeast(1), height.coerceAtLeast(1))
         }
 
-        fun resize(width: Int, height: Int) {
+        override fun resize(width: Int, height: Int) {
             if (!released && width > 0 && height > 0) host.relayout(width, height)
         }
 
-        fun release() {
+        override fun release() {
             if (released) return
             released = true
             MapMirrors.removeStreamListener(streamListener)
@@ -211,7 +268,7 @@ class MapEmbedService : Service() {
             host.release()
         }
 
-        fun sharingDisabled() {
+        override fun sharingDisabled() {
             release()
             send(client, MSG_ERROR, Bundle().apply { putString(KEY_ERROR, ERROR_DISABLED) })
         }

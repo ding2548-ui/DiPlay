@@ -93,10 +93,19 @@ internal object CenterMapOverlay {
             .putLong(KEY_ASPECT, java.lang.Double.doubleToRawLongBits(aspect)).apply()
         val height = (width / aspect).toInt()
         val radius = 24f * metrics.density / 2
+        // TYPE_APPLICATION_OVERLAY only exists since API 26; older firmware (this Android 7
+        // head unit among them) rejects type 2038 with a BadTokenException. TYPE_PHONE is the
+        // pre-O overlay type and works on Android 7 with the same SYSTEM_ALERT_WINDOW grant.
+        val windowType = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
         val params = WindowManager.LayoutParams(
             width,
             height,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, // the TextureView needs it
             PixelFormat.TRANSLUCENT,
