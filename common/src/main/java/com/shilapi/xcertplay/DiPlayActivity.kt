@@ -1965,7 +1965,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
             card.addView(label("与桌面“高德悬浮窗插件”配合使用：插件选择本应用后，桌面会按插件设置的位置显示实时 CarPlay 画面。", 14, MUTED))
         }
-        if (BydOutputSettings.available(this)) section(content, getString(R.string.byd_navigation), R.drawable.ic_dp_navigation) { card ->
         if (BydOutputSettings.available(this)) filteredSection(content, SettingsSection.BYD_NAVIGATION,
             getString(R.string.byd_navigation), R.drawable.ic_dp_navigation) { card ->
             toggle(card, getString(R.string.navigation_on_hud_and_instrument_cluster),
