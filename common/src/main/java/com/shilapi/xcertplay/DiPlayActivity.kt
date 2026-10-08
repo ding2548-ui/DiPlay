@@ -2738,9 +2738,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun wifiDirectChannelLabel(channel: Int): String = if (channel == WifiP2pChannels.AUTO) {
         getString(R.string.auto)
-    } else if (channel == WifiP2pChannels.AUTO_5_GHZ || channel == WifiP2pChannels.AUTO_2_4_GHZ) {
-        getString(R.string.settings_wifi_direct_auto_band,
-            getString(if (channel == WifiP2pChannels.AUTO_5_GHZ) R.string.s_5_ghz else R.string.s_2_4_ghz))
     } else {
         getString(R.string.wifi_direct_channel_choice, channel,
             getString(if (channel < 36) R.string.s_2_4_ghz else R.string.s_5_ghz))
@@ -2763,10 +2760,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         val control = button(summary(AirPlayPersistence.loadWifiP2pPreferredChannel(this)), false) {}
         control.setOnClickListener {
-            val choices = listOf(WifiP2pChannels.AUTO) + WifiP2pChannels.bandChoices + WifiP2pChannels.channels
+            val choices = listOf(WifiP2pChannels.AUTO) + WifiP2pChannels.channels
             val current = AirPlayPersistence.loadWifiP2pPreferredChannel(this)
             var selection = current
-            appDialogBuilder().setTitle(R.string.wifi_direct_channel_title)
+            AlertDialog.Builder(this).setTitle(R.string.wifi_direct_channel_title)
                 .setSingleChoiceItems(choices.map(::wifiDirectChannelLabel).toTypedArray(),
                     choices.indexOf(current)) { _, which -> selection = choices[which] }
                 .setPositiveButton(R.string.save) { _, _ ->
@@ -2781,10 +2778,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         parent.addView(control, matchButton(12, 60))
         parent.addView(label(getString(R.string.wifi_direct_channel_description), 15, MUTED).apply {
-            setPadding(0, dp(6), 0, dp(6))
-        })
-        parent.addView(label(getString(R.string.settings_wifi_direct_band_note), 15, MUTED).apply {
-            setPadding(0, 0, 0, dp(12))
+            setPadding(0, dp(6), 0, dp(12))
         })
     }
 
