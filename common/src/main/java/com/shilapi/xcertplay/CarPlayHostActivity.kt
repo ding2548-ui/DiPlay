@@ -506,6 +506,8 @@ class CarPlayHostActivity : ComponentActivity() {
         CenterMapOverlay.hostSaysVisible = { isActivityStarted }
         ShowmapOverlay.enabled = AirPlayPersistence.loadShowmapShare(this)
         ShowmapOverlay.sink = { surface -> sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ShowmapOverlay.KEY, surface) }
+        ShowmapOverlay.touchBridge = { contacts -> controller?.sendTouch(contacts) ?: false }
+        ShowmapOverlay.onDiagnostic = { message -> appendLog(message) }
         registerReceiver(ShowmapOverlay.receiver, IntentFilter().apply {
             addAction(ShowmapOverlay.ACTION_SHOW)
             addAction(ShowmapOverlay.ACTION_CLOSE)
@@ -1227,6 +1229,8 @@ class CarPlayHostActivity : ComponentActivity() {
         CenterMapOverlay.hostSaysVisible = null
         runCatching { unregisterReceiver(ShowmapOverlay.receiver) }
         ShowmapOverlay.hide()
+        ShowmapOverlay.touchBridge = null
+        ShowmapOverlay.onDiagnostic = null
         if (MapMirrors.sink === mirrorSink) {
             MapMirrors.sink = null
             MapMirrors.setStreamActive(false)

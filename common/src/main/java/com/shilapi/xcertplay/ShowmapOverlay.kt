@@ -3,7 +3,6 @@ package com.shilapi.xcertplay
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.PixelFormat
@@ -13,11 +12,15 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import com.shilapi.xcertplay.airplay.AirPlayContact
+import com.shilapi.xcertplay.media.CarPlayTouchMapper
+import com.shilapi.xcertplay.media.CarPlayVideoLayout
 
 /**
  * The live CarPlay screen (the main stream, 110) floating over the launcher, driven by the
@@ -27,6 +30,11 @@ import android.widget.FrameLayout
  * is created here (TYPE_PHONE below API 26, TYPE_APPLICATION_OVERLAY above, like the centre
  * card); the launcher only picks the geometry. Off by default: when the switch is on, any
  * app on the head unit may ask for the window.
+ *
+ * Every [ACTION_SHOW] is applied as the launcher's current word on the geometry: when the
+ * window already exists the new rect moves and resizes it (omitted extras keep their value),
+ * like AMap. Touches on the video are forwarded into the CarPlay touch pipeline, so the
+ * floating screen is directly operable, again like AMap.
  */
 internal object ShowmapOverlay {
     const val ACTION_SHOW = "com.autonavi.plus.showmap"
@@ -43,10 +51,19 @@ internal object ShowmapOverlay {
     /** The settings switch; off means every broadcast is ignored. */
     var enabled: Boolean = false
 
+    /** Sends touch contacts produced by this window; wired by the host activity to the controller. */
+    @Volatile var touchBridge: ((List<AirPlayContact>) -> Boolean)? = null
+
+    /** Both the logcat line and the app's diagnostic report receive these. */
+    @Volatile var onDiagnostic: ((String) -> Unit)? = null
+
     private val main = Handler(Looper.getMainLooper())
     private var root: View? = null
     private var surface: Surface? = null
     private var params: WindowManager.LayoutParams? = null
+
+    /** Where the 16:9 stream sits inside the view after crop-to-fill; touch coordinates map through it. */
+    @Volatile private var contentLayout: CarPlayVideoLayout? = null
 
     val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -56,12 +73,12 @@ internal object ShowmapOverlay {
                     val y = intent.getIntExtra("y", Int.MIN_VALUE)
                     val w = intent.getIntExtra("w", 0)
                     val h = intent.getIntExtra("h", 0)
-                    Log.i(TAG, "show x=$x y=$y w=$w h=$h enabled=$enabled")
+                    diag("showmap: recv show x=$x y=$y w=$w h=$h enabled=$enabled")
                     if (!enabled) return
                     main.post { show(context.applicationContext, x, y, w, h) }
                 }
                 ACTION_CLOSE -> {
-                    Log.i(TAG, "close enabled=$enabled")
+                    diag("showmap: recv close enabled=$enabled")
                     if (!enabled) return
                     main.post { hide() }
                 }
@@ -77,9 +94,14 @@ internal object ShowmapOverlay {
         sink?.invoke(live)
     }
 
+    private fun diag(message: String) {
+        Log.i(TAG, message)
+        onDiagnostic?.invoke(message)
+    }
+
     private fun show(context: Context, x: Int, y: Int, w: Int, h: Int) {
         if (!permitted(context)) {
-            Log.w(TAG, "no overlay permission")
+            diag("showmap: no overlay permission")
             return
         }
         val windows = context.getSystemService(WindowManager::class.java) ?: return
@@ -87,18 +109,23 @@ internal object ShowmapOverlay {
         val screenWidth = metrics.widthPixels
         val screenHeight = metrics.heightPixels
         if (screenWidth <= 0 || screenHeight <= 0) return
-        val width = if (w in 1 until screenWidth) w else (screenWidth / 3.0).toInt().coerceAtLeast(1)
-        val height = if (h in 1 until screenHeight) h else (width / STREAM_ASPECT).toInt().coerceAtLeast(1)
-        if (root != null) {
-            // Already up: the launcher only moved or resized it.
-            val existing = params ?: return
-            existing.x = x.coerceIn(0, (screenWidth - width).coerceAtLeast(0))
-            existing.y = y.coerceIn(0, (screenHeight - height).coerceAtLeast(0))
-            existing.width = width
-            existing.height = height
+        val existing = params
+        if (root != null && existing != null) {
+            // Already up: the launcher moved or resized it. Apply exactly the rect it sent —
+            // an omitted extra keeps its current value instead of resetting the window.
+            if (w >= 1) existing.width = minOf(w, screenWidth)
+            if (h >= 1) existing.height = minOf(h, screenHeight)
+            if (x != Int.MIN_VALUE) existing.x = x
+            if (y != Int.MIN_VALUE) existing.y = y
             runCatching { windows.updateViewLayout(root, existing) }
+                .onSuccess { diag("showmap: updated ${existing.width}x${existing.height} at ${existing.x},${existing.y}") }
+                .onFailure { diag("showmap: update failed: ${it.message}") }
             return
         }
+        // Creation: the launcher's rect wins, clamped only to the screen; missing w/h fall
+        // back to a third of the screen width.
+        val width = if (w >= 1) minOf(w, screenWidth) else (screenWidth / 3.0).toInt().coerceAtLeast(1)
+        val height = if (h >= 1) minOf(h, screenHeight) else (width / STREAM_ASPECT).toInt().coerceAtLeast(1)
         val windowType = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -115,18 +142,17 @@ internal object ShowmapOverlay {
             gravity = Gravity.TOP or Gravity.START
             this.x = if (x == Int.MIN_VALUE) screenWidth - width else x
             this.y = if (y == Int.MIN_VALUE) (screenHeight - height) / 2 else y
-            this.x = this.x.coerceIn(0, (screenWidth - width).coerceAtLeast(0))
-            this.y = this.y.coerceIn(0, (screenHeight - height).coerceAtLeast(0))
             title = "DiPlay showmap"
         }
         params = layout
         val video = TextureView(context).apply {
+            setOnTouchListener { _, event: MotionEvent -> onTouch(event); true }
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(texture: SurfaceTexture, vw: Int, vh: Int) {
                     if (root === null) return
                     cropToFill(this@apply, vw, vh)
                     surface = Surface(texture).also { sink?.invoke(it) }
-                    Log.i(TAG, "surface $vw x $vh")
+                    diag("showmap: surface $vw x $vh")
                 }
 
                 override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, vw: Int, vh: Int) =
@@ -138,6 +164,7 @@ internal object ShowmapOverlay {
                     sink?.invoke(null)
                     val old = surface
                     surface = null
+                    contentLayout = null
                     main.postDelayed({ old?.release(); texture.release() }, 1_000L)
                     return false
                 }
@@ -146,32 +173,33 @@ internal object ShowmapOverlay {
         val frame = FrameLayout(context).apply {
             setBackgroundColor(Color.BLACK)
             addView(video, FrameLayout.LayoutParams(-1, -1))
-            // A tap opens CarPlay, like a tap on the centre card.
-            setOnClickListener {
-                context.startActivity(
-                    Intent(context, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
         }
         try {
             windows.addView(frame, layout)
             root = frame
-            Log.i(TAG, "shown ${width}x$height at ${layout.x},${layout.y}")
+            diag("showmap: shown ${width}x$height at ${layout.x},${layout.y}")
         } catch (error: RuntimeException) {
-            Log.w(TAG, "window failed", error)
+            diag("showmap: window failed: ${error.message}")
             params = null
         }
+    }
+
+    private fun onTouch(event: MotionEvent) {
+        val layout = contentLayout ?: return
+        val contacts = CarPlayTouchMapper.contacts(event, layout)
+        touchBridge?.invoke(contacts)
     }
 
     internal fun hide() {
         val view = root ?: return
         root = null
         params = null
+        contentLayout = null
         runCatching {
             view.context.getSystemService(WindowManager::class.java)?.removeViewImmediate(view)
         }
         // onSurfaceTextureDestroyed hands the mirror back through sink(null) and releases.
-        Log.i(TAG, "hidden")
+        diag("showmap: hidden")
     }
 
     /** Keeps the 16:9 stream filling the window, cropping the edges that do not fit. */
@@ -181,5 +209,13 @@ internal object ShowmapOverlay {
         val scaleX = if (viewAspect < STREAM_ASPECT) (STREAM_ASPECT / viewAspect).toFloat() else 1f
         val scaleY = if (viewAspect > STREAM_ASPECT) (viewAspect / STREAM_ASPECT).toFloat() else 1f
         view.setTransform(Matrix().apply { setScale(scaleX, scaleY, width / 2f, height / 2f) })
+        // The scaled stream overflows the view on the cropped axes; record the overflow rect so
+        // touches map back to the full CarPlay canvas.
+        contentLayout = CarPlayVideoLayout(
+            left = width * (1f - scaleX) / 2f,
+            top = height * (1f - scaleY) / 2f,
+            width = width * scaleX,
+            height = height * scaleY,
+        )
     }
 }
