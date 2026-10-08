@@ -3784,7 +3784,6 @@ class CarPlayHostActivity : ComponentActivity() {
             // VideoInCarGate reads LeapmotorGearMonitor.videoAllowed() (N 挡) once a second, and
             // VideoInCar.allowed stays false until the CAN broadcast reports a gear.
             videoInCar = true,
-            videoInCar = com.shilapi.xcertplay.hud.BydOutputSettings.videoWhileParkedActive(this),
             mainBufferedAudio = AirPlayPersistence.loadMainBufferedAudio(this),
             disableAudioOutput = carBluetoothAudio,
         )
