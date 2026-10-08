@@ -503,6 +503,12 @@ class CarPlayHostActivity : ComponentActivity() {
         NavigationWidgetUpdater.attach(applicationContext)
         CenterMapOverlay.requestShow = ::showCenterMap
         CenterMapOverlay.hostSaysVisible = { isActivityStarted }
+        ShowmapOverlay.enabled = AirPlayPersistence.loadShowmapShare(this)
+        ShowmapOverlay.sink = { surface -> sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ShowmapOverlay.KEY, surface) }
+        registerReceiver(ShowmapOverlay.receiver, IntentFilter().apply {
+            addAction(ShowmapOverlay.ACTION_SHOW)
+            addAction(ShowmapOverlay.ACTION_CLOSE)
+        })
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
         languagePreferenceAtCreate = AppLocale.preference(this)
@@ -1218,6 +1224,8 @@ class CarPlayHostActivity : ComponentActivity() {
         CenterMapOverlay.hide()
         if (CenterMapOverlay.requestShow == (::showCenterMap)) CenterMapOverlay.requestShow = null
         CenterMapOverlay.hostSaysVisible = null
+        runCatching { unregisterReceiver(ShowmapOverlay.receiver) }
+        ShowmapOverlay.hide()
         if (MapMirrors.sink === mirrorSink) {
             MapMirrors.sink = null
             MapMirrors.setStreamActive(false)
@@ -4544,6 +4552,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun attachSurface(surface: Surface) {
         sink?.setSurface(SCREEN_TYPE_MAIN, surface)
+        ShowmapOverlay.reattach()
         if (AirPlayPersistence.loadClusterMapEnabled(this)) {
             clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
         } else {
@@ -4666,6 +4675,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 } else {
                     mainHandler.postDelayed(hideIdleCenterMap, CENTER_MAP_IDLE_MILLIS)
                 }
+            } else if (type == SCREEN_TYPE_MAIN && !active) {
+                // No main stream, nothing to mirror: take the showmap window down.
+                ShowmapOverlay.hide()
             }
             updateDebugOverlays()
         }

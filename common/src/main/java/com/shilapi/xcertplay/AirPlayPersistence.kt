@@ -592,6 +592,16 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_LAUNCHER_MAP_SHARING, enabled).apply()
     }
 
+    private const val KEY_SHOWMAP_SHARE = "showmap_share"
+
+    /** The dashboard launcher's popup protocol (com.autonavi.plus.showmap) may float the CarPlay screen. */
+    fun loadShowmapShare(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SHOWMAP_SHARE, false)
+
+    fun saveShowmapShare(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SHOWMAP_SHARE, enabled).apply()
+    }
+
     /** Observe consent changes for already attached launcher maps; call the returned function to unregister. */
     internal fun observeLauncherMapSharing(context: Context, changed: (Boolean) -> Unit): () -> Unit {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
