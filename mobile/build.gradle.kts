@@ -38,6 +38,12 @@ android {
             // Coexists with the release build; see the comment on [betaChannel].
             applicationIdSuffix = ".psabeta"
         }
+        // The beta channel identifies itself wherever the app name is shown: the launcher label,
+        // the home header, the About page and the session notification all read these two.
+        // They are generated rather than kept in res/ so the release channel stays plain "DiPlay".
+        val shownName = if (betaChannel) "DiPlay Beta" else "DiPlay"
+        resValue("string", "app_name", shownName)
+        resValue("string", "diplay", shownName)
 
         // The ABI is deliberately NOT pinned. Pinning it to armeabi-v7a was done so the v7a-only
         // libdiplay_lwip.so could load, but it forces the whole process to 32 bits — and the car's

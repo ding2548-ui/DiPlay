@@ -85,6 +85,8 @@ internal enum class SettingsCategory {
 internal enum class SettingsSection {
     CARPLAY_CONTROLS,
     WHEEL_KEYS,
+    /** PSA line: the wheel-key learning page, shown right after the steering-wheel keys. */
+    WHEEL_LEARNING,
     CONNECTION_SETUP,
     DIAGNOSTICS,
     AUTOMATIC_CONNECTION,
@@ -96,14 +98,18 @@ internal enum class SettingsSection {
     AUDIO_ROUTING,
     LOCATION,
     CLUSTER_MAP,
+    /** PSA line: sharing the live CarPlay surface with the dudu launcher's floating window. */
+    SHOWMAP_SHARING,
     BYD_NAVIGATION,
     PERMISSIONS_AND_HELP,
     LANGUAGE,
+    /** PSA line: the in-app updater, on the home page under the quick settings. */
+    UPDATE,
 }
 
 internal object SettingsInformationArchitecture {
     val sectionsByCategory: Map<SettingsCategory, Set<SettingsSection>> = mapOf(
-        SettingsCategory.OVERVIEW to emptySet(),
+        SettingsCategory.OVERVIEW to setOf(SettingsSection.UPDATE),
         SettingsCategory.LANGUAGE to setOf(SettingsSection.LANGUAGE),
         SettingsCategory.ABOUT to emptySet(),
         SettingsCategory.CONNECTION to setOf(
@@ -118,11 +124,13 @@ internal object SettingsInformationArchitecture {
         SettingsCategory.VEHICLE to setOf(
             SettingsSection.CARPLAY_CONTROLS,
             SettingsSection.WHEEL_KEYS,
+            SettingsSection.WHEEL_LEARNING,
             SettingsSection.CAR_BUTTON,
         ),
         SettingsCategory.DIAGNOSTICS to setOf(SettingsSection.DIAGNOSTICS),
         SettingsCategory.ADVANCED to setOf(
             SettingsSection.CLUSTER_MAP,
+            SettingsSection.SHOWMAP_SHARING,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ADVANCED_MEDIA,
         ),
@@ -1039,10 +1047,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             content.addView(quickSettingsCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
         }
 
+        // The home page's own sections (currently the in-app updater) sit directly under the quick
+        // settings, so render them here instead of at the end of the page.
+        renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.OVERVIEW))
+
         content.addView(settingsUtilitiesCard(), LinearLayout.LayoutParams(-1, -2).apply {
             bottomMargin = dp(SETTINGS_BLOCK_GAP_DP)
         })
-        renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.OVERVIEW))
     }
 
     private fun currentReadiness() = SettingsReadiness.of(
@@ -1409,6 +1420,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun allSettingsSections(content: LinearLayout) {
+        // PSA line: the in-app updater is a home-page section, rendered right under the quick
+        // settings. See SettingsSection.UPDATE and settingsOverview.
+        filteredSection(content, SettingsSection.UPDATE, "在线更新") { card ->
+            card.addView(label("检测 GitHub 上的新构建：自动下载、安装并重新打开 DiPlay，装好后会删除下载的 APK。", 14, MUTED))
+            updateSection(card)
+        }
         filteredSection(content, SettingsSection.CARPLAY_CONTROLS,
             getString(R.string.carplay_controls), R.drawable.ic_dp_controls) { card ->
             val gestureFingers = listOf(2, 3, 4)
@@ -1425,6 +1442,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         filteredSection(content, SettingsSection.WHEEL_KEYS,
             getString(R.string.settings_wheel_keys), R.drawable.ic_dp_controls, ::wheelKeysSettings)
+        // PSA line (ported from the Leapmotor line): one head unit's own copy rather than
+        // translatable UI, so the strings stay hard-coded Chinese.
+        filteredSection(content, SettingsSection.WHEEL_LEARNING, "方控学习") { card ->
+            wheelLearningControls(card)
+        }
         filteredSection(content, SettingsSection.CONNECTION_SETUP,
             getString(R.string.connection_setup), R.drawable.ic_dp_connection) { card ->
             card.addView(label(getString(R.string.choose_how_to_connect_follow_the_setup_steps_and_save_your), 16, MUTED))
@@ -1948,7 +1970,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // Leapmotor-line style: this block targets one head unit's launcher (dudu), so the
         // strings stay hard-coded Chinese rather than resource-translated.
-        section(content, "与嘟嘟桌面共享实时界面") { card ->
+        filteredSection(content, SettingsSection.SHOWMAP_SHARING, "与嘟嘟桌面共享实时界面") { card ->
             toggle(card, "与嘟嘟桌面共享实时界面（高德悬浮窗协议）",
                 "让嘟嘟桌面的悬浮窗插件在桌面上悬浮实时 CarPlay 画面。默认关闭：开启后车机上任何应用都可以请求该窗口。需要“显示在其他应用上层”权限。",
                 AirPlayPersistence.loadShowmapShare(this)) {
@@ -1980,14 +2002,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // Ported from the Leapmotor line (DiPlay-main2.0). Both blocks are one head unit's copy
         // rather than translatable UI, so their strings stay hard-coded Chinese, like the update
         // block below them already was.
-        section(content, "方控学习") { card -> wheelLearningControls(card) }
-        section(content, "在线更新") { card ->
-            card.addView(label("检测 GitHub 上的新构建：自动下载、安装并重新打开 DiPlay，装好后会删除下载的 APK。", 14, MUTED))
-            updateSection(card)
-        }
-        section(content, getString(R.string.about), R.drawable.ic_dp_about) { card ->
-            card.addView(button(getString(R.string.about_diplay), false) { page = "about"; render() }, matchButton(0, 60))
-        }
         languageSettings(content)
     }
 
