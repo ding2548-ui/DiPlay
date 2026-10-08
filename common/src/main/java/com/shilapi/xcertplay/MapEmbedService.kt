@@ -292,6 +292,7 @@ class MapEmbedService : Service() {
         const val MSG_ERROR = 199 // KEY_ERROR
 
         const val KEY_HOST_TOKEN = "hostToken"
+        const val KEY_SURFACE = "surface" // legacy handshake: the launcher's own Surface
         const val KEY_DISPLAY_ID = "displayId"
         const val KEY_WIDTH = "width"
         const val KEY_HEIGHT = "height"
