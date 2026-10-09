@@ -2,3 +2,6 @@
 
 /* DiPlay: two actual app screenshots, equal columns. */
 figure:first-child{grid-column:auto}.brand img{border-radius:12px}html[dir=rtl] .eyebrow{letter-spacing:0}@media(max-width:700px){figure:first-child{grid-column:1/-1}}
+
+/* Keep complete diagnostic URLs readable on narrow screens. */
+.card p{overflow-wrap:anywhere}

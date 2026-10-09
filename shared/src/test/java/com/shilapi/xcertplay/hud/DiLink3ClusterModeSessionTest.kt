@@ -7,12 +7,15 @@ class DiLink3ClusterModeSessionTest {
     private val projection = BydDiLink3ClusterMode.Mode.PROJECTION
     private val simple = BydDiLink3ClusterMode.Mode.SIMPLE_NAVIGATION
     private val stock = BydDiLink3ClusterMode.Mode.STOCK
+    private val projectionCommands get() = listOf(projection.entryCommand!!, projection.command)
     private val ok = "Result: Parcel(00000000 00000000 '........')"
     private val refused = "Result: Parcel(ffffffec 00000000 '........')"
     private var pending = false
     private var writable = true
     private val commands = mutableListOf<String>()
     private var response: (String) -> String? = { ok }
+    private var projectionDelay: () -> Unit = {}
+    private var projectionWanted: () -> Boolean = { true }
     private fun session() = DiLink3ClusterModeSession(
         run = { command ->
             assertTrue("Recovery must be durable before an OEM write", pending)
@@ -21,6 +24,8 @@ class DiLink3ClusterModeSessionTest {
         },
         loadRecovery = { pending },
         saveRecovery = { next -> if (writable) { pending = next; true } else false },
+        projectionStepDelay = { projectionDelay() },
+        projectionStillWanted = { projectionWanted() },
     )
     private fun prepare(state: DiLink3ClusterModeSession, current: () -> BydDiLink3ClusterMode.Mode? = { null },
                         wanted: () -> Boolean = { true }, delay: () -> Unit = {}) =
@@ -69,7 +74,7 @@ class DiLink3ClusterModeSessionTest {
         assertTrue(pending)
         response = { ok }
         assertTrue(state.apply(null))
-        assertEquals(listOf(projection.command, stock.command, stock.command), commands)
+        assertEquals(projectionCommands + listOf(stock.command, stock.command), commands)
         assertFalse(pending)
     }
 
@@ -82,7 +87,7 @@ class DiLink3ClusterModeSessionTest {
         assertEquals(stock.command, commands.last())
         response = { ok }
         assertTrue(state.apply(projection))
-        assertEquals(listOf(stock.command, projection.command), commands.takeLast(2))
+        assertEquals(listOf(stock.command) + projectionCommands, commands.takeLast(3))
     }
 
     @Test fun interruptedProcessRestoresBeforeAcceptingNewGuidance() {
@@ -132,14 +137,14 @@ class DiLink3ClusterModeSessionTest {
         assertTrue(state.apply(projection))
         assertTrue(state.recoverInterrupted())
         assertTrue(state.apply(projection))
-        assertEquals(listOf(projection.command), commands)
+        assertEquals(projectionCommands, commands)
     }
 
     @Test fun preparationUsesLatestDesiredModeAfterItsBlockingSteps() {
         val state = session()
         var desired: BydDiLink3ClusterMode.Mode? = simple
         prepare(state, current = { desired }, delay = { desired = projection })
-        assertEquals(BydDiLink3ClusterMode.CREATE_DISPLAY.take(2) + projection.command, commands)
+        assertEquals(BydDiLink3ClusterMode.CREATE_DISPLAY.take(2) + projectionCommands, commands)
         assertTrue(pending)
         assertTrue(state.apply(null))
     }
@@ -147,7 +152,7 @@ class DiLink3ClusterModeSessionTest {
     @Test fun aFailedFinalMapModeAlsoCompensatesPreparation() {
         response = { if (it == projection.command) null else ok }
         assertFalse(prepare(session(), current = { projection }))
-        assertEquals(BydDiLink3ClusterMode.CREATE_DISPLAY.take(2) + listOf(projection.command, stock.command), commands)
+        assertEquals(BydDiLink3ClusterMode.CREATE_DISPLAY.take(2) + projectionCommands + stock.command, commands)
         assertFalse(pending)
     }
 
@@ -156,5 +161,85 @@ class DiLink3ClusterModeSessionTest {
         assertTrue(state.apply(null))
         assertTrue(state.prepareDisplay({ true }, { projection }, { true }, {}))
         assertTrue(commands.isEmpty())
+    }
+
+    @Test fun refusedFullProjectionNeverProceedsToHalfProjection() {
+        val full = BydDiLink3ClusterMode.CREATE_DISPLAY.first()
+        response = { if (it == full) refused else ok }
+        assertFalse(session().apply(projection))
+        assertEquals(listOf(full, stock.command), commands)
+        assertFalse(pending)
+    }
+
+    @Test fun refusedHalfProjectionImmediatelyCompensatesFullProjection() {
+        response = { if (it == projection.command) refused else ok }
+        assertFalse(session().apply(projection))
+        assertEquals(stock.command, commands.last())
+        assertFalse(pending)
+    }
+
+    @Test fun failedProjectionCompensationBlocksNewModesUntilStockRecovers() {
+        val state = session()
+        response = { if (it == projection.command || it == stock.command) null else ok }
+        assertFalse(state.apply(projection))
+        assertTrue(pending)
+        commands.clear()
+        assertFalse(state.apply(simple))
+        assertEquals(listOf(stock.command), commands)
+        response = { ok }
+        assertTrue(state.apply(simple))
+        assertEquals(listOf(stock.command, stock.command, simple.command), commands)
+    }
+
+    @Test fun missingFullProjectionReplyStillRestoresWithoutEnteringHalfMode() {
+        response = { if (it == projection.entryCommand) null else ok }
+        assertFalse(session().apply(projection))
+        assertEquals(listOf(projection.entryCommand, stock.command), commands)
+        assertFalse(pending)
+    }
+
+    @Test fun cancellingDuringProjectionDelayRestoresWithoutEnteringHalfMode() {
+        var wanted = true
+        projectionWanted = { wanted }
+        projectionDelay = { wanted = false }
+        assertFalse(session().apply(projection))
+        assertEquals(listOf(projection.entryCommand, stock.command), commands)
+        assertFalse(pending)
+    }
+
+    @Test fun interruptedProjectionDelayRestoresThenPreservesInterrupt() {
+        projectionDelay = { throw InterruptedException("output stopped") }
+        try {
+            assertFalse(session().apply(projection))
+            assertEquals(listOf(projection.entryCommand, stock.command), commands)
+            assertFalse(pending)
+            assertTrue(Thread.currentThread().isInterrupted)
+        } finally { Thread.interrupted() }
+    }
+
+    @Test fun projectionRequestWithdrawnBeforeEntryDoesNotMutateCluster() {
+        projectionWanted = { false }
+        assertFalse(session().apply(projection))
+        assertTrue(commands.isEmpty())
+        assertFalse(pending)
+    }
+
+    @Test fun acceptedFullProjectionWaitsBeforeHalfModeAndKeepsRecoveryDurable() {
+        var delayed = false
+        projectionDelay = {
+            assertTrue(pending)
+            assertEquals(listOf(projection.entryCommand), commands)
+            delayed = true
+        }
+        response = { command ->
+            if (command == projection.command) assertTrue(delayed)
+            ok
+        }
+        assertTrue(session().apply(projection))
+        assertEquals(projectionCommands, commands)
+        assertTrue(pending)
+        assertTrue(session().apply(null))
+        assertEquals(stock.command, commands.last())
+        assertFalse(pending)
     }
 }

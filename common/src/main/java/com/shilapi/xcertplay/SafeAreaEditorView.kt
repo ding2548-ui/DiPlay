@@ -10,7 +10,10 @@ import com.shilapi.xcertplay.airplay.AirPlaySafeArea
 import com.shilapi.xcertplay.airplay.SafeAreaRect
 
 /** Full-screen editor for the two horizontal and two vertical safe-area boundaries. */
-class SafeAreaEditorView(context: Context) : View(context) {
+internal class SafeAreaEditorView(
+    context: Context,
+    palette: DiPlayPalette = DiPlayPalette.DARK,
+) : View(context) {
     private enum class Edge {
         LEFT,
         TOP,
@@ -22,17 +25,18 @@ class SafeAreaEditorView(context: Context) : View(context) {
     private val touchRadius = 40f * density
     private val dimPaint = Paint().apply { color = Color.argb(118, 0, 0, 0) }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(127, 205, 154)
+        color = palette.overlayAccent
         strokeWidth = 3f * density
         style = Paint.Style.STROKE
     }
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(210, 255, 255, 255)
+        color = palette.overlayPrimaryText
+        alpha = 210
         strokeWidth = 1f * density
         style = Paint.Style.STROKE
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        color = palette.overlayPrimaryText
         textSize = 15f * density * resources.configuration.fontScale
         typeface = android.graphics.Typeface.MONOSPACE
     }
@@ -48,6 +52,14 @@ class SafeAreaEditorView(context: Context) : View(context) {
 
     init {
         isClickable = true
+    }
+
+    fun applyPalette(palette: DiPlayPalette) {
+        linePaint.color = palette.overlayAccent
+        borderPaint.color = palette.overlayPrimaryText
+        borderPaint.alpha = 210
+        textPaint.color = palette.overlayPrimaryText
+        invalidate()
     }
 
     fun setRect(value: SafeAreaRect, sourceWidthPixels: Int, sourceHeightPixels: Int) {

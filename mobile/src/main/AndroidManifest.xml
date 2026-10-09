@@ -23,6 +23,15 @@
             android:enabled="true"
             tools:replace="android:enabled" />
 
+        <receiver
+            android:name="com.shilapi.xcertplay.PhoneBluetoothReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
+        </receiver>
+
         <service android:name="com.shilapi.xcertplay.shared.MyCarAppService" tools:node="remove" />
         <meta-data android:name="androidx.car.app.minCarApiLevel" tools:node="remove" />
     </application>

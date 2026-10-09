@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture_surface_output_unavailable">此螢幕使用相容影片輸出，暫不支援畫面調整。已儲存的調整設定會保留。</string>
+</resources>

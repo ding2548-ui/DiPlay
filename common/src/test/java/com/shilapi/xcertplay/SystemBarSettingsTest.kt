@@ -89,6 +89,12 @@ class SystemBarSettingsTest {
     private fun openSettings() {
         controller = Robolectric.buildActivity(DiPlayActivity::class.java,
             Intent(context, DiPlayActivity::class.java).putExtra("page", "settings")).setup()
+        descendants(activity.window.decorView)
+            .single { it.contentDescription == activity.getString(
+                R.string.settings_open_category,
+                activity.getString(R.string.settings_display),
+            ) }
+            .performClick()
     }
 
     private fun assertBars(hideTop: Boolean, hideBottom: Boolean) {

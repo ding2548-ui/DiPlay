@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture_surface_output_unavailable">此屏幕使用兼容视频输出，暂不支持画面调节。已保存的调节设置会保留。</string>
+</resources>

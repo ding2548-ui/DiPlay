@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_overview">Обзор</string>
+    <string name="settings_overview_subtitle">Главное для удобной и надёжной поездки.</string>
+    <string name="settings_your_setup">Ваша настройка</string>
+    <string name="settings_quick_settings">Быстрые настройки</string>
+    <string name="settings_display">Экран</string>
+    <string name="settings_navigation">Навигация</string>
+    <string name="settings_vehicle">Автомобиль</string>
+    <string name="settings_advanced">Дополнительно</string>
+    <string name="settings_advanced_subtitle">Экспериментальные и зависящие от автомобиля параметры для опытных пользователей</string>
+    <string name="settings_advanced_caution_title">Меняйте осторожно</string>
+    <string name="settings_advanced_caution_description">Эти функции могут зависеть от прошивки автомобиля, доступа ADB или экспериментального поведения CarPlay. Повседневные настройки находятся в категориях выше.</string>
+    <string name="settings_search">Поиск</string>
+    <string name="settings_open_category">Открыть настройки: %1$s</string>
+    <string name="settings_ready_connected">CarPlay активен. Изменения, требующие переподключения, будут отмечены.</string>
+    <string name="settings_connection_summary">Телефон, кабель, беспроводное и автоматическое подключение</string>
+    <string name="settings_display_summary">Оформление, полный экран, разрешение и частота кадров</string>
+    <string name="settings_audio_summary">Вывод звука и буферизация музыки</string>
+    <string name="settings_navigation_summary">Передача местоположения и поддерживаемые подсказки на приборной панели</string>
+    <string name="settings_vehicle_summary">Сторона водителя, кнопки на руле, кнопка автомобиля и жесты CarPlay</string>
+    <string name="settings_advanced_media">Видео и звук</string>
+    <string name="settings_wheel_keys">Кнопки на руле</string>
+    <string name="settings_experimental_display">Экран (экспериментально)</string>
+    <string name="settings_diagnostics_summary">Сохраните локальный отчёт при устранении проблем с подключением</string>
+    <string name="settings_full_screen_description">Скрывать строки состояния и навигации в DiPlay и CarPlay.</string>
+    <string name="settings_vehicle_description">Функции автомобиля и приборной панели зависят от модели и прошивки. Проверьте их в разделе «Дополнительно», прежде чем включать экспериментальные параметры.</string>
+    <string name="settings_open_advanced">Открыть дополнительные настройки</string>
+    <string name="settings_reconnect_pending">Сохранено. Некоторые изменения вступят в силу после переподключения CarPlay.</string>
+    <string name="settings_reconnect_now">Переподключить</string>
+    <string name="settings_byd_navigation_unavailable">Подсказки BYD на приборной панели и HUD недоступны на этом головном устройстве.</string>
+    <string name="settings_search_hint">Название настройки, например частота кадров</string>
+    <string name="settings_search_empty">Ничего не найдено. Попробуйте другое слово.</string>
+    <string name="settings_ready_wireless">Беспроводной CarPlay подключится к %1$s.</string>
+    <string name="settings_ready_usb">Подключите iPhone кабелем USB, чтобы запустить CarPlay.</string>
+    <string name="settings_connecting_description">DiPlay запускает CarPlay с вашим iPhone.</string>
+    <string name="settings_choose_iphone_title">Выберите iPhone</string>
+    <string name="settings_choose_iphone_description">Для беспроводного CarPlay нужен сопряжённый iPhone.</string>
+    <string name="settings_choose_iphone_action">Выбрать iPhone</string>
+</resources>

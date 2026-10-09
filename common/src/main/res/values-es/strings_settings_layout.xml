@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_overview">Resumen</string>
+    <string name="settings_overview_subtitle">Lo esencial para una conducción cómoda y fiable.</string>
+    <string name="settings_your_setup">Tu configuración</string>
+    <string name="settings_quick_settings">Ajustes rápidos</string>
+    <string name="settings_display">Pantalla</string>
+    <string name="settings_navigation">Navegación</string>
+    <string name="settings_vehicle">Vehículo</string>
+    <string name="settings_advanced">Avanzado</string>
+    <string name="settings_advanced_subtitle">Controles experimentales y específicos del vehículo para usuarios con experiencia</string>
+    <string name="settings_advanced_caution_title">Cambia con cuidado</string>
+    <string name="settings_advanced_caution_description">Estas funciones pueden depender del firmware del vehículo, del acceso ADB o de un comportamiento experimental de CarPlay. Los ajustes habituales están en las categorías anteriores.</string>
+    <string name="settings_search">Buscar</string>
+    <string name="settings_open_category">Abrir ajustes de %1$s</string>
+    <string name="settings_ready_connected">CarPlay está activo. Los cambios que requieren reconectar lo indican.</string>
+    <string name="settings_connection_summary">Teléfono, cable, inalámbrico y conexión automática</string>
+    <string name="settings_display_summary">Apariencia, pantalla completa, resolución y velocidad de fotogramas</string>
+    <string name="settings_audio_summary">Salida de sonido y búfer de música</string>
+    <string name="settings_navigation_summary">Envío de ubicación y guía compatible en el cuadro de instrumentos</string>
+    <string name="settings_vehicle_summary">Lado de conducción, botones del volante, botón del coche y gestos de CarPlay</string>
+    <string name="settings_advanced_media">Vídeo y audio</string>
+    <string name="settings_wheel_keys">Botones del volante</string>
+    <string name="settings_experimental_display">Pantalla (experimental)</string>
+    <string name="settings_diagnostics_summary">Guarda un informe local al resolver problemas de conexión</string>
+    <string name="settings_full_screen_description">Oculta las barras de estado y navegación en DiPlay y CarPlay.</string>
+    <string name="settings_vehicle_description">Las funciones del vehículo y del cuadro de instrumentos varían según el modelo y el firmware. Revísalas en Ajustes avanzados antes de activar controles experimentales.</string>
+    <string name="settings_open_advanced">Abrir ajustes avanzados</string>
+    <string name="settings_reconnect_pending">Guardado. Algunos cambios se aplican cuando CarPlay se vuelve a conectar.</string>
+    <string name="settings_reconnect_now">Reconectar ahora</string>
+    <string name="settings_byd_navigation_unavailable">La guía de BYD en el cuadro de instrumentos y el HUD no está disponible en esta unidad principal.</string>
+    <string name="settings_search_hint">Nombre del ajuste, por ejemplo velocidad de fotogramas</string>
+    <string name="settings_search_empty">Ningún ajuste coincide. Prueba con otra palabra.</string>
+    <string name="settings_ready_wireless">CarPlay inalámbrico se conectará a %1$s.</string>
+    <string name="settings_ready_usb">Conecta tu iPhone con un cable USB para iniciar CarPlay.</string>
+    <string name="settings_connecting_description">DiPlay está iniciando CarPlay con tu iPhone.</string>
+    <string name="settings_choose_iphone_title">Elige tu iPhone</string>
+    <string name="settings_choose_iphone_description">CarPlay inalámbrico necesita un iPhone emparejado para conectarse.</string>
+    <string name="settings_choose_iphone_action">Elegir iPhone</string>
+</resources>

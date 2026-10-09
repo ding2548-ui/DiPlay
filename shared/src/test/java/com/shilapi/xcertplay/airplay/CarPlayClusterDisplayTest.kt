@@ -70,7 +70,7 @@ class CarPlayClusterDisplayTest {
             CarPlayClusterDisplay.config(1920, 720, scalePercent = it).let { c -> c.widthPixels to c.heightPixels }
         }
 
-        assertEquals(listOf(1920 to 720, 1600 to 600, 1280 to 480, 960 to 360), sizes)
+        assertEquals(listOf(1920 to 720, 1600 to 600, 1280 to 480, 2408 to 904, 960 to 360), sizes)
         assertTrue(CarPlayClusterDisplay.STREAM_SCALE_PERCENT in CarPlayClusterDisplay.scalePresets)
     }
 

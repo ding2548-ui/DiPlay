@@ -22,6 +22,25 @@ class BydClusterMapPauseTest {
         release.countDown()
         BydClusterMapPause.streamControl = null
         BydClusterMapPause.clusterMapShown = false
+        BydClusterMapPause.onNaviMode = null
+    }
+
+    @Test
+    fun disablingPauseResumesMapWhileLayoutFollowingRemainsEnabled() {
+        BydClusterMapPause.readMode = { BydClusterNaviMode.OFF }
+        BydClusterMapPause.onNaviMode = {}
+        BydClusterMapPause.clusterMapShown = true
+        var streaming = true
+        BydClusterMapPause.streamControl = { streaming = it }
+        BydClusterMapPause::class.java.getDeclaredField("context")
+            .apply { isAccessible = true }.set(null, context)
+        val tick = BydClusterMapPause::class.java.getDeclaredMethod("tick").apply { isAccessible = true }
+        BydOutputSettings.setClusterStreamPause(context, true)
+        tick.invoke(BydClusterMapPause)
+        org.junit.Assert.assertFalse(streaming)
+        BydOutputSettings.setClusterStreamPause(context, false)
+        tick.invoke(BydClusterMapPause)
+        assertTrue(streaming)
     }
 
     @Test

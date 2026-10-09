@@ -1,0 +1,18 @@
+name: Feature request or general question
+description: Suggest a feature or ask a question that is not a bug report.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For connection failures or disconnects, use the [Connection problem form](https://github.com/shihabal3amri/DiPlay/issues/new?template=connection.yml) and attach diagnostic logs. For other bugs, use the [Other bug form](https://github.com/shihabal3amri/DiPlay/issues/new?template=bug.yml).
+  - type: textarea
+    id: request
+    attributes:
+      label: Feature request or question
+      description: 'Describe what you would like to do and how it would help.'
+    validations: {required: true}
+  - type: textarea
+    id: context
+    attributes:
+      label: Device information and additional context
+      description: 'If relevant, include the car/head-unit model, Android/DiLink/firmware version, DiPlay version and iPhone/iOS version.'

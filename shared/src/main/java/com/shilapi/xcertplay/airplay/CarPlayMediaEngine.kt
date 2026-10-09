@@ -8,6 +8,8 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.math.BigInteger
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 /** Identity of one CarPlay audio stream: the stream type plus its CarPlay audio type. */
@@ -18,6 +20,9 @@ interface MediaSink {
     fun onVideoCodec(type: Int, codec: VideoCodec) {}
     fun onVideoConfig(type: Int, codecData: ByteArray) {}
     fun onVideoFrame(type: Int, naluBytes: ByteArray) {}
+    /** A frame with the iPhone's frame time and its arrival time (System.nanoTime); see [ScreenStream.Listener]. */
+    fun onVideoFrame(type: Int, naluBytes: ByteArray, senderNanos: Long, arrivalNanos: Long) =
+        onVideoFrame(type, naluBytes)
     fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {}
     fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {}
     fun onScreenStreamActive(type: Int, active: Boolean) {}
@@ -34,6 +39,21 @@ interface MediaSink {
  * decrypts their payloads, and hands decoded media to a [MediaSink]. Telephony and speech
  * streams can additionally return a PCM microphone uplink through the sink.
  */
+/**
+ * Delivers a screen stream's data to [sink] only while [isCurrent]: a replaced stream's thread may still
+ * be delivering when its successor starts. The check runs before each delivery, so a callback already
+ * past it can still hand over one item; the successor's configuration and keyframe follow it. The iPhone
+ * connects after SETUP returns the port, which is after the stream is registered as current.
+ */
+internal fun currentScreenListener(type: Int, sink: MediaSink, isCurrent: () -> Boolean) = object : ScreenStream.Listener {
+    override fun onCodec(codec: VideoCodec) { if (isCurrent()) sink.onVideoCodec(type, codec) }
+    override fun onConfig(codecData: ByteArray) { if (isCurrent()) sink.onVideoConfig(type, codecData) }
+    override fun onFrame(naluBytes: ByteArray) { if (isCurrent()) sink.onVideoFrame(type, naluBytes) }
+    override fun onFrame(naluBytes: ByteArray, senderNanos: Long, arrivalNanos: Long) {
+        if (isCurrent()) sink.onVideoFrame(type, naluBytes, senderNanos, arrivalNanos)
+    }
+}
+
 class CarPlayMediaEngine(
     private val sink: MediaSink,
     private val microphoneEnabled: Boolean = false,
@@ -65,6 +85,28 @@ class CarPlayMediaEngine(
     private val audioCaptures = ConcurrentHashMap<StreamKey, AudioPacketCapture>()
     private val pendingIapTunnels = ConcurrentHashMap<AirPlaySession, PendingIapTunnel>()
     private val videoSettingsChannels = ConcurrentHashMap<AirPlaySession, VideoSettingsChannel>()
+    private val bufferedStreams = ConcurrentHashMap<AirPlaySession, BufferedStream>()
+
+    private class BufferedStream(val stream: BufferedAudioStream, val connectionId: Any?)
+
+    // The sink has one type-103 renderer, even while old control sessions remain connected.
+    // Never hold this lock when closing/controlling a stream: sink callbacks can reenter us.
+    private val bufferedOwnershipLock = Any()
+    private var bufferedOwner: AirPlaySession? = null
+    private var bufferedTransition: BufferedTransition? = null
+    private val retiredBufferedSessions = Collections.newSetFromMap(WeakHashMap<AirPlaySession, Boolean>())
+    private class BufferedTransition(val session: AirPlaySession, val candidate: BufferedStream?) {
+        var cancelled = false // guarded by bufferedOwnershipLock
+        var retiring: BufferedStream? = null
+    }
+
+    private fun mayInstallBufferedLocked(session: AirPlaySession): Boolean {
+        // A reentrant sink callback cannot wait for itself. Preserve its retirement barrier
+        // until cleanup completes; the volatile flag requires no reverse stream-lock order.
+        bufferedTransition?.takeIf { it.candidate == null && it.retiring?.stream?.outputCleanupComplete == true }
+            ?.let { bufferedTransition = null }
+        return !session.isClosed && session !in retiredBufferedSessions && bufferedTransition == null
+    }
     @Volatile private var nextRemoteControlStreamId = FIRST_REMOTE_CONTROL_STREAM_ID
     @Volatile private var iapTunnelHandler: ((BlockingDuplexByteStream) -> Boolean)? = null
 
@@ -94,10 +136,7 @@ class CarPlayMediaEngine(
             }
         }
         val port = screen.listen(
-            object : ScreenStream.Listener {
-                override fun onCodec(codec: VideoCodec) = sink.onVideoCodec(type, codec)
-                override fun onConfig(codecData: ByteArray) = sink.onVideoConfig(type, codecData)
-                override fun onFrame(naluBytes: ByteArray) = sink.onVideoFrame(type, naluBytes)
+            object : ScreenStream.Listener by currentScreenListener(type, sink, isCurrent = { streams[streamKey] === screen }) {
                 override fun onClosed(cause: Throwable?) {
                     Log.w(
                         TAG,
@@ -137,6 +176,7 @@ class CarPlayMediaEngine(
             TAG,
             "airplay audio format type=$type audioType=$audioType codec=${format.codec} " +
                 "rate=${format.sampleRate} channels=${format.channels} " +
+                "formatBits=0x${java.lang.Long.toHexString((stream["audioFormat"] as? Number)?.toLong() ?: 0L)} " +
                 "micPort=${(stream["dataPort"] as? Number)?.toInt() ?: 0}",
         )
         val connectionId = stream["streamConnectionID"]
@@ -178,6 +218,106 @@ class CarPlayMediaEngine(
             "controlPort" to controlPort,
             "streamConnectionID" to unsignedPlistInteger(connectionId ?: 0L),
         )
+    }
+
+    override fun onBufferedAudio(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {
+        if (!synchronized(bufferedOwnershipLock) { mayInstallBufferedLocked(session) }) return null
+        val type = BufferedAudioStream.STREAM_TYPE
+        val streamKey = StreamKey(session, type, "media")
+        val key = stream["shk"] as? ByteArray
+        if (key == null || key.size != 32) {
+            Log.w(TAG, "buffered audio SETUP without a 32-byte shk; declined")
+            return null
+        }
+        val format = AudioStreamCodec.fromFormatBits((stream["audioFormat"] as? Number)?.toLong() ?: 0L, type, "media")
+        if (format.codec != AudioCodecKind.AAC_LC) {
+            Log.w(TAG, "buffered audio format ${stream["audioFormat"]} is not AAC-LC; declined")
+            return null
+        }
+        if (stream["ct"]?.let { it !is Number || it.toInt() != 4 } == true ||
+            stream["spf"]?.let { it !is Number || it.toInt() != 1024 } == true) {
+            Log.w(TAG, "buffered audio requires AAC and 1024 samples per frame; declined")
+            return null
+        }
+        val peer = session.remoteAddress ?: return null
+        val buffered = try {
+            BufferedAudioStream(key, format, sink, session::logDebug, expectedPeer = peer)
+        } catch (error: Exception) {
+            Log.w(TAG, "buffered audio listener failed", error)
+            return null
+        }
+        // Validate before retiring a healthy owner. Detach its registry entries first, but
+        // keep a transition barrier until close has finished its final sink callback.
+        val candidate = BufferedStream(buffered, stream["streamConnectionID"])
+        val transition = BufferedTransition(session, candidate)
+        var previous: BufferedStream? = null
+        val accepted = synchronized(bufferedOwnershipLock) {
+            if (!mayInstallBufferedLocked(session)) false else {
+                bufferedTransition = transition
+                bufferedOwner?.let { oldSession ->
+                    previous = detachBufferedLocked(oldSession)
+                    if (oldSession !== session) retiredBufferedSessions.add(oldSession)
+                }
+                transition.retiring = previous
+                true
+            }
+        }
+        if (!accepted) {
+            buffered.close()
+            return null
+        }
+        val retired = runCatching { previous?.stream?.close() }.isSuccess &&
+            previous?.stream?.outputCleanupComplete != false
+        val installed = synchronized(bufferedOwnershipLock) {
+            val usable = retired && bufferedTransition === transition && !transition.cancelled &&
+                !session.isClosed && session !in retiredBufferedSessions
+            if (usable) {
+                streams[streamKey] = buffered
+                bufferedStreams[session] = candidate
+                bufferedOwner = session
+            }
+            if (bufferedTransition === transition) {
+                bufferedTransition = if (retired) null else BufferedTransition(session, null).also { it.retiring = previous }
+            }
+            usable
+        }
+        if (!installed) {
+            buffered.close()
+            return null
+        }
+        buffered.start()
+        if (bufferedStreams[session] !== candidate) return null
+        Log.i(TAG, "buffered audio stream client=${stream["clientID"]} rate=${format.sampleRate} port=${buffered.port}")
+        return linkedMapOf(
+            "type" to type,
+            "dataPort" to buffered.port,
+            "audioBufferSize" to BufferedAudioStream.AUDIO_BUFFER_BYTES,
+        )
+    }
+
+    override fun onBufferedAudioControl(
+        session: AirPlaySession,
+        method: String,
+        body: Map<String, Any?>,
+    ): Map<String, Any?>? {
+        val buffered = synchronized(bufferedOwnershipLock) { bufferedStreams[session]?.stream } ?: return null
+        val rtpTime = (body["rtpTime"] as? Number)?.toLong()
+        val rate = when ((body["rate"] as? Number)?.toDouble()) {
+            0.0 -> 0
+            1.0 -> 1
+            else -> null
+        }
+        return when (method) {
+            "SETRATE", "SETRATEANCHORTIME" -> {
+                if (rate == null || rate !in 0..1) null else buffered.setRate(rtpTime, rate, session.syncedNtp())
+            }
+            "GETANCHOR" -> buffered.anchor()
+            "FLUSHBUFFERED" -> {
+                (body["flushUntilTS"] as? Number)?.toLong()?.let { buffered.flush(it) }
+                null
+            }
+            else -> null
+        }
     }
 
     override fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {
@@ -289,7 +429,8 @@ class CarPlayMediaEngine(
 
     override fun onFeedback(session: AirPlaySession): Map<String, Any?>? {
         val active = audioMeta.values.toList()
-        if (active.isEmpty()) return null
+        val buffered = bufferedStreams[session]
+        if (active.isEmpty() && buffered == null) return null
         val streams = active.map { meta ->
             val entry = linkedMapOf<String, Any?>(
                 "type" to meta.type,
@@ -312,12 +453,16 @@ class CarPlayMediaEngine(
                 entry["sampleTime"] = sampleTime
             }
             entry
-        }
+        } + listOfNotNull(buffered?.let { it.stream.feedback(session.syncedNtp(), it.connectionId) })
         return linkedMapOf("streams" to streams)
     }
 
     override fun onTeardown(session: AirPlaySession, type: Int) {
         if (type == STREAM_TYPE_DATA) clearPendingIapTunnel(session)
+        if (type == BufferedAudioStream.STREAM_TYPE) {
+            retireBuffered(session)
+            return
+        }
         // TEARDOWN carries only the stream type; release every audioType variant of it.
         val tornDown = streams.keys.filter { it.session === session && it.type == type }
         tornDown.forEach { key ->
@@ -325,7 +470,9 @@ class CarPlayMediaEngine(
             if (pendingMicrophone.remove(key) != null) sink.onMicrophoneStopped(streamId)
             audioMeta.remove(key)
             audioCaptures.remove(key)?.close()
-            sink.onAudioStopped(streamId)
+            // BufferedAudioStream owns serialized sink cleanup; stopping it first from here
+            // could interleave with its in-flight delivery and recreate a stale renderer.
+            if (key.type != BufferedAudioStream.STREAM_TYPE) sink.onAudioStopped(streamId)
             streams.remove(key)?.close()
         }
         if (isScreenStreamType(type)) sink.onScreenStreamActive(type, false)
@@ -333,8 +480,11 @@ class CarPlayMediaEngine(
 
     override fun onSessionClosed(session: AirPlaySession) {
         clearPendingIapTunnel(session)
+        retireBuffered(session)
         videoSettingsChannels.remove(session)?.close()
-        val sessionStreams = streams.keys.filter { it.session === session }
+        val sessionStreams = streams.keys.filter {
+            it.session === session && it.type != BufferedAudioStream.STREAM_TYPE
+        }
         sessionStreams
             .filter { isScreenStreamType(it.type) }
             .forEach { sink.onScreenStreamActive(it.type, false) }
@@ -343,6 +493,41 @@ class CarPlayMediaEngine(
         pendingMicrophone.clear()
         audioCaptures.values.forEach(AudioPacketCapture::close)
         audioCaptures.clear()
+    }
+
+    /** Removes ownership before a close that may block on delivery or invoke the sink. */
+    private fun detachBufferedLocked(session: AirPlaySession): BufferedStream? {
+        val previous = bufferedStreams.remove(session)
+        previous?.let { streams.remove(StreamKey(session, BufferedAudioStream.STREAM_TYPE, "media"), it.stream) }
+        if (bufferedOwner === session) bufferedOwner = null
+        return previous
+    }
+
+    private fun retireBuffered(session: AirPlaySession) {
+        var pending: BufferedStream? = null
+        var retirement: BufferedTransition? = null
+        val previous = synchronized(bufferedOwnershipLock) {
+            bufferedTransition?.takeIf { it.session === session }?.let {
+                it.cancelled = true
+                pending = it.candidate
+                // The SETUP thread still owns the barrier while it closes the earlier owner.
+            }
+            detachBufferedLocked(session).also {
+                if (it != null && bufferedTransition == null) {
+                    retirement = BufferedTransition(session, null).also { barrier -> barrier.retiring = it }
+                    bufferedTransition = retirement
+                }
+            }
+        }
+        try {
+            pending?.stream?.close()
+            previous?.stream?.close()
+        } finally {
+            synchronized(bufferedOwnershipLock) {
+                if (retirement != null && bufferedTransition === retirement &&
+                    previous?.stream?.outputCleanupComplete == true) bufferedTransition = null
+            }
+        }
     }
 
     private fun replacePendingIapTunnel(session: AirPlaySession, next: PendingIapTunnel) {
@@ -401,6 +586,7 @@ class CarPlayMediaEngine(
             key = key,
             codec = format.codec,
             bitrate = if (format.codec == AudioCodecKind.OPUS) opusBitrate else null,
+            opusClockRate = MicrophoneConfig.opusClockRate(formatBits),
         )
     }
 

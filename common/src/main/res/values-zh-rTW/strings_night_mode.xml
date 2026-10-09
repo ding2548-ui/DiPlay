@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_night_mode">CarPlay 日夜模式</string>
+    <string name="settings_app_appearance">App 外觀</string>
+    <string name="settings_app_appearance_dark">深色</string>
+    <string name="settings_app_appearance_light">淺色</string>
+    <string name="settings_app_appearance_auto">自動</string>
+    <string name="settings_app_appearance_description">自動模式會跟隨已儲存的 CarPlay 日夜設定；CarPlay 開啟時則跟隨即時結果。淺色和深色模式會保持固定，無需重新連線。</string>
+    <string name="settings_switch_to_light_appearance">切換至淺色外觀</string>
+    <string name="settings_switch_to_dark_appearance">切換至深色外觀</string>
+    <string name="carplay_night_system">依照 Android 系統</string>
+    <string name="carplay_night_ambient">自動（環境光）</string>
+    <string name="carplay_night_ambient_hint">自動模式會使用下方的亮度門檻與切換延遲；若沒有光線感測器，則跟隨 Android 系統。</string>
+    <string name="carplay_night_day">固定日間</string>
+    <string name="carplay_night_night">固定夜間</string>
+    <string name="carplay_night_schedule">定時切換</string>
+    <string name="carplay_night_start">夜間開始</string>
+    <string name="carplay_night_end">夜間結束</string>
+    <string name="carplay_night_schedule_hint">使用車機的當地時間。開始與結束時間須不同，可設定跨午夜時段。</string>
+    <string name="carplay_night_schedule_same_time">開始與結束時間不能相同。</string>
+    <string name="carplay_night_hint">儲存後返回 CarPlay 即可套用。自動模式會使用下方的門檻和延遲設定；沒有光線感測器時會依照 Android 系統。</string>
+    <string name="carplay_night_time_note">CarPlay 外觀設為自動時，也會參考 iPhone 時間；即使選擇固定日間，夜間仍可能顯示深色外觀。</string>
+</resources>

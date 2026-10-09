@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hotspot_join_title">自動加入熱點（實驗性）</string>
+    <string name="hotspot_join_description">適用於 Android 13 以上、支援此功能的韌體，以及僅使用 5 GHz 的車載熱點。檢查只會建立私有還原備份，不會變更熱點。需要已授權的 localhost:5555 本機 ADB；不支援 TLS 無線偵錯配對。</string>
+    <string name="hotspot_join_check">檢查熱點設定</string>
+    <string name="hotspot_join_apply">加入自動連線資訊</string>
+    <string name="hotspot_join_restore">還原已儲存的熱點</string>
+    <string name="hotspot_join_working">正在檢查或更新…取消後可能需要重新檢查以確認結果。</string>
+    <string name="hotspot_join_confirm">停車後，請先中斷 CarPlay 連線，並在車輛設定中關閉熱點。此操作只會變更已儲存的熱點設定並讀取驗證。之後請自行開啟熱點以更新廣播。關閉熱點會中斷現有裝置的連線。請保留私有備份以供還原。</string>
+    <string name="hotspot_join_disconnect">變更熱點前請中斷 CarPlay 連線。</string>
+    <string name="hotspot_join_ready">支援此 5 GHz 設定。已建立完整的私有備份；尚未變更熱點。</string>
+    <string name="hotspot_join_present">測試所需的資訊已存在。不會重複加入；DiPlay 無法復原先前已有的項目。</string>
+    <string name="hotspot_join_applied">已驗證儲存的設定。請在車輛設定中開啟熱點以更新廣播，再測試自動加入。廣播與 CarPlay 是否成功仍需實車驗證。</string>
+    <string name="hotspot_join_restored">已還原並驗證完整設定。請在車輛設定中開啟熱點。</string>
+    <string name="hotspot_join_unsupported">此 API、韌體或頻段不受支援，或存在衝突的廠商資訊。未套用修復。請使用受支援的純 5 GHz 設定；其他頻段尚未驗證。</string>
+    <string name="hotspot_join_off_required">必須確認熱點已關閉。請中斷其他裝置的連線，在車輛設定中關閉熱點後重試。DiPlay 不會自動重新啟動熱點。</string>
+    <string name="hotspot_join_drift">備份後設定已變更。未覆寫任何內容。請重新檢查；待還原的備份會保留。</string>
+    <string name="hotspot_join_firmware_changed">韌體已變更。私有備份已保留，但無法在此韌體上安全還原。</string>
+    <string name="hotspot_join_cancelled">已在寫入前取消。請重新檢查保留的還原狀態。</string>
+    <string name="hotspot_join_failed_restored">修復失敗或寫入後被取消。已還原原有設定並讀取驗證。</string>
+    <string name="hotspot_join_busy">另一項熱點操作仍在執行。請稍後再檢查。</string>
+    <string name="hotspot_join_adb_required">需要已授權的 localhost:5555 一般本機 ADB。請依車輛支援的方式啟用並授權。僅使用 TLS 無線偵錯配對無法執行此操作。</string>
+    <string name="hotspot_join_recovery">結果或備份驗證尚未確定。請關閉熱點並重新檢查後再繼續。現有私有備份會保留；只有設定仍相符時才允許還原。</string>
+</resources>

@@ -79,7 +79,14 @@ jobs:
           # The short sha goes into versionName so a diagnostic report names the exact code on the
           # unit. The run number alone only says when the build ran, not what was in it.
           echo "DIPLAY_BUILD_COMMIT=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
-          echo "release versionName will be stamped 0.2.12（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）"
+          # The beta channel ships its own applicationId and its own release-tag namespace; both
+          # are derived from this flag, so a build can never be published into the wrong one.
+          if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
+            echo "DIPLAY_CHANNEL=beta" >> "$GITHUB_ENV"
+            echo "beta versionName will be stamped 0.2.15（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）-beta"
+          else
+            echo "release versionName will be stamped 0.2.15（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）"
+          fi
       - name: Platform-signed release APK
         if: env.DIPLAY_RELEASE_ENABLED == 'true'
         run: ./gradlew :mobile:assembleStandaloneRelease --stacktrace
@@ -105,6 +112,13 @@ jobs:
           unzip -l "$APK" | grep -q "lib/arm64-v8a/" \
             || { echo "::error::the release APK does not ship arm64-v8a"; exit 1; }
           unzip -l "$APK" | grep -E "offline-mfi" || echo "offline-mfi assets: absent"
+          # A beta build must not carry the release applicationId: the two channels are meant to be
+          # installable side by side, and an identical package name would silently replace the
+          # release build instead — while the updater kept looking in the other tag namespace.
+          if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
+            "$TOOLS/aapt2" dump badging "$APK" | grep -q "package: name='com.shihab.diplay.psabeta'" \
+              || { echo "::error::the beta APK does not use the beta applicationId"; exit 1; }
+          fi
           echo "--- signature ---"
           "$TOOLS/apksigner" verify --print-certs "$APK" | head -8
       - name: Upload release APK
@@ -123,13 +137,22 @@ jobs:
         run: |
           set -euo pipefail
           APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
-          TAG="v0.2.12-${GITHUB_RUN_NUMBER}"
+          # Each channel keeps its own tag namespace. The in-app updater looks a build up by tag
+          # prefix, so a shared namespace would let the release channel and the beta channel hand
+          # each other their APKs through releases.atom or /releases/latest.
+          if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
+            TAG="v0.2.15-beta-${GITHUB_RUN_NUMBER}"
+            TITLE="DiPlay 0.2.15（${GITHUB_RUN_NUMBER}）· PSA beta 测试版"
+          else
+            TAG="v0.2.15-${GITHUB_RUN_NUMBER}"
+            TITLE="DiPlay 0.2.15（${GITHUB_RUN_NUMBER}）· PSA"
+          fi
           NOTES="$RUNNER_TEMP/release-notes.md"
           {
             if [ -f RELEASE_NOTES.md ]; then
               cat RELEASE_NOTES.md
             else
-              printf 'DiPlay 0.2.12（%s）\n' "$GITHUB_RUN_NUMBER"
+              printf 'DiPlay 0.2.15（%s）\n' "$GITHUB_RUN_NUMBER"
             fi
             echo
             echo '---'
@@ -139,7 +162,20 @@ jobs:
             git log -1 --pretty='%B'
           } > "$NOTES"
           gh release create "$TAG" "$APK" \
-            --title "DiPlay 0.2.12（${GITHUB_RUN_NUMBER}）· PSA" \
+            --title "$TITLE" \
             --notes-file "$NOTES" \
             --target "$GITHUB_SHA"
           echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          # Legacy tag alias: installs of the previous major version (0.2.12) only scan the
+          # "v0.2.12-<run>" namespace, so a major bump would otherwise make the in-app updater
+          # never see a new release again. Publish the same APK under the old prefix too; drop
+          # this alias once every live install has moved past 0.2.12. When bumping the major
+          # version later, change the alias here to the version being replaced — and add that
+          # same prefix to AppUpdater's scan list so both old and new installs keep finding
+          # releases.
+          LEGACY_TAG="v0.2.12-${GITHUB_RUN_NUMBER}"
+          gh release create "$LEGACY_TAG" "$APK" \
+            --title "$TITLE" \
+            --notes-file "$NOTES" \
+            --target "$GITHUB_SHA"
+          echo "published legacy alias https://github.com/${GITHUB_REPOSITORY}/releases/tag/${LEGACY_TAG}"

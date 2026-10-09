@@ -60,10 +60,14 @@ object CarPlayClusterDisplay {
 
     /**
      * Stream size in percent of the panel. The cluster scales the stream up, so a smaller stream
-     * gives a larger map: 83 % is clearly larger and still sharp; 50 % was visibly blurry.
+     * gives a larger map: 83 % is clearly larger and still sharp.
+     *
+     * Values above 100 ask for a larger stream than the panel: the iPhone renders more map
+     * area and the cluster scales it down, so features are smaller and finer — "smaller"
+     * in the settings means more content, not a magnified view.
      */
     const val STREAM_SCALE_PERCENT = 83
-    val scalePresets = listOf(100, STREAM_SCALE_PERCENT, 67)
+    val scalePresets = listOf(100, STREAM_SCALE_PERCENT, 67, 125)
 
     private const val WIDTH_PHYSICAL_MM = 292 // a 12.3-inch 8:3 cluster panel; Apple Maps ignores it here
     private const val FPS = 30
@@ -79,7 +83,7 @@ object CarPlayClusterDisplay {
     ): AirPlayDisplayConfig {
         // Height rounds to a multiple of 8 and width follows it, so the panel's aspect is kept
         // (83 % of 1920x720 gives exactly 1600x600). The cluster scales the stream to the panel.
-        val scale = scalePercent.coerceIn(25, 100)
+        val scale = scalePercent.coerceIn(25, 150)
         val height = roundTo8(heightPixels * scale / 100.0)
         val width = roundTo8(height * widthPixels.toDouble() / heightPixels)
         return AirPlayDisplayConfig(

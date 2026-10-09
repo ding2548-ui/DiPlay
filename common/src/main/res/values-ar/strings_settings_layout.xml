@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_overview">نظرة عامة</string>
+    <string name="settings_overview_subtitle">الأساسيات لقيادة مريحة وموثوقة.</string>
+    <string name="settings_your_setup">إعدادك</string>
+    <string name="settings_quick_settings">إعدادات سريعة</string>
+    <string name="settings_display">الشاشة</string>
+    <string name="settings_navigation">الملاحة</string>
+    <string name="settings_vehicle">السيارة</string>
+    <string name="settings_advanced">متقدم</string>
+    <string name="settings_advanced_subtitle">عناصر تحكم تجريبية وخاصة بالسيارة للمستخدمين ذوي الخبرة</string>
+    <string name="settings_advanced_caution_title">غيّر بحذر</string>
+    <string name="settings_advanced_caution_description">قد تعتمد هذه الميزات على برنامج السيارة الثابت أو الوصول عبر ADB أو سلوك تجريبي في CarPlay. الإعدادات اليومية موجودة في الفئات أعلاه.</string>
+    <string name="settings_search">بحث</string>
+    <string name="settings_open_category">فتح إعدادات %1$s</string>
+    <string name="settings_ready_connected">CarPlay نشط. ستوضح التغييرات التي تتطلب إعادة الاتصال ذلك.</string>
+    <string name="settings_connection_summary">الهاتف والكابل والاتصال اللاسلكي والتلقائي</string>
+    <string name="settings_display_summary">المظهر وملء الشاشة والدقة ومعدل الإطارات</string>
+    <string name="settings_audio_summary">توجيه الصوت والتخزين المؤقت للموسيقى</string>
+    <string name="settings_navigation_summary">إرسال الموقع والإرشاد المدعوم على لوحة العدادات</string>
+    <string name="settings_vehicle_summary">جهة القيادة وأزرار عجلة القيادة وزر السيارة وإيماءات CarPlay</string>
+    <string name="settings_advanced_media">الفيديو والصوت</string>
+    <string name="settings_wheel_keys">أزرار عجلة القيادة</string>
+    <string name="settings_experimental_display">الشاشة (تجريبي)</string>
+    <string name="settings_diagnostics_summary">احفظ تقريرًا محليًا عند استكشاف مشكلة في الاتصال</string>
+    <string name="settings_full_screen_description">إخفاء شريطي الحالة والتنقل في DiPlay وCarPlay.</string>
+    <string name="settings_vehicle_description">تختلف ميزات السيارة ولوحة العدادات حسب الطراز والبرنامج الثابت. راجعها في الإعدادات المتقدمة قبل تفعيل عناصر التحكم التجريبية.</string>
+    <string name="settings_open_advanced">فتح الإعدادات المتقدمة</string>
+    <string name="settings_reconnect_pending">تم الحفظ. تُطبَّق بعض التغييرات عند إعادة اتصال CarPlay.</string>
+    <string name="settings_reconnect_now">إعادة الاتصال الآن</string>
+    <string name="settings_byd_navigation_unavailable">إرشادات BYD على لوحة العدادات والشاشة الأمامية غير متاحة في هذه الوحدة الرئيسية.</string>
+    <string name="settings_search_hint">اسم الإعداد، مثل معدل الإطارات</string>
+    <string name="settings_search_empty">لا يوجد إعداد مطابق. جرّب كلمة أخرى.</string>
+    <string name="settings_ready_wireless">سيتصل CarPlay اللاسلكي بـ %1$s.</string>
+    <string name="settings_ready_usb">وصّل iPhone بكابل USB لبدء CarPlay.</string>
+    <string name="settings_connecting_description">يبدأ DiPlay تشغيل CarPlay مع iPhone.</string>
+    <string name="settings_choose_iphone_title">اختر iPhone</string>
+    <string name="settings_choose_iphone_description">يحتاج CarPlay اللاسلكي إلى iPhone مقترن قبل الاتصال.</string>
+    <string name="settings_choose_iphone_action">اختيار iPhone</string>
+</resources>

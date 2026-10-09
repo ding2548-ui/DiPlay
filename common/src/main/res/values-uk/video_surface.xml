@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture_surface_output_unavailable">Налаштування зображення недоступні для відеовиходу цього екрана. Збережені налаштування залишаються без змін.</string>
+</resources>

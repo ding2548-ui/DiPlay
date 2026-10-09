@@ -8,6 +8,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -86,6 +87,15 @@ class BydClusterSongTimerTest {
         assertNull(get("onChange"))
         expireChange(app, token)
         assertEquals(current, wanted())
+    }
+
+    @Test fun nowPlayingDoesNotLogPrivateTrackTextWhenOutputIsEnabledOrDisabled() = withWriterBlocked { app ->
+        ShadowLog.clear()
+        song("Private enabled title")
+        BydOutputSettings.setClusterSong(app, false)
+        song("Private disabled lyric")
+        val messages = ShadowLog.getLogs().map { it.msg }
+        assertFalse(messages.any { "Private enabled title" in it || "Private disabled lyric" in it })
     }
 
     @Test fun disablingSongOutputInvalidatesPendingSongAndNoteTimers() = withWriterBlocked { app ->

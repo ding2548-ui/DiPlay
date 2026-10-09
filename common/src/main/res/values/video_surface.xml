@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture_surface_output_unavailable">Picture adjustments are unavailable with this screen’s compatible video output. Your saved adjustments are kept.</string>
+</resources>

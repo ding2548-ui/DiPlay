@@ -1,0 +1,58 @@
+name: Connection problem (logs required)
+description: USB/Bluetooth/Wi-Fi failures, stuck opening CarPlay, disconnects, reconnect loops or connection-dependent stutter.
+title: '[Connection] '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We need diagnostic logs from the affected device to investigate connection problems. Reports without logs will be closed pending logs; you are welcome to reopen the issue after providing them. If GitHub does not offer a Reopen button, add the logs in a comment and ask a maintainer to reopen it.
+
+        While parked, reproduce the problem on the [latest official release](https://github.com/shihabal3amri/DiPlay/releases), then open **Settings → Diagnostics → Save diagnostic report**. Capture the first connection attempt through the failure.
+
+        Android 10+ normally saves to **Downloads/DiPlay**. Android 7.1–9 uses a document picker. If saving is unavailable, use **View report** or **Share** in the confirmation. You can copy the full report into a `.txt` file on another device. If DiPlay crashes, reopen it and export the report; include Android crash logs if available.
+
+        Reports are public. Review the file and remove personal information and credentials, including hotspot passwords, before uploading. Screenshots or videos may help, but do not replace diagnostic logs. [Detailed export instructions](https://github.com/shihabal3amri/DiPlay/blob/main/docs/INSTALL.md#connection-recovery-and-reports).
+  - type: input
+    id: version
+    attributes: {label: DiPlay version, placeholder: 'Exact version from Settings → About'}
+    validations: {required: true}
+  - type: input
+    id: car
+    attributes: {label: Car and head-unit model, placeholder: 'Car model/year, head unit, DiLink/Android version and exact firmware'}
+    validations: {required: true}
+  - type: input
+    id: phone
+    attributes: {label: iPhone model and exact iOS version}
+    validations: {required: true}
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Connection
+      options: ['Wireless: built-in car hotspot', 'Wireless: Wi-Fi Direct', 'Wireless: Existing Wi-Fi / Same LAN', USB, Both, 'Other / unsure']
+    validations: {required: true}
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: What happened and how to reproduce it
+      description: 'Include expected behavior, steps, relevant settings and the last connection message. For wireless, include the band/channel if shown and whether the head unit is also connected to another Wi-Fi network. For Same LAN, include the router model and whether client isolation is enabled. For USB, describe any permission prompts. If multiple modes fail, identify the mode used for each log.'
+    validations: {required: true}
+  - type: input
+    id: failure-time
+    attributes:
+      label: Approximate failure time
+      description: 'Give the time shown on the device so we can find the failure in the logs.'
+      placeholder: 'Example: 2026-10-08 14:35, device local time'
+    validations: {required: true}
+  - type: upload
+    id: diagnostics
+    attributes:
+      label: Diagnostic logs
+      description: 'Attach the full DiPlay diagnostic report (.txt or .log), or a .zip containing the logs. Wait until the upload finishes before submitting. If you used View report, copy the complete text into a .txt file and attach it here.'
+    validations:
+      required: true
+      accept: '.txt,.log,.zip'
+  - type: textarea
+    id: extra-context
+    attributes:
+      label: Additional context or screenshots
+      description: 'Optional screenshots, recordings, workarounds or comparisons with another connection mode.'

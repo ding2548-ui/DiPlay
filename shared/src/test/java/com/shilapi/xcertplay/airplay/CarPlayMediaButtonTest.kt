@@ -18,6 +18,18 @@ class CarPlayMediaButtonTest {
         assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
         assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_HEADSETHOOK))
         assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(353))
+        // DiLink 3 (Han, GCC) sends KEYCODE_AUTO_MEDIA_PLAY_PAUSE unchanged.
+        assertNull(CarPlayMediaButton.forKeyCode(331))
+        assertEquals(CarPlayMediaButton.PLAY_PAUSE,
+            CarPlayMediaButton.forKeyCode(331, experimentalDiLink3Keys = true))
+    }
+
+    @Test
+    fun dilink3CarPlayVoiceKeysOpenSiriOnlyThroughTheWheelKeyService() {
+        assertTrue(CarPlayMediaButton.opensSiriWhileCarPlay(327))
+        assertTrue(CarPlayMediaButton.opensSiriWhileCarPlay(328))
+        assertFalse(CarPlayMediaButton.opensSiriWhileCarPlay(304))
+        assertFalse(CarPlayMediaButton.opensSiri(327))
     }
 
     @Test

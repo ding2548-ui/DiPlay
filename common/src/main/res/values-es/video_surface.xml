@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture_surface_output_unavailable">Los ajustes de imagen no están disponibles con la salida de vídeo de esta pantalla. Se conservan los ajustes guardados.</string>
+</resources>

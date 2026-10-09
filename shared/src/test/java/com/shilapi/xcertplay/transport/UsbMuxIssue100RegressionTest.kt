@@ -118,6 +118,59 @@ class UsbMuxIssue100RegressionTest {
         assertTrue(remainder(host).isEmpty())
     }
 
+    @Test fun payloadBearingTrailersPreserveReportedReplyLengthsThroughUsbReads() {
+        val host = host()
+        val payloads = listOf(ByteArray(4) { it.toByte() },
+            ByteArray(360) { (it % 251).toByte() }, ByteArray(918) { (it % 239).toByte() })
+        val replies = payloads.map(::dataReply)
+        UsbEvidenceReplay.transfers.add(versionReplyWithPadding)
+        UsbEvidenceReplay.transfers.add(capturedSynAckWithPadding)
+        // Reproduce the residual 40+4 -> 396+4 -> 954 byte boundaries from the follow-up.
+        UsbEvidenceReplay.transfers.add(replies[0] + followUpTrailer + replies[1].copyOfRange(0, 12))
+        UsbEvidenceReplay.transfers.add(replies[1].copyOfRange(12, replies[1].size) + followUpTrailer)
+        UsbEvidenceReplay.transfers.add(replies[2].copyOfRange(0, 27))
+        UsbEvidenceReplay.transfers.add(replies[2].copyOfRange(27, replies[2].size))
+        assertEquals(20, frameLength(takeFrame(host)))
+        assertEquals(36, frameLength(takeFrame(host)))
+        replies.indices.forEach { index ->
+            val frame = takeFrame(host)
+            assertEquals(replies[index].size, frameLength(frame))
+            assertArrayEquals(replies[index].copyOfRange(16, replies[index].size), framePayload(frame))
+        }
+        assertTrue(remainder(host).isEmpty())
+        assertEquals(6, UsbEvidenceReplay.completedReads)
+    }
+
+    @Test fun fullHostReaderContinuesAfterPayloadReplyTrailers() {
+        val replies = listOf(dataReply(ByteArray(4) { it.toByte() }),
+            dataReply(ByteArray(360) { (it % 251).toByte() }), dataReply(ByteArray(918) { (it % 239).toByte() }))
+        UsbEvidenceReplay.transfers.add(versionReplyWithPadding)
+        UsbEvidenceReplay.transfers.add(capturedSynAckWithPadding)
+        replies.indices.forEach { index ->
+            UsbEvidenceReplay.transfers.add(replies[index] + if (index < replies.lastIndex) followUpTrailer else ByteArray(0))
+        }
+        val diagnostics = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val host = Iap2UsbMuxHost.open(pipe(), onDiagnostic = diagnostics::add)
+        try {
+            val deadline = System.nanoTime() + 2_000_000_000L
+            var consumed = false
+            while (!consumed && System.nanoTime() < deadline) {
+                consumed = synchronized(ReflectionHelpers.getField<Any>(host, "stateLock")) {
+                    UsbEvidenceReplay.completedReads == 5 && frameBuffer(host).bufferedBytes == 0
+                }
+                if (!consumed) Thread.sleep(1)
+            }
+            assertTrue("The real reader must consume the padded payload replies", consumed)
+            val failure = synchronized(ReflectionHelpers.getField<Any>(host, "stateLock")) {
+                ReflectionHelpers.getField<IphoneUsbException?>(host, "failure")
+            }
+            assertEquals(null, failure)
+            assertEquals(4, diagnostics.size)
+            assertTrue(diagnostics.any { it.contains("previousLength=40") })
+            assertTrue(diagnostics.any { it.contains("previousLength=396") })
+        } finally { host.close() }
+    }
+
     private fun host(): Iap2UsbMuxHost {
         return Iap2UsbMuxHost::class.java.getDeclaredConstructor(
             Iap2UsbSession::class.java, Long::class.javaPrimitiveType,
@@ -160,6 +213,14 @@ class UsbMuxIssue100RegressionTest {
             "00 00 00 06 00 00 00 24 fa ce fa ce 00 00 00 01 " +
                 "f2 7e 00 01 00 00 00 00 00 00 00 01 5f 12 02 00 7f 00 00 01 6d 43 6f 6e")
         val normalSynAck = capturedSynAckWithPadding.copyOf(36)
+        val followUpTrailer = hex("00 00 01 68")
+        // Follow-up payload contents are not supplied; preserve synthetic bytes with its
+        // declared lengths and the real captured TCP header (including low data-offset bits).
+        fun dataReply(payload: ByteArray): ByteArray = (normalSynAck + payload).also { frame ->
+            val length = frame.size
+            for (i in 0..3) frame[4 + i] = (length ushr (24 - i * 8)).toByte()
+            frame[29] = 0x10
+        }
         fun hex(value: String): ByteArray = value.split(' ').map { it.toInt(16).toByte() }.toByteArray()
     }
 }

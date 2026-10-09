@@ -1,4 +1,4 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Installation and connection help
     url: https://github.com/shihabal3amri/DiPlay/blob/main/docs/INSTALL.md

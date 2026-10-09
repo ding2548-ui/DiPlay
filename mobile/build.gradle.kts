@@ -8,10 +8,18 @@ val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSET
     .orNull?.let { file(it).canonicalFile }
 
 // CI stamps the run number and the short commit sha into versionName, so the first line of a
-// diagnostic report names the exact build that produced it: "0.2.12（186-b815324）". The run
+// diagnostic report names the exact build that produced it: "0.2.15（186-b815324）". The run
 // number alone only says when a build ran, not what was in it.
+// The major version follows the upstream release the source is based on: the tree merged upstream
+// 0.2.15, so the app reports 0.2.15 even though this line's own release tags moved with it.
 val buildNumber = providers.environmentVariable("DIPLAY_BUILD_NUMBER").orNull
 val buildCommit = providers.environmentVariable("DIPLAY_BUILD_COMMIT").orNull
+
+// The beta channel is a second variant of this same line, published from the psa-beta branch under
+// its own release-tag namespace. It ships a distinct applicationId so it can sit next to the
+// release build on the head unit, which is what lets a beta APK be tested without uninstalling the
+// release one first. AppUpdater reads the same suffix back to pick its tag namespace.
+val betaChannel = providers.environmentVariable("DIPLAY_CHANNEL").orNull == "beta"
 
 android {
     namespace = "com.shilapi.xcertplay"
@@ -25,8 +33,19 @@ android {
         targetSdk = 37
         versionCode = 31
         versionName = buildNumber?.let { run ->
-            buildCommit?.let { sha -> "0.2.12（$run-$sha）" } ?: "0.2.12（$run）"
-        } ?: "0.2.12"
+            val channelTag = if (betaChannel) "-beta" else ""
+            buildCommit?.let { sha -> "0.2.15（$run-$sha）$channelTag" } ?: "0.2.15（$run）$channelTag"
+        } ?: "0.2.15"
+        if (betaChannel) {
+            // Coexists with the release build; see the comment on [betaChannel].
+            applicationIdSuffix = ".psabeta"
+        }
+        // The beta channel identifies itself wherever the app name is shown: the launcher label,
+        // the home header, the About page and the session notification all read these two.
+        // They are generated rather than kept in res/ so the release channel stays plain "DiPlay".
+        val shownName = if (betaChannel) "DiPlay Beta" else "DiPlay"
+        resValue("string", "app_name", shownName)
+        resValue("string", "diplay", shownName)
 
         // The ABI is deliberately NOT pinned. Pinning it to armeabi-v7a was done so the v7a-only
         // libdiplay_lwip.so could load, but it forces the whole process to 32 bits — and the car's
@@ -78,6 +97,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // Needed for the channel-dependent app_name/diplay strings in defaultConfig.
+        resValues = true
     }
 }
 

@@ -15,7 +15,7 @@ android {
 
         externalNativeBuild {
             ndkBuild {
-                arguments 'APP_PLATFORM=android-28'
+                arguments 'APP_PLATFORM=android-25'
             }
         }
 

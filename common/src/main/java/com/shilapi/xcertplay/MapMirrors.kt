@@ -6,7 +6,7 @@ import android.view.Surface
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * The surfaces that show a copy of the dashboard map (CarPlay stream 111) outside the dashboard,
+ * The surfaces that show a copy of the CarPlay main screen (stream 110) outside the app,
  * such as the centre card ([CARD]) and maps embedded by launchers ("launcher:<n>"). The CarPlay screen hands them to its media sink, now and after
  * every reconnect. Main thread.
  */
@@ -28,7 +28,7 @@ internal object MapMirrors {
             main.post { aspectListeners.forEach { it() } }
         }
 
-    /** The active dashboard stream's shape (defaults to PHYSICAL_STREAM_ASPECT or VIRTUAL_STREAM_ASPECT). */
+    /** The mirrored stream's shape (defaults to PHYSICAL_STREAM_ASPECT or VIRTUAL_STREAM_ASPECT). */
     val STREAM_ASPECT: Double get() = streamAspect
 
     private val main = Handler(Looper.getMainLooper())
@@ -48,7 +48,7 @@ internal object MapMirrors {
     /** Called when the set of mirrors changes, so the dashboard map pause can stand aside. */
     var onChanged: (() -> Unit)? = null
 
-    /** Whether the iPhone streams the dashboard map right now. */
+    /** Whether the iPhone streams the mirrored CarPlay screen right now. */
     var streamActive = false
         private set
 

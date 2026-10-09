@@ -28,6 +28,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
+    /** The call's far-end audio; when set, telephony capture runs DiPlay's own echo canceller. */
+    private val echoReference: EchoReference? = null,
+    private val echoCancellerFactory: (Int, Int, Int) -> CallEchoCanceller? = { frame, rate, tail ->
+        SpeexEchoCanceller.create(frame, rate, tail)
+    },
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
@@ -38,6 +43,7 @@ internal class MicrophoneUplink(
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: OpusEncoder? = null
     @Volatile private var effects: List<AudioEffect> = emptyList()
+    @Volatile private var echoCanceller: CallEchoCanceller? = null
     private var thread: Thread? = null
 
     // The activity requests RECORD_AUDIO and logs "Microphone permission granted" before this runs;
@@ -80,29 +86,15 @@ internal class MicrophoneUplink(
             return false
         }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
-        val nextRecorder = try {
-            AudioRecord.Builder()
-                .setAudioSource(source)
-                .setAudioFormat(
-                    AndroidAudioFormat.Builder()
-                        .setEncoding(AndroidAudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(config.sampleRate)
-                        .setChannelMask(channelMask)
-                        .build(),
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .build()
-        } catch (error: Exception) {
-            Log.e(TAG, "microphone recorder creation failed", error)
-            stats.failure(MicrophoneFailureStage.RECORDER_CREATION, error)
-            nextEncoder?.close()
-            running.set(false)
-            return false
-        }
-        if (nextRecorder.state != AudioRecord.STATE_INITIALIZED) {
-            Log.w(TAG, "microphone recorder failed to initialize")
-            stats.failure(MicrophoneFailureStage.RECORDER_INITIALIZATION, code = nextRecorder.state)
-            nextRecorder.release()
+        // Some head units throw on VOICE_RECOGNITION at build(); VOICE_COMMUNICATION works there.
+        val nextRecorder = createRecorder(source, channelMask, bufferSize)
+            ?: if (source == MediaRecorder.AudioSource.VOICE_RECOGNITION) {
+                stats.useVoiceCommunicationSource()
+                createRecorder(MediaRecorder.AudioSource.VOICE_COMMUNICATION, channelMask, bufferSize)
+            } else {
+                null
+            }
+        if (nextRecorder == null) {
             nextEncoder?.close()
             running.set(false)
             return false
@@ -126,7 +118,13 @@ internal class MicrophoneUplink(
         socket = nextSocket
         opusEncoder = nextEncoder
         return try {
-            if (config.audioType == "telephony") effects = voiceEffects(nextRecorder.audioSessionId)
+            if (config.audioType == "telephony") {
+                echoCanceller = createEchoCanceller()
+                effects = voiceEffects(nextRecorder.audioSessionId)
+                if (echoReference != null) {
+                    Log.i(TAG, "microphone echo canceller enabled=${echoCanceller != null} tail=${ECHO_TAIL_MILLIS}ms")
+                }
+            }
             nextRecorder.startRecording()
             stats.started(routeType(nextRecorder))
             thread = Thread({ capture(nextRecorder, nextSocket) }, "carplay-mic").apply {
@@ -142,27 +140,82 @@ internal class MicrophoneUplink(
         }
     }
 
-    private fun voiceEffects(sessionId: Int): List<AudioEffect> = listOfNotNull(
-        enabledEffect("AEC") {
-            if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(sessionId) else null
-        },
-        enabledEffect("NS") {
+    private fun createRecorder(source: Int, channelMask: Int, bufferSize: Int): AudioRecord? {
+        val recorder = try {
+            AudioRecord.Builder()
+                .setAudioSource(source)
+                .setAudioFormat(
+                    AndroidAudioFormat.Builder()
+                        .setEncoding(AndroidAudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(config.sampleRate)
+                        .setChannelMask(channelMask)
+                        .build(),
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .build()
+        } catch (error: Exception) {
+            Log.e(TAG, "microphone recorder creation failed source=$source", error)
+            stats.failure(MicrophoneFailureStage.RECORDER_CREATION, error)
+            return null
+        }
+        if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            Log.w(TAG, "microphone recorder failed to initialize source=$source")
+            stats.failure(MicrophoneFailureStage.RECORDER_INITIALIZATION, code = recorder.state)
+            recorder.release()
+            return null
+        }
+        return recorder
+    }
+
+    private fun createEchoCanceller(): CallEchoCanceller? {
+        val reference = echoReference ?: return null
+        if (config.channels != 1 || config.sampleRate != reference.sampleRate) {
+            Log.i(TAG, "microphone echo canceller skipped rate=${config.sampleRate} channels=${config.channels}")
+            return null
+        }
+        return echoCancellerFactory(config.frameBytes / 2, config.sampleRate, ECHO_TAIL_MILLIS)
+    }
+
+    private fun voiceEffects(sessionId: Int): List<AudioEffect> {
+        var aec: AudioEffect? = null
+        if (echoCanceller != null) {
+            // VOICE_COMMUNICATION can enable AEC by default. Keep its controller alive and
+            // explicitly disable it while Speex runs, rather than stacking two cancellers.
+            val platformAvailable = runCatching { AcousticEchoCanceler.isAvailable() }.getOrDefault(true)
+            if (platformAvailable) {
+                aec = configuredEffect("AEC", false) { AcousticEchoCanceler.create(sessionId) }
+                if (aec == null) {
+                    echoCanceller?.close()
+                    echoCanceller = null
+                    Log.w(TAG, "microphone native echo canceller skipped: platform AEC could not be disabled")
+                }
+            }
+        }
+        if (echoCanceller == null) {
+            aec = enabledEffect("AEC") {
+                if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(sessionId) else null
+            }
+        }
+        return listOfNotNull(aec, enabledEffect("NS") {
             if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId) else null
-        },
-    )
+        })
+    }
 
     // Advertised effects may still fail to initialize on a vendor ROM. Keep recording without them.
-    private fun enabledEffect(name: String, create: () -> AudioEffect?): AudioEffect? {
+    private fun enabledEffect(name: String, create: () -> AudioEffect?): AudioEffect? =
+        configuredEffect(name, true, create)
+
+    private fun configuredEffect(name: String, enabled: Boolean, create: () -> AudioEffect?): AudioEffect? {
         var effect: AudioEffect? = null
         try {
             effect = create()
             if (effect != null) {
-                val status = effect.setEnabled(true)
-                if (status == AudioEffect.SUCCESS && effect.enabled) {
-                    Log.i(TAG, "microphone effect=$name enabled=true")
+                val status = effect.setEnabled(enabled)
+                if (status == AudioEffect.SUCCESS && effect.enabled == enabled) {
+                    Log.i(TAG, "microphone effect=$name enabled=$enabled")
                     return effect
                 }
-                Log.w(TAG, "microphone effect=$name could not be enabled status=$status")
+                Log.w(TAG, "microphone effect=$name could not be ${if (enabled) "enabled" else "disabled"} status=$status")
             } else {
                 Log.i(TAG, "microphone effect=$name unavailable")
             }
@@ -186,12 +239,16 @@ internal class MicrophoneUplink(
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
         val routeInfo = { routeType(recorder) }
+        var canceller = echoCanceller
+        val clock = canceller?.let { CaptureClock(config.sampleRate) }
+        val reference = canceller?.let { ShortArray(it.frameSamples) }
         var filled = 0
         try {
             while (running.get()) {
                 stats.reading()
                 val count = recorder.read(readBuffer, 0, readBuffer.size, AudioRecord.READ_BLOCKING)
                 stats.read(count)
+                if (count > 0) clock?.read(recorder, count / 2)
                 if (count < 0) {
                     if (running.get()) {
                         Log.e(TAG, "microphone read failed code=$count")
@@ -210,6 +267,23 @@ internal class MicrophoneUplink(
                     filled += copied
                     offset += copied
                     if (filled == frame.size) {
+                        if (canceller != null && clock != null && reference != null) {
+                            // Ask slightly ahead of the frame so speaker latency the clock misses stays inside the tail.
+                            echoReference?.read(reference, clock.frameEndNs(offset / 2) + ECHO_REFERENCE_LEAD_NS)
+                            val processed = try {
+                                canceller.process(frame, reference)
+                            } catch (error: RuntimeException) {
+                                Log.w(TAG, "microphone native echo processing failed; restoring platform AEC", error)
+                                false
+                            } catch (error: LinkageError) {
+                                Log.w(TAG, "microphone native echo processing unavailable; restoring platform AEC", error)
+                                false
+                            }
+                            if (!processed) {
+                                restorePlatformEchoCancellation()
+                                canceller = null
+                            }
+                        }
                         sendFrame(socket, counters, frame)
                         filled = 0
                     }
@@ -240,7 +314,7 @@ internal class MicrophoneUplink(
                 socket = socket,
                 counters = counters,
                 body = body,
-                samples = config.samplesPerPacket,
+                samples = config.rtpSamplesPerPacket,
             )
         }
     }
@@ -268,6 +342,29 @@ internal class MicrophoneUplink(
     }
 
     private fun routeType(recorder: AudioRecord): Int? = runCatching { recorder.routedDevice?.type }.getOrNull()
+
+    /** Capture can continue with the same recorder if the optional native processor stops working. */
+    @Synchronized
+    private fun restorePlatformEchoCancellation() {
+        val current = echoCanceller ?: return
+        echoCanceller = null
+        current.close()
+        if (!running.get()) return // close/release already owns all recorder effects.
+        val aec = effects.filterIsInstance<AcousticEchoCanceler>().firstOrNull()
+        if (aec != null) {
+            val enabled = runCatching { aec.setEnabled(true) == AudioEffect.SUCCESS && aec.enabled }.getOrDefault(false)
+            if (enabled) {
+                Log.i(TAG, "microphone native echo processing stopped; platform AEC restored")
+                return
+            }
+            effects = effects - aec
+            releaseEffect(aec)
+        }
+        enabledEffect("AEC") {
+            if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(recorder!!.audioSessionId) else null
+        }?.let { effects = effects + it }
+        Log.i(TAG, "microphone native echo processing stopped; using platform effects")
+    }
 
     override fun close() {
         if (!running.compareAndSet(true, false)) {
@@ -301,6 +398,8 @@ internal class MicrophoneUplink(
         val currentEffects = effects
         effects = emptyList()
         currentEffects.forEach(::releaseEffect)
+        echoCanceller?.close()
+        echoCanceller = null
         val currentRecorder = recorder
         recorder = null
         try {
@@ -324,5 +423,40 @@ internal class MicrophoneUplink(
         const val TAG = "xcertplay-usb"
         const val MIN_READ_BYTES = 2_048
         const val CLOSE_JOIN_MILLIS = 500L
+        const val ECHO_TAIL_MILLIS = 250
+        const val ECHO_REFERENCE_LEAD_NS = 30_000_000L
+    }
+}
+
+/**
+ * When each captured microphone sample was heard, on System.nanoTime's clock. Uses the recorder's
+ * timestamp when the platform has one, otherwise assumes the newest sample arrived [FALLBACK_LATENCY_NS] ago.
+ */
+internal class CaptureClock(private val sampleRate: Int) {
+    private val timestamp = android.media.AudioTimestamp()
+    private var samplesRead = 0L
+    private var lastReadSamples = 0
+    private var lastReadEndNs = 0L
+
+    fun read(recorder: AudioRecord, samples: Int) {
+        samplesRead += samples
+        lastReadSamples = samples
+        val now = System.nanoTime()
+        val stamped = runCatching {
+            recorder.getTimestamp(timestamp, android.media.AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS
+        }.getOrDefault(false)
+        lastReadEndNs = if (stamped && timestamp.nanoTime > 0) {
+            timestamp.nanoTime + (samplesRead - timestamp.framePosition) * 1_000_000_000L / sampleRate
+        } else {
+            now - FALLBACK_LATENCY_NS
+        }
+    }
+
+    /** The capture time of the end of the first [samplesIntoRead] samples of the latest read. */
+    fun frameEndNs(samplesIntoRead: Int): Long =
+        lastReadEndNs - (lastReadSamples - samplesIntoRead).coerceAtLeast(0) * 1_000_000_000L / sampleRate
+
+    private companion object {
+        const val FALLBACK_LATENCY_NS = 20_000_000L
     }
 }

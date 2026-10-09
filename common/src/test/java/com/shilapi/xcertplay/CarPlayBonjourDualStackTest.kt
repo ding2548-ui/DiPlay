@@ -1,7 +1,6 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
-import android.net.nsd.NsdManager
 import android.net.wifi.WifiManager
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
@@ -43,7 +42,6 @@ class CarPlayBonjourDualStackTest {
 
     private fun setup() {
         `when`(context.applicationContext).thenReturn(context)
-        `when`(context.getSystemService(Context.NSD_SERVICE)).thenReturn(mock(NsdManager::class.java))
         `when`(context.getSystemService(WifiManager::class.java)).thenReturn(wifi)
         `when`(wifi.createMulticastLock("carplay-bonjour")).thenReturn(lock)
         `when`(lock.isHeld).thenReturn(true)
@@ -162,6 +160,7 @@ class CarPlayBonjourDualStackTest {
             factory.verifyNoMoreInteractions()
             verify(dns).close()
         }
+        verify(context, never()).getSystemService(Context.NSD_SERVICE)
     }
 
     @Test fun serviceDetachesBothSamePortListenersOnAndroid10() {

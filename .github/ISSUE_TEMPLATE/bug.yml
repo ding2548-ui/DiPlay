@@ -1,13 +1,16 @@
-name: Connection, display or audio problem
-description: Help us reproduce an issue on your head unit.
+name: Other bug (display, audio, installation or controls)
+description: Report a problem other than a connection failure or disconnection.
 title: '[Bug] '
 body:
   - type: markdown
     attributes:
-      value: 'Test while parked. Reports are public: review diagnostic files and remove personal information before attaching them. Never post credentials.'
+      value: |
+        For USB/Bluetooth/Wi-Fi connection failures, getting stuck opening CarPlay, reconnect loops, disconnects or connection-dependent stutter, use the [Connection problem form](https://github.com/shihabal3amri/DiPlay/issues/new?template=connection.yml). Connection reports require diagnostic logs.
+
+        Test while parked. Reports are public: review diagnostic files and remove personal information before attaching them. Never post credentials.
   - type: input
     id: version
-    attributes: {label: DiPlay version, placeholder: '0.2.12'}
+    attributes: {label: DiPlay version, placeholder: 'Exact version from Settings → About'}
     validations: {required: true}
   - type: input
     id: car
@@ -33,4 +36,4 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostic report or recording
-      description: 'Update and reproduce on 0.2.12, then Settings → Diagnostics → Save diagnostic report. Android 10+ normally saves to Downloads/DiPlay; Android 9 uses a document picker. If storage is unavailable, use View report or Share in the confirmation. Review the text before attaching it and never include your hotspot password. Include the approximate failure time.'
+      description: 'Reproduce on the latest official release, then Settings → Diagnostics → Save diagnostic report. Android 10+ normally saves to Downloads/DiPlay; Android 7.1–9 uses a document picker. If saving is unavailable, use View report or Share in the confirmation. Review the text before attaching it and never include your hotspot password. Include the approximate failure time. For installation failures, attach the installer error and Android/API version; an in-app report may not be available.'

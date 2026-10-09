@@ -14,6 +14,13 @@ data class MicrophoneConfig(
     val key: ByteArray,
     val codec: AudioCodecKind = AudioCodecKind.LPCM,
     val bitrate: Int? = null,
+    /**
+     * The observed CarPlay clock for an Opus stream. Capture and encoding remain at 48 kHz.
+     * Captured Siri packets for audioFormat 0x20000000 advance by 480 per 20 ms; calls advance by
+     * 960. This private-protocol exception does not establish a 16 kHz RTP clock: unobserved formats
+     * keep the standard 48 kHz Opus RTP clock until equivalent packet evidence is available.
+     */
+    val opusClockRate: Int = OPUS_CAPTURE_RATE,
 ) {
     val samplesPerPacket: Int
         get() = if (codec == AudioCodecKind.OPUS) {
@@ -22,11 +29,24 @@ data class MicrophoneConfig(
             maxOf(1, sampleRate * frameMillis / 1000)
         }
 
+    /** How far each packet moves the RTP timestamp, on the negotiated clock. */
+    val rtpSamplesPerPacket: Int
+        get() = if (codec == AudioCodecKind.OPUS) opusClockRate * OPUS_FRAME_MILLIS / 1000 else samplesPerPacket
+
     val frameBytes: Int
         get() = samplesPerPacket * channels * 2
 
-    private companion object {
-        const val OPUS_SAMPLES_PER_PACKET = 960
+    companion object {
+        private const val OPUS_SAMPLES_PER_PACKET = 960
+        private const val OPUS_CAPTURE_RATE = 48_000
+        private const val OPUS_FRAME_MILLIS = 20
+
+        /** Use the observed Siri 24 kHz clock, retaining 48 kHz for calls and unobserved formats. */
+        fun opusClockRate(formatBits: Long): Int = when {
+            formatBits and 0x40000000L != 0L -> 48_000
+            formatBits and 0x20000000L != 0L -> 24_000
+            else -> OPUS_CAPTURE_RATE
+        }
     }
 }
 

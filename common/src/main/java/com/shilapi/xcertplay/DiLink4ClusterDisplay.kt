@@ -12,6 +12,14 @@ internal object DiLink4ClusterDisplay {
     fun matches(name: String, width: Int, height: Int): Boolean =
         name == NAME && width == 1920 && height == 720
 
+    /**
+     * Also recognize the 1280x480 projection surface reported by a DiLink 3 car. This
+     * smaller panel uses the generic per-display stream, not [streamConfig]. Keep selection
+     * limited to observed geometries: an aspect ratio alone does not identify a cluster.
+     */
+    fun accepts(name: String, width: Int, height: Int): Boolean =
+        name == NAME && ((width == 1920 && height == 720) || (width == 1280 && height == 480))
+
     const val STREAM_WIDTH = 1920
     const val STREAM_HEIGHT = 720
 

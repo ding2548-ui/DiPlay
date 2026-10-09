@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import com.shilapi.xcertplay.compat.Base64Compat
 import com.shilapi.xcertplay.iap2.body.Iap2BodyReader
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.lang.reflect.InvocationTargetException
@@ -268,17 +269,35 @@ internal object BydClusterSong {
 
     private fun clear(app: Context) {
         if (shown == null || synchronized(state) { wanted } != null) return
-        if (run(app, "- $STATE_STOPPED -")) shown = null
+        if (run(app, "- $STATE_STOPPED -", clearing = true)) shown = null
     }
 
-    private fun run(app: Context, args: String): Boolean {
+    private fun run(app: Context, args: String, clearing: Boolean = false): Boolean {
         val apk = app.applicationInfo.sourceDir
         val output = shell.run(app, "CLASSPATH=$apk app_process /system/bin ${BydClusterSongTool::class.java.name} $args")
             ?: return false
-        val failed = output.lineSequence().map { it.trim() }.filter { it.contains('=') }
-            .any { line -> line.substringAfter('=').trim().toIntOrNull() != 0 }
-        if (failed) Log.w(TAG, "dashboard write failed: ${output.trim().take(160)}")
-        return !failed
+        val succeeded = ClusterSongWriteResult.accepted(output, clearing)
+        if (!succeeded) Log.w(TAG, "dashboard write failed: incomplete or rejected vendor response")
+        return succeeded
+    }
+}
+
+/** Validate the complete app_process write response, rather than treating an empty response as success. */
+internal object ClusterSongWriteResult {
+    // The PR reporter observed this result on a DiLink 4 Seal while the music card updated.
+    // Accept it only for the instrument writes below; it is not a general shell success code.
+    private const val OBSERVED_VENDOR_RESULT = -2147482648
+
+    fun accepted(output: String, clearing: Boolean = false): Boolean {
+        val expected = if (clearing) setOf("state") else setOf("source", "state", "text")
+        val received = mutableSetOf<String>()
+        for (line in output.lineSequence().map { it.trim() }.filter { '=' in it }) {
+            val name = line.substringBefore('=').trim()
+            val result = line.substringAfter('=').trim().toIntOrNull() ?: return false
+            if (name !in expected || !received.add(name) ||
+                (result != 0 && result != OBSERVED_VENDOR_RESULT)) return false
+        }
+        return received == expected
     }
 }
 
@@ -325,7 +344,7 @@ object BydClusterSongTool {
         args.getOrNull(0)?.takeIf { it != "-" }?.let { println("source=${setState.invoke(device, DEVICE, SOURCE, it.toInt())}") }
         args.getOrNull(1)?.takeIf { it != "-" }?.let { println("state=${setState.invoke(device, DEVICE, STATE, it.toInt())}") }
         args.getOrNull(2)?.takeIf { it != "-" }?.let { encoded ->
-            val text = String(java.util.Base64.getDecoder().decode(encoded), Charsets.UTF_8).toByteArray(Charsets.UTF_16LE)
+            val text = String(Base64Compat.decode(encoded), Charsets.UTF_8).toByteArray(Charsets.UTF_16LE)
             println("text=${if (text.size > ClusterSongState.MAX_TEXT_BYTES) "ERR too long" else setInfo.invoke(device, DEVICE, TEXT, text)}")
         }
     }

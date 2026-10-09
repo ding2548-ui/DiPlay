@@ -2,11 +2,11 @@
 
 DiPlay can put CarPlay information on a launcher's home screen in three ways:
 
-| | What it shows | Works with | Needs |
-|---|---|---|---|
-| [Navigation widget](#1-navigation-widget) | Next turn arrow, distance, road, arrival, song | Any launcher that hosts standard Android widgets | Nothing extra |
-| [Map card](#2-map-card) | The live CarPlay map, as a card on the home screen | Any launcher, including BYD home and map home | Two permissions (see below) |
-| [Embedded map](#3-embedded-live-map-for-launcher-developers) | The live CarPlay map inside the launcher's own layout | Launchers that add support for it | Launcher code, Android 11+ |
+|                                                              | What it shows                                         | Works with                                       | Needs                       |
+| ------------------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------ | --------------------------- |
+| [Navigation widget](#1-navigation-widget)                    | Next turn arrow, distance, road, arrival, song        | Any launcher that hosts standard Android widgets | Nothing extra               |
+| [Map card](#2-map-card)                                      | The live CarPlay map, as a card on the home screen    | Any launcher, including BYD home and map home    | Two permissions (see below) |
+| [Embedded map](#3-embedded-live-map-for-launcher-developers) | The live CarPlay map inside the launcher's own layout | Launchers that add support for it                | Launcher code, Android 11+  |
 
 The live map is CarPlay's instrument-cluster map: the map the iPhone draws for the dashboard. The map card and the embedded map need **CarPlay map on instrument cluster** turned on in DiPlay. Without it, the iPhone does not send that map.
 
@@ -43,13 +43,10 @@ Size and place are remembered. The card goes when you open another app and comes
 In DiPlay settings, under the dashboard map, turn on **Dashboard map on the centre screen** (off by default) and give two permissions:
 
 - **Draw over other apps**: the settings screen offers it, or over ADB:
-
   ```bash
   adb shell appops set com.shihab.diplay SYSTEM_ALERT_WINDOW allow
   ```
-
 - **Usage Access**, so the card shows only on home screens. Without it, the card shows over every app:
-
   ```bash
   adb shell appops set com.shihab.diplay GET_USAGE_STATS allow
   ```
@@ -76,30 +73,30 @@ DiPlay exports a bound service. You talk to it with [`Messenger`](https://develo
 
 Service action: `com.shihab.diplay.action.EMBED_MAP`. The package differs between release and test builds, so find the service by its action.
 
-| Direction | `what` | Data (`Bundle`) | Meaning |
-|---|---|---|---|
-| launcher → DiPlay | `1` ATTACH | `hostToken` (IBinder, `surfaceView.getHostToken()`), `displayId` (int), `width`, `height` (int, px) | Show the map in this view |
-| launcher → DiPlay | `2` RESIZE | `width`, `height` | The view changed size |
-| launcher → DiPlay | `3` DETACH | — | Stop showing the map |
-| DiPlay → launcher | `101` ATTACHED | `surfacePackage` (SurfacePackage), `streamActive` (boolean) | Put this into your SurfaceView |
-| DiPlay → launcher | `102` STREAM_STATE | `streamActive` (boolean) | The map started or stopped |
-| DiPlay → launcher | `199` ERROR | `error`: `disabled`, `unsupported` or `bad_request` | The map cannot be shown |
+| Direction         | `what`             | Data (`Bundle`)                                                                                     | Meaning                        |
+| ----------------- | ------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------ |
+| launcher → DiPlay | `1` ATTACH         | `hostToken` (IBinder, `surfaceView.getHostToken()`), `displayId` (int), `width`, `height` (int, px) | Show the map in this view      |
+| launcher → DiPlay | `2` RESIZE         | `width`, `height`                                                                                   | The view changed size          |
+| launcher → DiPlay | `3` DETACH         | —                                                                                                   | Stop showing the map           |
+| DiPlay → launcher | `101` ATTACHED     | `surfacePackage` (SurfacePackage), `streamActive` (boolean)                                         | Put this into your SurfaceView |
+| DiPlay → launcher | `102` STREAM_STATE | `streamActive` (boolean)                                                                            | The map started or stopped     |
+| DiPlay → launcher | `199` ERROR        | `error`: `disabled`, `unsupported` or `bad_request`                                                 | The map cannot be shown        |
 
 ### Legacy handshake (head units below Android 11)
 
-`SurfaceControlViewHost` exists only on Android 11+. On older firmware (an Android 7 head unit
-among them), DiPlay instead draws straight into **a Surface you hand over**. `Surface` is
+`SurfaceControlViewHost` exists only on Android 11+. On older firmware (an Android 7 head unit  
+among them), DiPlay instead draws straight into **a Surface you hand over**. `Surface` is  
 `Parcelable` on every API level, so the ATTACH bundle simply carries it:
 
-| Difference vs the table above | Value |
-|---|---|
-| ATTACH (`1`) data | `surface` (Parcelable `Surface`, from `surfaceView.holder.surface`), `width`, `height` (int, px) — no `hostToken`, no `displayId` |
-| ATTACHED (`101`) data | `streamActive` (boolean) only — no `surfacePackage` |
+| Difference vs the table above | Value                                                                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| ATTACH (`1`) data             | `surface` (Parcelable `Surface`, from `surfaceView.holder.surface`), `width`, `height` (int, px) — no `hostToken`, no `displayId` |
+| ATTACHED (`101`) data         | `streamActive` (boolean) only — no `surfacePackage`                                                                               |
 
-Everything else (RESIZE, DETACH, STREAM_STATE, ERROR) is unchanged. RESIZE is accepted but has no
-effect: draw into your own SurfaceView and scale it yourself. Because DiPlay has no view of its
-own in this mode, the "waiting" text and the tap-to-open-CarPlay behaviour are your launcher's job;
-DiPlay only mirrors the decoded map into your Surface. A launcher that sends no `surface` still
+Everything else (RESIZE, DETACH, STREAM_STATE, ERROR) is unchanged. RESIZE is accepted but has no  
+effect: draw into your own SurfaceView and scale it yourself. Because DiPlay has no view of its  
+own in this mode, the "waiting" text and the tap-to-open-CarPlay behaviour are your launcher's job;  
+DiPlay only mirrors the decoded map into your Surface. A launcher that sends no `surface` still  
 gets `unsupported` on these units.
 
 Turning sharing off releases every attached map and sends `ERROR` with `disabled` to its launcher. Treat this as a detach. Enabling sharing again requires a fresh `ATTACH`; old views do not reconnect automatically.
@@ -109,7 +106,6 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
 ### Steps
 
 1. Declare that you look for DiPlay (package visibility on Android 11+):
-
    ```xml
    <queries>
        <intent>
@@ -117,9 +113,7 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
        </intent>
    </queries>
    ```
-
 2. Find and bind the service:
-
    ```kotlin
    val intent = Intent("com.shihab.diplay.action.EMBED_MAP")
    val info = packageManager.queryIntentServices(intent, 0).firstOrNull()?.serviceInfo
@@ -127,9 +121,7 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
    intent.setClassName(info.packageName, info.name)
    bindService(intent, connection, Context.BIND_AUTO_CREATE)
    ```
-
 3. Once the service is connected and your `SurfaceView` has its surface, ask for the map:
-
    ```kotlin
    service.send(Message.obtain(null, 1 /* ATTACH */).apply {
        data = Bundle().apply {
@@ -141,9 +133,7 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
        replyTo = replies
    })
    ```
-
 4. Handle the replies:
-
    ```kotlin
    val replies = Messenger(Handler(Looper.getMainLooper()) { message ->
        when (message.what) {
@@ -155,7 +145,6 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
        true
    })
    ```
-
 5. Send RESIZE (`2`) from `surfaceChanged`. Send DETACH (`3`) and unbind when your screen stops. DiPlay also cleans up when your process dies.
 
 ### Notes
@@ -176,32 +165,28 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
 It runs without system privileges. BYD's home stays installed, and the **BYD home** button opens it.
 
 - **Widgets.** A launcher needs the owner's consent to bind widgets. BYD head units have no consent screen, so allow it once over ADB:
-
   ```bash
   adb shell appwidget grantbind --package com.diplay.home --user 0
   ```
-
 - **Making it the home screen.** Pick it as the default home app, or over ADB:
-
   ```bash
   adb shell cmd package set-home-activity com.diplay.home/.HomeActivity
   ```
-
 - **Going back to BYD's home:**
-
   ```bash
   adb shell cmd package set-home-activity com.android.launcher3/.home.MainActivity
   ```
-
   BYD's map-mode button also returns to BYD's home, because BYD's own home list contains only BYD launchers.
 
 ## Troubleshooting
 
-| Problem | Check |
-|---|---|
-| No card | Card switch on; "Draw over other apps" allowed; CarPlay connected; dashboard map on; you are on a home screen. |
-| Card shows over every app | Usage Access is not allowed for DiPlay. |
-| Card on BYD home but not on another launcher | Make that launcher the default home; DiPlay reads the default home when the card starts. |
-| Embedded map says `disabled` | Turn on "Share the live map with other launchers" in DiPlay. |
+| Problem                                      | Check                                                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| No card                                      | Card switch on; "Draw over other apps" allowed; CarPlay connected; dashboard map on; you are on a home screen. |
+| Card shows over every app                    | Usage Access is not allowed for DiPlay.                                                                        |
+| Card on BYD home but not on another launcher | Make that launcher the default home; DiPlay reads the default home when the card starts.                       |
+| Embedded map says `disabled`                 | Turn on "Share the live map with other launchers" in DiPlay.                                                   |
+
+
 | Embedded map stays on "waiting" | CarPlay is not connected, or "CarPlay map on instrument cluster" is off. |
 | Widget says "CarPlay is not connected" while CarPlay works | Open DiPlay once after installing it; the widget follows the running session. |

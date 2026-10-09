@@ -5,6 +5,8 @@ internal class DiLink3ClusterModeSession(
     private val run: (String) -> String?,
     private val loadRecovery: () -> Boolean,
     private val saveRecovery: (Boolean) -> Boolean,
+    private val projectionStepDelay: () -> Unit = { Thread.sleep(1_000L) },
+    private val projectionStillWanted: () -> Boolean = { true },
 ) {
     private var owned = false
     private var restorePending = false
@@ -18,10 +20,34 @@ internal class DiLink3ClusterModeSession(
         if (!recoverInterrupted()) return false
         if (mode == null || mode == BydDiLink3ClusterMode.Mode.STOCK) return restoreStock()
         if (applied == mode && loadRecovery()) return true
+        val entry = mode.entryCommand
+        if (entry != null && !projectionStillWanted()) return false
         if (!saveRecovery(true)) return false
         owned = true // A missing reply can still mean the command changed the car.
-        val accepted = BydDiLink3ClusterMode.accepted(run(mode.command))
+        if (entry == null) {
+            val accepted = BydDiLink3ClusterMode.accepted(run(mode.command))
+            applied = if (accepted) mode else null
+            return accepted
+        }
+        var interrupted = false
+        val accepted = try {
+            if (!BydDiLink3ClusterMode.accepted(run(entry))) false
+            else {
+                projectionStepDelay()
+                projectionStillWanted() && BydDiLink3ClusterMode.accepted(run(mode.command))
+            }
+        } catch (error: Exception) {
+            interrupted = error is InterruptedException
+            false
+        }
         applied = if (accepted) mode else null
+        if (!accepted) {
+            // Full projection can already be active even if its reply or the half-mode reply
+            // was lost. Restore now; a refused restore keeps recovery pending and blocks writes.
+            interrupted = Thread.interrupted() || interrupted
+            runCatching { restoreStock() }
+        }
+        if (interrupted) Thread.currentThread().interrupt()
         return accepted
     }
 

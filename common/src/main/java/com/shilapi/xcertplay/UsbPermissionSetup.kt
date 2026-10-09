@@ -9,6 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Explicit settings action; connection startup never grants these permissions. */
 internal object UsbPermissionSetup {
+    // Keep wheel-service rebinding and explicit USB setup from overwriting each other's service list.
+    internal val accessibilityLock = Any()
     enum class Permission {
         ACCESSIBILITY, USAGE, OVERLAY;
 
@@ -33,7 +35,7 @@ internal object UsbPermissionSetup {
     private class AdbClient(context: Context) : Client {
         private val adb = LocalAdb(AdbKeys.load(context))
         override fun connect() = adb.connect(mayAsk = true)
-        override fun shell(command: String) = adb.shell(command)
+        override fun shell(command: String) = synchronized(accessibilityLock) { adb.shell(command) }
         override fun cancel() = adb.cancelPendingOperations()
         override fun close() = adb.close()
     }

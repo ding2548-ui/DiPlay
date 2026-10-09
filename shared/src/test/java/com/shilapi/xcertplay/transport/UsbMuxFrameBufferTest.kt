@@ -128,16 +128,97 @@ class UsbMuxFrameBufferTest {
         rejectAfter(synAck, zeroPadding + capturedPadding + tcp(data = data))
     }
 
-    @Test fun paddingAfterAMediaOrLockdownDataFrameIsNotDiscarded() {
-        rejectAfter(tcp(data = data), capturedPadding + tcp(data = data))
+    @Test fun payloadReplyPaddingWorksAcrossEveryTransferSplit() {
+        assertEverySplitPreservesFrames(tcp(data = data), reportedPadding, tcp(data = data))
     }
 
-    @Test fun paddingAfterAPayloadFreeAckIsNotDiscarded() {
-        rejectAfter(tcp(flags = 0x10), capturedPadding + tcp(data = data))
+    @Test fun payloadFreeAckPaddingWorksAcrossEveryTransferSplit() {
+        assertEverySplitPreservesFrames(tcp(flags = 0x10), reportedPadding, tcp(data = data))
     }
 
-    @Test fun synAckWithDataDoesNotEnablePaddingRecovery() {
-        rejectAfter(tcp(flags = 0x12, data = data), capturedPadding + tcp(data = data))
+    @Test fun synAckWithDataAllowsBoundedPaddingRecovery() {
+        assertEverySplitPreservesFrames(tcp(flags = 0x12, data = data), reportedPadding, tcp(data = data))
+    }
+
+    @Test fun payloadReplyWithTcpOptionsAllowsBoundedPaddingRecovery() {
+        assertEverySplitPreservesFrames(tcp(data = data, headerBytes = 24), reportedPadding,
+            tcp(data = data, headerBytes = 24))
+    }
+
+    @Test fun reportedLockdownReplyLengthsKeepAllPayloadsAcrossEveryTransferSplit() {
+        // Issue #100 reaches these declared lengths before the payload-bearing boundary fails.
+        // Give each payload distinctive bytes, including embedded header-like data.
+        val lastPayload = ByteArray(918) { (it % 239).toByte() }.also {
+            (capturedPadding + synAck).copyInto(it, 100)
+        }
+        val replies = listOf(version, synAck, tcp(data = ByteArray(4) { it.toByte() }),
+            tcp(data = ByteArray(360) { (it % 251).toByte() }), tcp(data = lastPayload))
+        val wire = replies.reduce { all, next -> all + reportedPadding + next }
+        for (split in 0..wire.size) {
+            val buffer = UsbMuxFrameBuffer()
+            val parsed = mutableListOf<UsbMuxFrame>()
+            fun drain() { while (true) parsed.add(buffer.takeFrame() ?: break) }
+            buffer.append(wire.copyOfRange(0, split)); drain()
+            buffer.append(wire.copyOfRange(split, wire.size)); drain()
+            assertEquals("transfer split at $split", replies.size, parsed.size)
+            replies.indices.forEach { index ->
+                assertArrayEquals("reply $index at split $split",
+                    replies[index].copyOfRange(16, replies[index].size), parsed[index].payload)
+            }
+            assertEquals(0, buffer.bufferedBytes)
+        }
+    }
+
+    @Test fun dataReplyTrailerAndIncompleteNextFrameRemainBuffered() {
+        val buffer = after(tcp(data = data))
+        buffer.append(reportedPadding)
+        repeat(10) { assertNull(buffer.takeFrame()) }
+        assertEquals(4, buffer.bufferedBytes)
+        val next = tcp(data = data)
+        next.forEach { byte ->
+            buffer.append(byteArrayOf(byte))
+            if (buffer.bufferedBytes < next.size) assertNull(buffer.takeFrame())
+        }
+        assertArrayEquals(next.copyOfRange(16, next.size), buffer.takeFrame()!!.payload)
+        assertEquals(0, buffer.bufferedBytes)
+    }
+
+    @Test fun unknownPreviousProtocolDoesNotEnablePaddingRecovery() {
+        rejectAfter(mux(73, data), reportedPadding + tcp(data = data))
+    }
+
+    @Test fun truncatedPreviousTcpHeaderDoesNotEnablePaddingRecovery() {
+        rejectAfter(mux(6, ByteArray(19)), reportedPadding + tcp(data = data))
+    }
+
+    @Test fun invalidPreviousTcpDataOffsetDoesNotEnablePaddingRecovery() {
+        listOf(0x30, 0xf0).forEach { offset ->
+            val invalid = tcp(data = data).also { it[28] = offset.toByte() }
+            rejectAfter(invalid, reportedPadding + tcp(data = data))
+        }
+    }
+
+    @Test fun zeroPreviousTcpPortsDoNotEnablePaddingRecovery() {
+        listOf(16, 18).forEach { port ->
+            val invalid = tcp(data = data).also { it[port] = 0; it[port + 1] = 0 }
+            rejectAfter(invalid, reportedPadding + tcp(data = data))
+        }
+    }
+
+    @Test fun malformedFollowingDataReplyIsNotRecoveredAfterAPayloadReply() {
+        val previous = tcp(data = data)
+        rejectAfter(previous, reportedPadding + tcp(data = data, magic = 0xfeedface.toInt()))
+        rejectAfter(previous, reportedPadding + tcp(data = data).also { it[28] = 0x30 })
+        rejectAfter(previous, reportedPadding + tcp(data = data).also { it[16] = 0; it[17] = 0 })
+        rejectAfter(previous, zeroPadding + capturedPadding + tcp(data = data))
+    }
+
+    @Test fun plausibleOffsetZeroLengthIsNeverScannedForPadding() {
+        val buffer = after(tcp(data = data))
+        val suffix = zeroPadding + reportedPadding + tcp(data = data)
+        buffer.append(suffix)
+        assertNull(buffer.takeFrame())
+        assertEquals(suffix.size, buffer.bufferedBytes)
     }
 
     @Test fun nonVersionTwoReplyDoesNotEnablePaddingRecovery() {
@@ -184,6 +265,125 @@ class UsbMuxFrameBufferTest {
         assertArrayEquals(data, buffer.takeFrame()!!.payload.copyOfRange(20, 20 + data.size))
     }
 
+    @Test fun capturedProtocolOneBoundaryWorksAcrossEveryTransferSplit() {
+        // Issue #100's complete 187-byte TCP transfer and 73-byte diagnostic transfer.
+        // The declared frames are 183 and 69 bytes, each followed by four extra bytes.
+        assertEquals(187, capturedTcpTransfer.size)
+        assertEquals(73, capturedDiagnosticTransfer.size)
+        assertEverySplitPreservesFrames(capturedTcpTransfer.copyOfRange(0, 183),
+            capturedTcpTransfer.copyOfRange(183, 187), capturedDiagnostic)
+
+        val buffer = UsbMuxFrameBuffer()
+        buffer.append(capturedTcpTransfer + capturedDiagnosticTransfer)
+        assertEquals(6, buffer.takeFrame()!!.protocol)
+        val diagnostic = buffer.takeFrame()!!
+        assertEquals(1, diagnostic.protocol)
+        assertEquals(69, diagnostic.length)
+        assertEquals(0x0185, diagnostic.sequence)
+        assertArrayEquals(capturedDiagnostic.copyOfRange(16, 69), diagnostic.payload)
+        assertNull(buffer.takeFrame())
+        assertEquals(4, buffer.bufferedBytes)
+    }
+
+    @Test fun diagnosticTrailersKeepRepeatedDiagnosticsAndFollowingTcpAcrossEverySplit() {
+        val following = tcp(data = data + capturedDiagnosticTransfer + data)
+        val frames = listOf(capturedTcpTransfer.copyOfRange(0, 183), capturedDiagnostic,
+            secondCapturedDiagnostic, following)
+        val wire = capturedTcpTransfer + capturedDiagnosticTransfer + secondCapturedDiagnosticTransfer + following
+        for (split in 0..wire.size) {
+            val buffer = UsbMuxFrameBuffer()
+            val parsed = mutableListOf<UsbMuxFrame>()
+            fun drain() { while (true) parsed.add(buffer.takeFrame() ?: break) }
+            buffer.append(wire.copyOfRange(0, split)); drain()
+            buffer.append(wire.copyOfRange(split, wire.size)); drain()
+            assertEquals("transfer split at $split", frames.size, parsed.size)
+            frames.indices.forEach { index ->
+                assertArrayEquals("reply $index at split $split",
+                    frames[index].copyOfRange(16, frames[index].size), parsed[index].payload)
+            }
+            assertEquals(0, buffer.bufferedBytes)
+        }
+    }
+
+    @Test fun incompleteDiagnosticDoesNotConsumeTrailerOrAnyPayloadBytes() {
+        val reports = mutableListOf<String>()
+        val buffer = UsbMuxFrameBuffer(reports::add)
+        buffer.append(capturedTcpTransfer)
+        buffer.takeFrame()
+        capturedDiagnostic.forEachIndexed { index, byte ->
+            buffer.append(byteArrayOf(byte))
+            if (index < capturedDiagnostic.lastIndex) {
+                repeat(3) { assertNull(buffer.takeFrame()) }
+                assertEquals(index + 1 + 4, buffer.bufferedBytes)
+                assertTrue(reports.isEmpty())
+            }
+        }
+        assertArrayEquals(capturedDiagnostic.copyOfRange(16, 69), buffer.takeFrame()!!.payload)
+        assertEquals(0, buffer.bufferedBytes)
+        assertEquals(1, reports.size)
+    }
+
+    @Test fun malformedDiagnosticsDoNotQualifyAsRecoveryTargets() {
+        val wrongMagic = capturedDiagnostic.copyOf().also { putU32(it, 8, 0xfeedface.toInt()) }
+        val wrongSubtype = capturedDiagnostic.copyOf().also { it[16] = 3 }
+        val controlByte = capturedDiagnostic.copyOf().also { it[25] = 0 }
+        val nonAscii = capturedDiagnostic.copyOf().also { it[25] = 0x80.toByte() }
+        val overlarge = capturedDiagnostic.copyOf().also { putU32(it, 4, 16 + 1_025) }
+        listOf(wrongMagic, wrongSubtype, controlByte, nonAscii, overlarge,
+            mux(1, ByteArray(0)), mux(1, byteArrayOf(4))).forEach { invalid ->
+            rejectAfter(tcp(data = data), reportedPadding + invalid)
+        }
+    }
+
+    @Test fun malformedPreviousDiagnosticsDoNotEnableTrailerRecovery() {
+        listOf(
+            capturedDiagnostic.copyOf().also { putU32(it, 8, 7) },
+            capturedDiagnostic.copyOf().also { it[16] = 3 },
+            capturedDiagnostic.copyOf().also { it[25] = 0 },
+            mux(1, byteArrayOf(4)),
+            mux(1, byteArrayOf(4) + ByteArray(1_024) { 0x41 }),
+        ).forEach { invalid -> rejectAfter(invalid, reportedPadding + tcp(data = data)) }
+    }
+
+    @Test fun diagnosticRecoveryStillNeedsAnEligiblePreviousReplyAndExactlyFourBytes() {
+        rejectAfter(mux(73, data), reportedPadding + capturedDiagnostic)
+        rejectAfter(tcp(data = data), zeroPadding + capturedPadding + capturedDiagnostic)
+        rejectAfter(capturedDiagnostic, reportedPadding + mux(7, ByteArray(20)))
+        val buffer = UsbMuxFrameBuffer()
+        buffer.append(reportedPadding + capturedDiagnostic)
+        assertProtocolFailure { buffer.takeFrame() }
+    }
+
+    @Test fun normalProtocolOnePayloadIsPreservedWithoutRecoveryValidation() {
+        val payload = byteArrayOf(0, 0x80.toByte()) + capturedDiagnosticTransfer + synAck
+        val normal = mux(1, payload, magic = 9)
+        val buffer = after(tcp(data = data))
+        buffer.append(normal + tcp(data = data))
+        assertArrayEquals(payload, buffer.takeFrame()!!.payload)
+        assertArrayEquals(tcp(data = data).copyOfRange(16, 16 + 20 + data.size), buffer.takeFrame()!!.payload)
+        assertEquals(0, buffer.bufferedBytes)
+    }
+
+    @Test fun maximumBoundedDiagnosticPreservesAllTextAndFollowingPayload() {
+        val text = byteArrayOf(4) + ByteArray(1_023) { 0x41 }
+        val maximum = mux(1, text)
+        val buffer = after(tcp(data = data))
+        buffer.append(reportedPadding + maximum + reportedPadding + tcp(data = data))
+        assertArrayEquals(text, buffer.takeFrame()!!.payload)
+        assertArrayEquals(data, buffer.takeFrame()!!.payload.copyOfRange(20, 20 + data.size))
+        assertEquals(0, buffer.bufferedBytes)
+    }
+
+    @Test fun diagnosticPaddingReportsOnlyFramingMetadata() {
+        val reports = mutableListOf<String>()
+        val buffer = UsbMuxFrameBuffer(reports::add)
+        buffer.append(capturedTcpTransfer + capturedDiagnosticTransfer + tcp(data = data))
+        repeat(3) { buffer.takeFrame() }
+        assertEquals(2, reports.size)
+        assertTrue(reports.first().contains("nextProtocol=1 nextLength=69"))
+        assertTrue(reports.none { it.contains("detected") || it.contains("Expected") || it.contains("received") })
+    }
+
     private fun assertEverySplitPreservesFrames(first: ByteArray, padding: ByteArray, next: ByteArray) {
         val wire = first + padding + next
         for (split in 0..wire.size) {
@@ -218,9 +418,29 @@ class UsbMuxFrameBufferTest {
     private companion object {
         val zeroPadding = ByteArray(4)
         val capturedPadding = byteArrayOf(0x6d, 0x43, 0x6f, 0x6e)
+        val reportedPadding = byteArrayOf(0, 0, 1, 0x68)
         val data = "private-sample payload mCon".toByteArray()
         val version = mux(0, byteArrayOf(0x49, 0x28, 0x73, 0), magic = 2)
         val synAck = tcp(flags = 0x12)
+        // Verbatim first TCP completion from issue-100-proto1.txt, lines 39–44.
+        // TLS bytes are opaque to framing; the last four bytes (38343134) are outside length 183.
+        val capturedTcpTransfer = hex("""
+            00000006000000b7faceface01840197e05600020005015d0000051650100200
+            00000000170303008ee0f6cf38b2e09782cb37c255c64a1cc0941687c920f807
+            acfbe4741aa5a10776fe70c26d5059c78ba2d486c7b3145a1bd4c258f7096a00
+            2e00dc19aafc87cbe8b72ff25d962b129b462704d35fcc29a703f6004983fc07
+            d315c4c7baec956b97b4dabfbdfee1da166e19cc07c922617e8a67bd70917b51
+            9fa0cf713b0d9ee97036efade9e4b83e40a2904a9f1ba438343134
+        """)
+        val capturedDiagnostic = hex("0000000100000045faceface01850197") + byteArrayOf(4) +
+            "detected duplicate packet. Expected 408 received 410".toByteArray(Charsets.US_ASCII)
+        val capturedDiagnosticTransfer = capturedDiagnostic + hex("a5a10776")
+        val secondCapturedDiagnostic = hex("0000000100000045faceface01870197") + byteArrayOf(4) +
+            "detected duplicate packet. Expected 408 received 411".toByteArray(Charsets.US_ASCII)
+        val secondCapturedDiagnosticTransfer = secondCapturedDiagnostic + hex("e724c574")
+
+        fun hex(value: String): ByteArray = value.filterNot(Char::isWhitespace).chunked(2)
+            .map { it.toInt(16).toByte() }.toByteArray()
 
         fun tcp(flags: Int = 0x10, data: ByteArray = ByteArray(0), headerBytes: Int = 20,
             magic: Int = 0xfaceface.toInt()): ByteArray {

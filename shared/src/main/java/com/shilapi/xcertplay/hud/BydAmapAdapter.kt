@@ -21,14 +21,20 @@ internal enum class BydAmapAdapter(val packageName: String, val needsSimpleNavig
  * 18 "projection off" (the stock state) and 39 "simple navigation".
  */
 internal object BydDiLink3ClusterMode {
-    enum class Mode(val info: Int) {
-        // Half screen keeps the cluster's own speed and status readouts beside the map.
-        PROJECTION(17),
+    enum class Mode(val info: Int, private val enterVia: Int? = null) {
+        // Half screen keeps the cluster's own speed and status readouts beside the map. After 18 the
+        // cluster ignores 17 alone and stays empty; it shows the projection display again only once 16
+        // has been sent first (tested on a GCC Han).
+        PROJECTION(17, enterVia = 16),
         SIMPLE_NAVIGATION(39),
         STOCK(18);
 
-        val command: String get() = "service call AutoContainer 2 i32 1000 i32 $info s16 \"\""
+        // The serial session validates each Binder reply separately and compensates failure.
+        val entryCommand: String? get() = enterVia?.let(::call)
+        val command: String get() = call(info)
     }
+
+    private fun call(info: Int) = "service call AutoContainer 2 i32 1000 i32 $info s16 \"\""
 
     /** The mode to request now, or null while DiPlay has never changed the stock mode. */
     fun desired(mapShown: Boolean, guidanceActive: Boolean, requested: Mode?): Mode? = when {

@@ -18,13 +18,40 @@ object AppUpdater {
     private const val SOURCE_KEY = "update_source"
 
     // Both lines publish into this one repository, so the release tag prefix is what tells this
-    // updater which builds are its own. This line tags v0.2.12-<run_number> and attaches a single
+    // updater which builds are its own. This line tags v0.2.15-<run_number> and attaches a single
     // asset named mobile-release.apk; the Leapmotor line tags v2.0-<run> with a differently named
     // asset, and offering one of those here would install the wrong build.
-    private const val TAG_PREFIX = "v0.2.12-"
+    private const val TAG_PREFIX = "v0.2.15-"
     private const val RELEASE_ASSET = "mobile-release.apk"
-    private const val LOCAL_PREFIX = "DiPlay-0.2.12-"
+    private const val LOCAL_PREFIX = "DiPlay-0.2.15-"
     private const val LOCAL_SUFFIX = ".apk"
+
+    // The beta channel is a second variant of this same line, shipped under its own applicationId
+    // so both can be installed side by side. It publishes under its own tag namespace, and a build
+    // must only ever resolve builds from the namespace it was published into: otherwise the two
+    // channels would hand each other their APKs, and each would report the other's run number as
+    // an available update.
+    private const val BETA_TAG_PREFIX = "v0.2.15-beta-"
+    private const val BETA_APPLICATION_ID_SUFFIX = ".psabeta"
+
+    // Legacy namespaces that older installs still listen on. CI publishes every release under the
+    // current prefix AND under each legacy one, so bumping the major version never orphans the
+    // in-app updater: an old build keeps finding new releases through the prefix it scans, and
+    // switches to the current one once it updates. When bumping the major version later, move the
+    // then-current prefix into this list and make CI alias the new release under it too.
+    private val LEGACY_RELEASE_TAG_PREFIXES = listOf("v0.2.12-")
+    private val LEGACY_BETA_TAG_PREFIXES = listOf("v0.2.12-beta-")
+
+    /** The release-tag namespaces this build looks in, current channel first. */
+    fun tagPrefixes(context: Context): List<String> =
+        if (context.packageName.endsWith(BETA_APPLICATION_ID_SUFFIX)) {
+            listOf(BETA_TAG_PREFIX) + LEGACY_BETA_TAG_PREFIXES
+        } else {
+            listOf(TAG_PREFIX) + LEGACY_RELEASE_TAG_PREFIXES
+        }
+
+    /** The namespace this build's own generation publishes into; the first of [tagPrefixes]. */
+    fun tagPrefix(context: Context): String = tagPrefixes(context).first()
 
     private const val CONNECT_TIMEOUT = 10_000
     private const val READ_TIMEOUT = 20_000
@@ -50,7 +77,7 @@ object AppUpdater {
     }
 
     /**
-     * The CI stamps the run number into the version name. This line writes 0.2.12（189-6f275b6c）,
+     * The CI stamps the run number into the version name. This line writes 0.2.15（189-6f275b6c）,
      * the Leapmotor line writes 2.11（90）, so only the opening bracket is relied on.
      */
     fun currentBuild(context: Context): Int? {
@@ -63,16 +90,17 @@ object AppUpdater {
      * Resolves the newest build number published for this line. Both lines share the repository, so
      * /releases/latest names whichever line pushed last, and that is regularly the other one. The
      * atom feed lists the recent releases of both, so it is read first and every tag matching
-     * [TAG_PREFIX] is considered; the redirect stays as a fallback for mirrors that do not serve the
+     * [tagPrefix] is considered; the redirect stays as a fallback for mirrors that do not serve the
      * feed. Mirrors may pass a redirect through or stream the page themselves, so both a Location
      * header and the page body are accepted. Tries the selected source first, then every other.
      */
-    fun latestBuild(preferred: String): Int {
+    fun latestBuild(context: Context, preferred: String): Int {
         val order = listOf(preferred) + sources().filter { it != preferred }
+        val prefixes = tagPrefixes(context)
         var lastError: Exception? = null
         for (source in order) {
             try {
-                val build = fetchLatestBuild(source)
+                val build = fetchLatestBuild(source, prefixes)
                 if (build != null) return build
             } catch (failure: Exception) {
                 lastError = failure
@@ -81,40 +109,40 @@ object AppUpdater {
         throw lastError ?: error("无法获取最新构建")
     }
 
-    private fun fetchLatestBuild(source: String): Int? =
-        newestFromFeed(source) ?: newestFromRedirect(source)
+    private fun fetchLatestBuild(source: String, prefixes: List<String>): Int? =
+        newestFromFeed(source, prefixes) ?: newestFromRedirect(source, prefixes)
 
     /** releases.atom carries one <link .../releases/tag/<tag>> per recent release, both lines mixed. */
-    private fun newestFromFeed(source: String): Int? {
+    private fun newestFromFeed(source: String, prefixes: List<String>): Int? {
         val connection = open(source, "github.com/$REPO/releases.atom", redirectless = true)
         try {
             if (connection.responseCode != 200) return null
             val body = connection.inputStream.use { readText(it) }
-            return buildNumbers(body).maxOrNull()
+            return prefixes.flatMap { buildNumbers(body, it) }.maxOrNull()
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun newestFromRedirect(source: String): Int? {
+    private fun newestFromRedirect(source: String, prefixes: List<String>): Int? {
         val connection = open(source, "github.com/$REPO/releases/latest", redirectless = true)
         try {
             val code = connection.responseCode
             if (code in 300..399) {
                 val target = connection.getHeaderField("Location") ?: return null
-                return buildNumbers(target).maxOrNull()
+                return prefixes.flatMap { buildNumbers(target, it) }.maxOrNull()
             }
             if (code != 200) return null
             val body = connection.inputStream.use { readText(it) }
-            return buildNumbers(body).maxOrNull()
+            return prefixes.flatMap { buildNumbers(body, it) }.maxOrNull()
         } finally {
             connection.disconnect()
         }
     }
 
     /** Every run number this line has published, found anywhere in the given text. */
-    private fun buildNumbers(text: String): List<Int> =
-        Regex(Regex.escape(TAG_PREFIX) + "(\\d+)").findAll(text)
+    private fun buildNumbers(text: String, tagPrefix: String): List<Int> =
+        Regex(Regex.escape(tagPrefix) + "(\\d+)").findAll(text)
             .mapNotNull { it.groupValues[1].toIntOrNull() }
             .toList()
 
@@ -133,7 +161,27 @@ object AppUpdater {
     fun assetName(build: Int) = "$LOCAL_PREFIX$build$LOCAL_SUFFIX"
 
     fun downloadApk(context: Context, build: Int, source: String, onProgress: (Int, Int) -> Unit): File {
-        val path = "github.com/$REPO/releases/download/$TAG_PREFIX$build/$RELEASE_ASSET"
+        // The build may have been published under the current namespace or under a legacy one
+        // (see tagPrefixes), so try each in order; only the tag that carries the release answers.
+        var lastFailure: Exception? = null
+        for (prefix in tagPrefixes(context)) {
+            try {
+                return downloadApkFrom(context, build, "$prefix$build", source, onProgress)
+            } catch (failure: Exception) {
+                lastFailure = failure
+            }
+        }
+        throw lastFailure ?: error("下载失败")
+    }
+
+    private fun downloadApkFrom(
+        context: Context,
+        build: Int,
+        tag: String,
+        source: String,
+        onProgress: (Int, Int) -> Unit,
+    ): File {
+        val path = "github.com/$REPO/releases/download/$tag/$RELEASE_ASSET"
         val connection = open(source, path, redirectless = false)
         val directory = context.getExternalFilesDir(null) ?: context.filesDir
         val temporary = File(directory, "${assetName(build)}.part")

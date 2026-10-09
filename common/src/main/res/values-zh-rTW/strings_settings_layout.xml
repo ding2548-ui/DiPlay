@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_overview">概覽</string>
+    <string name="settings_overview_subtitle">舒適、可靠駕駛的基本設定。</string>
+    <string name="settings_your_setup">你的設定</string>
+    <string name="settings_quick_settings">快速設定</string>
+    <string name="settings_display">顯示</string>
+    <string name="settings_navigation">導航</string>
+    <string name="settings_vehicle">車輛</string>
+    <string name="settings_advanced">進階</string>
+    <string name="settings_advanced_subtitle">適合有經驗使用者的實驗性與車型專用設定</string>
+    <string name="settings_advanced_caution_title">請謹慎變更</string>
+    <string name="settings_advanced_caution_description">這些功能可能取決於車輛韌體、ADB 存取權或 CarPlay 的實驗性行為。日常設定位於上方各類別中。</string>
+    <string name="settings_search">搜尋</string>
+    <string name="settings_open_category">開啟%1$s設定</string>
+    <string name="settings_ready_connected">CarPlay 正在執行。需要重新連線的變更會特別說明。</string>
+    <string name="settings_connection_summary">手機、有線、無線及自動連線</string>
+    <string name="settings_display_summary">外觀、全螢幕、解析度和影格率</string>
+    <string name="settings_audio_summary">聲音輸出與音樂緩衝</string>
+    <string name="settings_navigation_summary">位置回報及支援的儀表板導航提示</string>
+    <string name="settings_vehicle_summary">駕駛側、方向盤按鍵、車輛按鈕和 CarPlay 手勢</string>
+    <string name="settings_advanced_media">影片與音訊</string>
+    <string name="settings_wheel_keys">方向盤按鍵</string>
+    <string name="settings_experimental_display">顯示（實驗性）</string>
+    <string name="settings_diagnostics_summary">排除連線問題時儲存本機報告</string>
+    <string name="settings_full_screen_description">在 DiPlay 與 CarPlay 中隱藏狀態列及導覽列。</string>
+    <string name="settings_vehicle_description">車輛和儀表板功能因車型和韌體而異。啟用實驗性設定前，請先在進階設定中查看。</string>
+    <string name="settings_open_advanced">開啟進階設定</string>
+    <string name="settings_reconnect_pending">已儲存。部分變更將在 CarPlay 重新連線後生效。</string>
+    <string name="settings_reconnect_now">立即重新連線</string>
+    <string name="settings_byd_navigation_unavailable">此車機不支援比亞迪儀表板和 HUD 導航提示。</string>
+    <string name="settings_search_hint">設定名稱，例如影格率</string>
+    <string name="settings_search_empty">沒有符合的設定。請換個詞試試。</string>
+    <string name="settings_ready_wireless">無線 CarPlay 將連線到 %1$s。</string>
+    <string name="settings_ready_usb">使用 USB 傳輸線連接 iPhone 以啟動 CarPlay。</string>
+    <string name="settings_connecting_description">DiPlay 正在與你的 iPhone 啟動 CarPlay。</string>
+    <string name="settings_choose_iphone_title">選擇你的 iPhone</string>
+    <string name="settings_choose_iphone_description">無線 CarPlay 需要先配對 iPhone 才能連線。</string>
+    <string name="settings_choose_iphone_action">選擇 iPhone</string>
+</resources>
