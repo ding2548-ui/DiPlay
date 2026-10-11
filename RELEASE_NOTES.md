@@ -53,6 +53,12 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   设置 →「电量同步到 iPhone」仍可总开关。
 - **iPhone 航位推算（车速/档位）** 🆕：车速与档位经 `$PASCD` 供 iAP2，进隧道无 GPS 时
   iPhone 能继续推算位置。采样率受 1 Hz 总线限制，iPhone 在样本间自行外插。
+- **CarPlay 来电卡片（零跑）** 🆕：设置 →「CarPlay 来电显示到仪表盘」。iPhone 的来电/去电
+  通过 iAP2 `CallStateUpdate` 取得，再以 `car.hmi.sender.BROADCAST`（`sender` = 2 字节大端长度 +
+  UTF-8 JSON，`{"type":"call","data":{"state":"ring|answer|end","name":"…"}}`）送到零跑仪表盘。
+  **全程只用普通广播，不需要 ADB**（零跑车机没有 adbd）；BYD 车机仍走原来的 ADB 通路，行为不变。
+  方控的接听/挂断走 iAP2（与 BYD 同一套），零跑上直接可用。
+  设置项在零跑上**不需要 ADB 支持性探测**，打开即可。
 - **USB 权限弹窗**：`MANAGE_USB` + 无障碍按内容判定自动确认。
 - **界面汉化**、零跑档位识别、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
 - **在线更新**（首页快捷设置下方 → 在线更新）：检查 GitHub 上的新构建 → 下载 → 安装。
@@ -107,6 +113,17 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 3. 车动起来后应出现 `DiPlay-LM-Speed: first CAN speed <nn.n> km/h`。
 4. 若接收器注册失败会打印 `vehicle signals receiver not registered: ...`；完全没有任何
    `vehicle signals listening` 行说明该车机不认这个协议（非零跑，或系统版本不同）。
+
+CarPlay 来电卡片（零跑，需车辆通电）：
+
+1. 打开设置 →「CarPlay 来电显示到仪表盘」：报告里应出现
+   `DiPlay-Lm-Call: call output listening`（`DiPlay-Ambient: leapmotor probe file=true` 是前提）。
+2. 手机上模拟来电：应出现 `DiPlay-Lm-Call: CarPlay call RINGING`，仪表盘出现来电卡片。
+3. 来电状态变化依次打 `… CarPlay call ACTIVE` / `CarPlay call ended`；挂断后卡片应消失。
+4. 车机自身的蓝牙来电会打 `DiPlay-Lm-Call: car phone state=<0|1|2>`（`1` 振铃 `2` 通话中 `0` 空闲）。
+5. ⚠️ **本机判据只验证到「广播已发出」**；仪表是否真的渲染卡片属实车验证项
+   （`data.state` 的拼写取自第三方 App 的实现，尚未上车验证）。若仪表不显示，
+   联系开发者改为「通话中让位」策略。
 
 无线连接成功时报告里应出现：
 

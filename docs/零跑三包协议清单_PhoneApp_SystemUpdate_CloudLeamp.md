@@ -40,20 +40,45 @@
 **DiPlay 可用性**：✅ 普通 `sendBroadcast`（无权限、无 explicit package），API 25 上任何 App 都能注册接收。
 **用途**：DiPlay 自己画"CarPlay 来电卡片"时用它同步真实通话状态；或做 `BydCarPlayCall` 的零跑数据源。
 
-### 1.2 ★ 详细来电 JSON（`car.hmi.sender.BROADCAST`）
+### 1.2 ★ 仪表盘来电卡片 —— `car.hmi.sender.BROADCAST`（★ 已实现）
 
-| Action | Extra | 类型 | 说明 |
-|---|---|---|---|
-| `car.hmi.sender.BROADCAST` | `sender` | **byte[]** | 2 字节大端长度前缀 + UTF-8 JSON |
+`car.hmi.sender.BROADCAST` 是 **仪表盘（ICU）的通用出口/入口**，不是电话专用。`sender` extra 的格式
+（第三方 `小零助手` 的 `MeterWire.pack` + `LauncherThree` 的 `Dlg` 双份证实）：
 
-JSON 形状（`type="phone"`）：
-```json
-{"type":"phone","data":{"state":"ring|answer|call|hold|end","name":"...","number":"...","time":"...","length":0}}
 ```
-另有 `{"type":"bluetooth","data":{"state":1}}`。
+sender : byte[]
+  [0..1] u16 大端 = JSON 字节长度
+  [2..]  UTF-8 JSON
+  [..]   可选：JSON 之后的原始二进制尾巴（图片等），长度由 JSON 里的 detail 描述
+```
 
-**DiPlay 可用性**：✅ 可接收。**需实车抓一次确认字段**（agent 从头文件解出，未实机验证）。
-**用途**：比 §1.1 更详细（带号码/姓名），能画完整来电卡片。
+JSON 信封：`{"type":"<kind>","data":{...},"detail":{...}}`
+
+| 已知 `type` | 证据 | 用途 |
+|---|---|---|
+| `call` | `Call.java`（`same()` 比对 `type`/`name`/`code`） | **来电卡片** |
+| `music` | `MeterPacket.java:470` | 歌曲卡（`data` + `detail` 二进制封面） |
+| `lyric` | `MeterLyricHmi`/`MeterLyricQq` | 歌词 |
+| `xlui` | `ClusterStyle.pack` | 仪表 UI 风格（2 字节原始尾巴：style+gear） |
+| `navi` | `ClusterDeploy` | 导航 |
+| `drivemode` | `LauncherThree/Dlg.sendMeterDriveMode` | 驾驶模式 |
+| `carinfo` | `car.meter.carinfo.BROADCAST`（另一 action） | 车速/里程（**无生产者**，见头部负结论） |
+
+**DiPlay 已按此实现**：`shared/.../hud/LeapmotorCarPlayCallOutput.kt`
+- 把 CarPlay 的 iAP2 `CallStateUpdate`(0x4155) 通话状态 → `{"type":"call","data":{"state":"ring|answer|end","name":"…"}}`
+- JSON 由手写转义生成（不用 `org.json`，其 Android 实现无法在 JVM 单测里跑）
+- 线路格式 `[u16 大端长度][UTF-8]` 与 `wire()` 一致，单测 `LeapmotorCarPlayCallOutputTest` 锁定
+- **只用普通 `sendBroadcast`**：无 ADB、无反射、无 root —— 这正是零跑车机唯一可行的通路
+
+**待实车确认**：`data.state` 的取值拼写与仪表实际渲染（`ring`/`answer` 已按第三方代码取，未上车验证）。
+
+### 1.2b 车机侧蓝牙通话状态（同一条卡片要协同）
+
+`com.leapmotor.phonecall`（int extra `MMI_PhoneSts`）由 PhoneApp 发出，第三方 `小零助手`
+（`Call$1`）和 `LauncherThree` 都在收 —— 印证这是**稳定公开通道**：
+- `1` = 振铃、`2` = 通话中、`0` = 空闲、`-1`（缺省）= 忽略
+- ⚠️ **`2` 语义**：PhoneApp 源码里 `2` 是"去电"，但第三方 UI 一律显示"通话中" → **`2` 统称"通话中/去电"**，这条 int 通道**没有号码**。
+- DiPlay 用它做"车机原生通话正在占用"的判断，避免与原生 UI 打架。
 
 ### 1.3 主动控制通话（`com.leapmotor.ICU2MMICtrl`）
 

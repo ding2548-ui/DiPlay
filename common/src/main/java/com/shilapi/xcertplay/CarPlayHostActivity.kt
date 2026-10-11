@@ -5017,6 +5017,9 @@ class CarPlayHostActivity : ComponentActivity() {
         // to `shared`). On a head unit it does not answer, `attach` returns without starting a poll.
         LeapmotorVehicleSignals.onDiagnostic = { message -> appendLog(message) }
         LeapmotorVehicleSignals.attach(this, next)
+        // The leapmotor call-card output self-gates on the car probe too; the hook only routes its
+        // lines into the report. Harmless on a BYD unit, where nothing is ever reported.
+        com.shilapi.xcertplay.hud.LeapmotorCarPlayCallOutput.onDiagnostic = { message -> appendLog(message) }
         if (airPlayConfig.videoInCar) CarPlayVideo.attach(this, next)
         val display = CarPlaySessionDisplay(
             airPlayConfig.main.widthPixels, airPlayConfig.main.heightPixels,

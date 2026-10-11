@@ -28,6 +28,13 @@ object BydOutputSettings {
 
     fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, true)
 
+    /**
+     * True on a Leapmotor head unit, where the OEM outputs (vehicle data, call card) use the car's
+     * broadcast API instead of BYD's ADB shell. Exposed here so the `common` module — which cannot see
+     * `LmCarProbe` (`internal` to `shared`) — can gate its settings without duplicating the probe.
+     */
+    fun leapmotorHeadUnit(): Boolean = com.shilapi.xcertplay.LmCarProbe.isLeapmotor()
+
     fun setEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
 
     /** Ask the iPhone to stop drawing the cluster map while the cluster hides it (needs ADB over network). */

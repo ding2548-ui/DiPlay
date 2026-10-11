@@ -1,9 +1,10 @@
 # DiPlay BYD 独有功能清单 —— 待适配零跑车型
 
-> 统计对象：`DiPlay-PSA-beta`（PSA 线 beta 分支），HEAD `38848520`（`v0.2.17-beta-249`）
-> 统计时间：2026-10-11
+> 统计对象：`DiPlay-PSA-beta`（PSA 线 beta 分支）
+> 统计时间：2026-10-11（2026-10-11 晚更新：CAN 信号总线 + 来电卡片已落 beta）
 > 统计范围：`shared/src/main/java/com/shilapi/xcertplay/hud/**`、`common/src/main/java/com/shilapi/xcertplay/**`、`shared/.../media/**`、`common/.../setup/**`
 > 目的：逐项列出目前**只有 BYD 通路、零跑无任何替代实现**的功能，作为零跑适配的待办清单。
+> **用户明确排除：投屏（ClusterMapProjection / 显示通路）与 HUD。本文档不把它们列为待办。**
 
 ---
 
@@ -12,22 +13,40 @@
 | 类别 | BYD 独有功能数 | 已有零跑通路 |
 |---|---|---|
 | 仪表盘（Cluster）导航箭头 | 1 套（DiLink 3/4/5 三变体） | ❌ 无 |
-| 风挡 HUD 导航（SOME/IP + 独立接收器） | 2 套 | ❌ 无 |
+| 风挡 HUD 导航（SOME/IP + 独立接收器） | 2 套 | 🚫 **用户排除，不做** |
 | 仪表盘歌曲卡片 | 1 | ❌ 无 |
-| 仪表盘/HUD 来电卡片 | 1 | ❌ 无 |
-| 原生来电弹窗屏蔽 | 1 | ❌ 无 |
-| 车辆数据（电量/续航/充电/车速/档位/胎压） | 6 项 | ⚠️ 仅档位有（`LeapmotorGearMonitor`） |
-| 车型/能力探测与设置后端 | 2 | ❌ 无 |
-| OEM 仪表盘地图抑制 | 1 | ❌ 无 |
+| 仪表盘/HUD 来电卡片 | 1 | ✅ **已接（`LeapmotorCarPlayCallOutput`）** |
+| 原生来电弹窗屏蔽 | 1 | ❌ 无（零跑无 adbd，见 §6） |
+| 车辆数据（电量/续航/充电/车速/档位/胎压） | 6 项 | ✅ **5 项已接**（CAN 总线），⚠️ 胎压待做 |
+| 车型/能力探测与设置后端 | 2 | ✅ 已接（`LmCarProbe` + `BydOutputSettings.leapmotorHeadUnit()`） |
+| OEM 仪表盘地图抑制 | 1 | 🚫 **属投屏范畴，用户排除** |
 | 蓝牙挂起 / 开机自启修复 / Wi-Fi 扫描暂停 | 3 | ❌ 无（但机制是通用 AOSP） |
 | 方控/媒体按键 | 1 套 | ✅ 已有（`LeapmotorMediaKeys`） |
 | 氛围灯 | 1 套 | ✅ 已有（本次已接，运行时识别） |
 
-**一句话**：除**氛围灯**（本次刚接）与**方控媒体键 + 档位**外，DiPlay 面向车机的**全部 OEM 集成能力都还是 BYD 独有**，零跑侧是空白。
+**一句话**：**来电卡片、车辆数据（除胎压）、车型识别**已在 2026-10-11 落到 beta；
+剩下真正要做的是 **仪表盘导航箭头**、**仪表盘歌曲卡片**、**胎压**，以及三个系统类辅助功能。
+
+### 仍未替换的 BYD 功能（排除投屏 / HUD）—— 待办全清单
+
+| 优先级 | 功能 | 零跑通路现状 | 估工 |
+|---|---|---|---|
+| **P1** | 仪表盘导航箭头（§1） | ❌ 需逆向零跑导航广播（`car.hmi.sender.BROADCAST` `type=navi` 有线索） | 大 |
+| **P1** | 仪表盘歌曲卡片（§4） | ❌ 同上，`type=music` 格式**已解出**（`MeterPacket`），可行性高 | 中 |
+| **P2** | 胎压/胎温（§7.3） | ❌ 零跑有导出服务 `Leapmotor.HealthInterface`（配套文档 §6.1） | 中 |
+| **P2** | 蓝牙挂起（§9.1） | ❌ 零跑无 adbd → 需找广播替代（或放弃） | 中 |
+| **P3** | 开机自启修复（§9.2） | ❌ 同上；零跑 Android 7 无 `cmd deviceidle` | 小 |
+| **P4** | Wi-Fi 扫描暂停（§9.3） | ❌ 需按 API 25 重查 txn，收益不确定 | 小 |
+| **放弃** | 原生来电弹窗屏蔽（§6） | ❌ 零跑无 `com.byd.bluetoothcall`；且无 adbd | — |
+| **排除** | 投屏、HUD、OEM 仪表盘地图抑制 | 🚫 用户明确不做 | — |
 
 ### 架构层面的根因
 
-代码里**没有一个通用的 `CarOem` / `VehicleBackend` 抽象**。整个 `hud/` 目录以 BYD 为硬编码默认；零跑支持是**逐个功能平行插入**的（氛围灯、档位、媒体键），而不是共享接口。因此每缺一个功能，都要单独写一份零跑实现。
+代码里**没有一个通用的 `CarOem` / `VehicleBackend` 抽象**。整个 `hud/` 目录以 BYD 为硬编码默认；零跑支持是**逐个功能平行插入**的（氛围灯、档位、车辆信号、来电卡片），而不是共享接口。因此每缺一个功能，都要单独写一份零跑实现。
+
+> ⚠️ **跨模块可见性坑（2026-10-11 踩到）**：`LmCarProbe` 是 `shared` 的 `internal`，
+> **`common` 模块看不见它**（`internal` 是模块级）。`common` 里要判车型，必须走
+> `BydOutputSettings.leapmotorHeadUnit()`（`shared` 的 public 包装）—— 不要再直接 `import LmCarProbe`。
 
 ### 关键基础设施差异（决定零跑能不能复用）
 
@@ -118,8 +137,8 @@
 ## 5. CarPlay 来电显示到仪表盘 / HUD（含方控接挂）
 
 - **驾驶体验**：CarPlay 来电显示在仪表盘/HUD，方控键可接听/挂断。
-- **主要文件**：`hud/BydCarPlayCall.kt`（工具 `BydCarPlayCallTool`）、`hud/CarPlayCallKeyPolicy.kt`、`common/CarPlayCallKeys.kt`、`hud/CarPlayCallWatchOwnership.kt`、`hud/CarPlayCallWrites.kt`
-- **通信机制**
+- **BYD 侧文件**：`hud/BydCarPlayCall.kt`（工具 `BydCarPlayCallTool`）、`hud/CarPlayCallKeyPolicy.kt`、`common/CarPlayCallKeys.kt`、`hud/CarPlayCallWatchOwnership.kt`、`hud/CarPlayCallWrites.kt`
+- **BYD 通信机制**
   1. **ADB shell → `app_process` 反射** `BYDAutoInstrumentDevice`（`setMediaState`/`setMediaInfo`）
      - feature id 来自 `android.hardware.bydauto.BYDAutoFeatureIds` / `$Audio` / `$Setting`：
        `INSTRUMENT_CALL_STATE_SET`、`SET_CALL_STATE_SET`、`SET_CMD_BTCALL_STATE_SET`、`AUDIO_CARPLAY_CALL_STATUS`、`INSTRUMENT_CALL_INFO_SET`、`INSTRUMENT_CALL_TIME_{HOUR,MINUTE,SECOND}_SET`
@@ -127,8 +146,26 @@
   2. **广播接收**（方控通话键）：`com.byd.btcall.action.CLOSE_BLUETOOTHSETTING`（extra `keycode`）；BYD keycode `313`（接听/拨号）、`314`（挂断）、`309`（复用）
 - **目标机型**：**明确要求 DiLink 3**（`BydCallPopupTool` 里有 SDK 32 检查；`SetupGuide` 把 CALL_KEYS / CALLS_ON_DASHBOARD 标为**仅 DiLink 3 实验性**）
 - **接线位置**：`BydNavigationOutputs.carPlaySessionStarted/onFrame`，由 `BydOutputSettings.carPlayCalls` + `carPlayCallControls`（默认都 false）开启
-- **零跑兜底**：❌ 无。（零跑媒体键走 `LeapmotorMediaKeys`，但**没有来电卡片功能**）
-- **零跑适配建议**：需要确认零跑仪表盘是否能显示来电。若不能，则此功能**根本不适用**；若能，参考媒体键的广播逆向路子。
+
+### ✅ 零跑兜底（2026-10-11 已实现）
+
+- **新文件 `shared/.../hud/LeapmotorCarPlayCallOutput.kt`**
+  - 数据源：CarPlay 的 iAP2 `CallStateUpdate`(0x4155) —— 与平台无关，**复用 `CarPlayCallState`**
+    （BYD/零跑通用的解析器，`BydNavigationOutputs.onFrame` 里按车型分派）
+  - 出口：**广播** `car.hmi.sender.BROADCAST`，extra `sender` = `[u16 大端长度][UTF-8 JSON]`，
+    JSON = `{"type":"call","data":{"state":"ring|answer|end","name":"…"}}`
+  - **无 ADB、无反射、无 root** —— 零跑车机没有 adbd，这是唯一可行通路
+  - 同时监听 `com.leapmotor.phonecall`（`MMI_PhoneSts`）以知晓车机原生通话状态
+- **接线**：`BydNavigationOutputs.start/onFrame/carPlayCallsChanged/carPlaySessionStarted/carPlayCall/endNow`
+  全部按 `BydOutputSettings.leapmotorHeadUnit()` 分支；设置项 `carplay_calls` 在零跑上**无需 ADB**
+  （`applyCarPlayCalls` 用 `lmHeadUnit()` 跳过 `checkAdbState`）
+- **方控接挂**：`CarPlayCallKeyPolicy` 本身平台无关，接挂走 iAP2（`controller.answerCall()/endCall()`），
+  **零跑上直接可用**；原生蓝牙通话的方控由车机自己处理（`WheelKeyService.inCall()` 会把键让回去）
+- **单测**：`shared/src/test/.../LeapmotorCarPlayCallOutputTest.kt` 锁定 JSON + 线路格式
+- **待实车确认**：`data.state` 拼写与仪表实际渲染效果
+
+- **零跑适配建议（遗留）**：若零跑仪表盘不渲染 `type=call`，则需按 `小零助手` 的思路改为"让位"策略
+  （通话中抑制 DiPlay 自己的仪表卡片，保留车机原生来电 UI）。
 
 ---
 
@@ -143,14 +180,17 @@
 - **目标机型**：有 `com.byd.bluetoothcall` 的 BYD 固件（SDK 32）
 - **接线位置**：设置项 `settings_hide_byd_call_popup`（`DiPlayActivity.kt:1841`），由 `AirPlayPersistence.loadHideBydCallPopup` 持久化
   - ⚠️ **当前实现缺陷**：该开关**没有车型/包名前置判断**，只判 `SDK_INT == 32`。零跑（Android 7，SDK 25）上虽然不满足 SDK 32 所以不显示；但**若将来零跑升到 SDK 32，这个 BYD 专属开关会误显示**。
-- **零跑兜底**：❌ 无
-- **零跑适配建议**：
-  1. 该开关应改为 `isBydHeadUnit()` 门控（顺手要修的实现问题）；
-  2. 零跑若要屏蔽自己的来电弹窗，需要定位零跑电话应用包名（很可能 `com.leapmotor.*`）重做一份。
+- **零跑兜底**：❌ 无，且**不建议做** —— 零跑既没有 `com.byd.bluetoothcall`，也没有 adbd（AppOps 反射改不了别人）。
+  **结论：此项在零跑上放弃**（用户已排除投屏/HUD，本项不在必做清单内）。
+- **零跑适配建议**：唯一该做的是**修门控** —— 把 `SDK_INT == 32` 改成 `isBydHeadUnit() && SDK_INT == 32`，
+  避免将来误显示。这是顺手要修的实现问题。
 
 ---
 
 ## 7. 车辆数据（Battery / Range / Charging / Speed / Gear / Tyres）
+
+> ✅ **2026-10-11：电量/续航/充电/车速/档位已全部落到零跑**（`LeapmotorVehicleSignals` CAN 信号总线，
+> 见配套文档 `零跑车机数据来源分析.md` §2）。本节保留 BYD 侧原貌，**只有 §7.3 胎压仍是待办**。
 
 > 这是 BYD 独有功能里**体量最大**的一块 —— 6 个子功能，几乎全部走 ADB `service call`。
 
@@ -280,6 +320,8 @@
   - `available()` = 有 BYD 接收器包（`com.ts.car.someip.service` / `com.byd.amapservice` 等）**或** 装了 BYD 包（`com.byd.carsettings` / `com.byd.appmgr` / `com.byd.deviceinfo` / `com.byd.service`）**或** `Build.FINGERPRINT/BRAND/MANUFACTURER/PRODUCT/DEVICE` 含 `BYD`
   - `navigationAvailable()` = 独立 HUD / AMap 适配器 / `com.ts.car.someip.service`
   - **零跑兜底**：❌ 全部失败 → BYD 导航卡片直接隐藏（`DiPlayActivity.kt:1301`）
+  - ✅ **2026-10-11 新增 `leapmotorHeadUnit()`**：`shared` 的 public 包装，转发 `LmCarProbe.isLeapmotor()`，
+    供 `common` 模块判车型（`LmCarProbe` 是 `shared` 的 `internal`，`common` 看不见）
 - **`common/CarHotspotSetup.kt:isBydHeadUnit()`**：= `BydOutputSettings.navigationAvailable()` **或** `com.byd.carsettings` 是系统包
   - **接线**：`DiPlayActivity.kt` 的 `bydAdbSettings()`（`:2489`）、`wheelKeysSettings()`（`:3466`）
   - **零跑兜底**：❌ 无

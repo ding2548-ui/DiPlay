@@ -2860,7 +2860,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 }
                 SetupGuide.Feature.CALLS_ON_DASHBOARD -> toggle(card, getString(R.string.carplay_calls_on_dashboard),
                     getString(R.string.carplay_calls_on_dashboard_description),
-                    BydOutputSettings.carPlayCalls(this), enabled = !adbSwitchChangePending) { applyCarPlayCalls(it) }
+                    BydOutputSettings.carPlayCalls(this), enabled = lmHeadUnit() || !adbSwitchChangePending) { applyCarPlayCalls(it) }
                 SetupGuide.Feature.CALL_KEYS -> toggle(card, getString(R.string.carplay_call_controls_experimental),
                     getString(R.string.carplay_call_controls_experimental_description),
                     BydOutputSettings.carPlayCallControls(this)) { applyCallKeys(it) }
@@ -3685,7 +3685,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             BydOutputSettings.carPlayCallControls(this)) { applyCallKeys(it) }
         toggle(card, getString(R.string.carplay_calls_on_dashboard),
             getString(R.string.carplay_calls_on_dashboard_description),
-            BydOutputSettings.carPlayCalls(this), enabled = !adbSwitchChangePending) { applyCarPlayCalls(it) }
+            BydOutputSettings.carPlayCalls(this), enabled = lmHeadUnit() || !adbSwitchChangePending) { applyCarPlayCalls(it) }
     }
 
     private fun applyCallKeys(enabled: Boolean) {
@@ -3702,9 +3702,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun applyCarPlayCalls(enabled: Boolean) {
         BydOutputSettings.setCarPlayCalls(this, enabled)
-        if (enabled) checkAdbState(mayAsk = true)
+        // The Leapmotor call card is a plain broadcast to the meter; only BYD needs the ADB probe.
+        if (enabled && !lmHeadUnit()) checkAdbState(mayAsk = true)
         BydNavigationOutputs.carPlayCallsChanged(enabled)
     }
+
+    /** True on a Leapmotor head unit, where OEM outputs use broadcasts instead of ADB. */
+    private fun lmHeadUnit(): Boolean = BydOutputSettings.leapmotorHeadUnit()
 
     private fun advancedVehicleData(card: LinearLayout) {
         val legacyMode = BydOutputSettings.legacyVehicleProbe(this)

@@ -304,7 +304,7 @@ class CarPlayController(
             val replacement = activeSession !== session
             if (replacement) {
                 BydNavigationOutputs.start(appContext)
-                BydNavigationOutputs.carPlaySessionStarted()
+                BydNavigationOutputs.carPlaySessionStarted(appContext)
                 com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(true)
                 // The gear may have changed since /info.
                 if (videoListener != null) {

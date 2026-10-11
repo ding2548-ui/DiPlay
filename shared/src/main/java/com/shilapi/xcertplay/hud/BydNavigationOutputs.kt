@@ -85,8 +85,12 @@ object BydNavigationOutputs {
         }
         BydClusterMapPause.initialize(app)
         BydClusterSong.attach(app)
-        BydCarPlayCall.attach(app)
+        if (BydOutputSettings.leapmotorHeadUnit()) LeapmotorCarPlayCallOutput.attach(app)
+        else BydCarPlayCall.attach(app)
     }
+
+    /** Whether the call card runs on the Leapmotor broadcast path rather than the BYD ADB one. */
+    private fun leapmotorCalls(): Boolean = BydOutputSettings.leapmotorHeadUnit()
 
     internal fun onFrame(frame: Iap2Frame) {
         if (frame.messageId == ClusterSongState.NOW_PLAYING_UPDATE) {
@@ -94,7 +98,8 @@ object BydNavigationOutputs {
             return
         }
         if (frame.messageId == CarPlayCallState.CALL_STATE_UPDATE) {
-            BydCarPlayCall.onFrame(frame)
+            if (leapmotorCalls()) LeapmotorCarPlayCallOutput.onFrame(frame)
+            else BydCarPlayCall.onFrame(frame)
             return
         }
         if (frame.messageId != BydHudRouteState.ROUTE_GUIDANCE_UPDATE &&
@@ -146,13 +151,20 @@ object BydNavigationOutputs {
     fun clusterSongChanged(enabled: Boolean) = BydClusterSong.settingChanged(enabled)
 
     /** The CarPlay call setting changed; applies at once. */
-    fun carPlayCallsChanged(enabled: Boolean) = BydCarPlayCall.settingChanged(enabled)
+    fun carPlayCallsChanged(enabled: Boolean) {
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.settingChanged(enabled)
+        else BydCarPlayCall.settingChanged(enabled)
+    }
 
     /** A CarPlay session became active; ready the call card so calls show without the watcher's start delay. */
-    fun carPlaySessionStarted() = BydCarPlayCall.sessionStarted()
+    fun carPlaySessionStarted(context: Context) {
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.sessionStarted(context)
+        else BydCarPlayCall.sessionStarted()
+    }
 
     /** The iPhone's current call, for the steering wheel's call keys. */
-    fun carPlayCall(): CarPlayCallCard? = BydCarPlayCall.current()
+    fun carPlayCall(): CarPlayCallCard? =
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.current() else BydCarPlayCall.current()
 
     /** The dashboard song's "only when it changes" setting changed; applies at once. */
     fun clusterSongOnChangeChanged() = BydClusterSong.onChangeSettingChanged()
@@ -162,7 +174,8 @@ object BydNavigationOutputs {
 
     /** Best effort while alive; Android does not guarantee callbacks before force-stop. */
     fun endNow(preserveTurnOverlay: Boolean = false) {
-        standalone.clear(); hud.clear(); cluster.clear(); BydClusterSong.end(); BydCarPlayCall.end()
+        standalone.clear(); hud.clear(); cluster.clear(); BydClusterSong.end()
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.end() else BydCarPlayCall.end()
         // Only a wireless session replacement retains the card. Explicit controller close
         // and wired disconnect still clear it immediately.
         if (!preserveTurnOverlay) {
