@@ -415,7 +415,7 @@ internal object CenterMapOverlay {
         calibrationOverlay = null
         calibratingSource = null
         calibrationBackup = null
-        (overlay.parent as? ViewGroup)?.removeViewImmediate(overlay)
+        (overlay.parent as? ViewGroup)?.removeView(overlay)
         if (!save && context != null && source != null && backup != null) {
             ClusterScreenProfile.setRegion(context, source, backup)
         }
