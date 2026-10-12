@@ -700,10 +700,19 @@ class CarPlayHostActivity : ComponentActivity() {
         ShowmapOverlay.sink = { surface -> sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ShowmapOverlay.KEY, surface) }
         ShowmapOverlay.touchBridge = { contacts -> controller?.sendTouch(contacts) ?: false }
         ShowmapOverlay.onDiagnostic = { message -> appendLog(message) }
-        registerReceiver(ShowmapOverlay.receiver, IntentFilter().apply {
+        // The showmap plugin (dudu's launcher) sends these, so the receiver has to be exported;
+        // the flag overload is Android 13+. Without the flag API 33+ rejects the registration and
+        // the activity fails to start.
+        val showmapFilter = IntentFilter().apply {
             addAction(ShowmapOverlay.ACTION_SHOW)
             addAction(ShowmapOverlay.ACTION_CLOSE)
-        })
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(ShowmapOverlay.receiver, showmapFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            @SuppressLint("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(ShowmapOverlay.receiver, showmapFilter)
+        }
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
         ClusterScreenProfile.addOnChangedListener(clusterProfileChanged)

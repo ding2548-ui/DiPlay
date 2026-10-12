@@ -480,7 +480,16 @@ internal object LearnedWheelKeys {
                 handleBusBroadcast(intent)
             }
         }
-        runCatching { context.registerReceiver(created, IntentFilter(action)) }
+        // The bound action comes from an external app, so the receiver is exported; the flag
+        // overload is Android 13+.
+        @SuppressLint("UnspecifiedRegisterReceiverFlag")
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(created, IntentFilter(action), Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(created, IntentFilter(action))
+            }
+        }
             .onSuccess {
                 broadcastReceivers[action] = created
                 report("broadcast binding listening: $action")

@@ -1,9 +1,11 @@
 package com.shilapi.xcertplay
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -198,7 +200,16 @@ internal object LeapmotorMediaKeys {
                 handle(intent)
             }
         }
-        runCatching { application.registerReceiver(created, filter) }
+        // Car actions arrive from the Leapmotor system app, so the receiver is exported; the flag
+        // overload is Android 13+. Without the flag API 33+ rejects the registration.
+        @SuppressLint("UnspecifiedRegisterReceiverFlag")
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                application.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                application.registerReceiver(created, filter)
+            }
+        }
             .onSuccess {
                 receiver = created
                 report("media keys listening on ${LeapmotorMediaProtocol.ACTIONS.size} car actions")

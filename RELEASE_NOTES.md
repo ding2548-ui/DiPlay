@@ -60,6 +60,12 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   方控的接听/挂断走 iAP2（与 BYD 同一套），零跑上直接可用。
   设置项在零跑上**不需要 ADB 支持性探测**，打开即可。
 - **USB 权限弹窗**：`MANAGE_USB` + 无障碍按内容判定自动确认。
+- **修复：点击连接手机闪退** 🔧：`CarPlayHostActivity.onCreate` 注册 showmap 广播接收器时未声明
+  `RECEIVER_EXPORTED`，Android 13+（API 33+）抛 `SecurityException` 导致 Activity 无法启动
+  （Android 7 真车无此检查；诊断报告 20261013-000740-569，小米 Android 16 测试机必现）。
+  按代码库既有 SDK 分支模式修复三处：showmap 接收器（EXPORTED）、Leapmotor 方控广播接收器
+  （EXPORTED）、方控学习广播绑定（EXPORTED）；全树 registerReceiver 已扫净，其余为受保护
+  系统广播或已有分支。
 - **界面汉化**、零跑档位识别、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
 - **在线更新**（首页快捷设置下方 → 在线更新）：检查 GitHub 上的新构建 → 下载 → 安装。
 - CarPlay 应用列表里那个「回到原车」的图标按钮，名称与图标都是**零跑**。
