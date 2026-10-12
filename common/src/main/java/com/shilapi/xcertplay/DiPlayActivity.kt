@@ -2643,6 +2643,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 .filter { it.action != action && it.id != id } + WheelBinding(id, action)
             if (WheelLearningStore.save(this, bindings)) toast("已学习：${action.label} ← ${WheelBinding(id, action).label()}")
             else toast("无法保存方控设置，请重试")
+            render()
+        }
+    }
 
     private fun openBackup() {
         page = "backup"
@@ -2731,9 +2734,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun backupPageHtml(): ByteArray = assets.open("settings-backup.html").use { it.readBytes() }
-            render()
-        }
-    }
 
     private fun userAgent() = "DiPlay/${version()}"
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.
