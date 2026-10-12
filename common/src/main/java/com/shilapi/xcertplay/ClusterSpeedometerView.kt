@@ -19,7 +19,14 @@ import com.shilapi.xcertplay.airplay.ClusterSpeedometerOverlay
 internal class ClusterSpeedometerView(
     context: Context,
     private val observeSpeed: ((Int?) -> Unit) -> (() -> Unit) = { changed ->
-        com.shilapi.xcertplay.hud.BydClusterSpeedReader.observe(context, changed)
+        // The speed comes from the car's own channel: the CAN broadcast on a Leapmotor head unit,
+        // the ADB shell on BYD. A Leapmotor unit has no adbd, so the ADB reader would stay empty
+        // there; the Leapmotor reader instead caches the 1 Hz CAN frame.
+        if (com.shilapi.xcertplay.hud.BydOutputSettings.leapmotorHeadUnit()) {
+            com.shilapi.xcertplay.hud.LeapmotorClusterSpeedReader.observe(context, changed)
+        } else {
+            com.shilapi.xcertplay.hud.BydClusterSpeedReader.observe(context, changed)
+        }
     },
 ) : View(context) {
 

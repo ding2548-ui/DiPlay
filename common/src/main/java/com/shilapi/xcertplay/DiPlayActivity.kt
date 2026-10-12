@@ -1924,7 +1924,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         filteredSection(content, SettingsSection.EXPERIMENTAL_DISPLAY,
             getString(R.string.settings_experimental_display), R.drawable.ic_dp_display) { card ->
-            toggle(card, getString(R.string.settings_harman_fullscreen_experimental),
+            // Named for the Harman head units whose side panel it reclaims; a Leapmotor unit has no
+            // such panel, so the option stays BYD-only.
+            if (!lmHeadUnit()) toggle(card, getString(R.string.settings_harman_fullscreen_experimental),
                 getString(R.string.settings_harman_fullscreen_experimental_description),
                 AirPlayPersistence.loadHarmanFullscreen(this)) { enabled ->
                 AirPlayPersistence.saveHarmanFullscreen(this, enabled)
@@ -2009,6 +2011,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveCallVoiceFilter(this, it)
                 markReconnectNeeded()
             }
+            // Car phone audio holds a Telecom call so the head unit's own echo cancellation handles
+            // the call. That is BYD's audio path; a Leapmotor head unit has no equivalent (its call
+            // card goes out over the meter broadcast instead), so the pair stays BYD-only.
+            if (!lmHeadUnit()) {
             toggle(card, getString(R.string.phone_audio_route), getString(R.string.phone_audio_route_description),
                 BydOutputSettings.phoneAudioRoute(this)) {
                 BydOutputSettings.setPhoneAudioRoute(this, it)
@@ -2023,6 +2029,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 if (it && !WheelKeyService.connected()) {
                     Thread({ WheelKeyService.enableOverAdb(this) }, "diplay-phone-audio-enable").start()
                 }
+            }
             }
             audioFocusControls(card)
             if (resources.getBoolean(R.bool.config_advanced_audio_channel_mapping)) {
