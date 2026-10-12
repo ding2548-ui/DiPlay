@@ -15,6 +15,7 @@ import java.util.Locale
 object AppLocale {
     const val SYSTEM = "system"
     const val ENGLISH = "en"
+    const val FRENCH = "fr"
     const val SIMPLIFIED_CHINESE = "zh"
     const val TRADITIONAL_CHINESE = "zh-TW"
     const val ARABIC = "ar"
@@ -22,7 +23,7 @@ object AppLocale {
     const val SPANISH = "es"
     const val UKRAINIAN = "uk"
 
-    val ALL = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN)
+    val ALL = listOf(SYSTEM, ENGLISH, FRENCH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN)
 
     private const val PREFS = "diplay"
     private const val KEY_LANGUAGE = "app_language"
@@ -129,6 +130,7 @@ object AppLocale {
     fun displayName(context: Context, language: String): String = when (language) {
         SYSTEM -> context.getString(R.string.language_system_default)
         ENGLISH -> "English"
+        FRENCH -> "Français"
         SIMPLIFIED_CHINESE -> "简体中文"
         TRADITIONAL_CHINESE -> "繁體中文"
         ARABIC -> "العربية"
@@ -140,6 +142,7 @@ object AppLocale {
 
     private fun locale(language: String): Locale? = when (language) {
         ENGLISH -> Locale.ENGLISH
+        FRENCH -> Locale.FRENCH
         SIMPLIFIED_CHINESE -> Locale.SIMPLIFIED_CHINESE
         TRADITIONAL_CHINESE -> Locale.TRADITIONAL_CHINESE
         ARABIC -> Locale("ar")
