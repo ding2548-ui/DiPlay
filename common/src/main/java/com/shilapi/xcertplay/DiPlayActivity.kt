@@ -2150,6 +2150,22 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                         AirPlayPersistence.loadCenterMapAutoHide(this)) {
                         AirPlayPersistence.saveCenterMapAutoHide(this, it)
                     }
+                    // PSA line: OgleaPlay 式卡片内容源 / 区域 / 裁切 — hard-coded Chinese like the
+                    // other PSA-only settings. 区域 = 归一化 x,y,宽,高（卡片画布百分比）。
+                    val sources = ClusterScreenProfile.Source.entries
+                    choice(card, "卡片内容源", sources.map { it.label },
+                        sources.indexOf(ClusterScreenProfile.source(this)).coerceAtLeast(0), reconnects = false) {
+                        ClusterScreenProfile.setSource(this, sources[it])
+                    }
+                    for (source in sources) {
+                        card.addView(label("${source.label} · 区域 x,y,宽,高（%）", 14, MUTED))
+                        card.addView(regionField(source), matchButton(6, 52))
+                        val modes = ClusterScreenProfile.ScaleMode.entries
+                        choice(card, "${source.label} · 裁切方式", modes.map { it.label },
+                            modes.indexOf(ClusterScreenProfile.scaleMode(this, source)), reconnects = false) {
+                            ClusterScreenProfile.setScaleMode(this, source, modes[it])
+                        }
+                    }
                 }
                 toggle(card, getString(R.string.launcher_map_sharing), getString(R.string.launcher_map_sharing_description),
                     AirPlayPersistence.loadLauncherMapSharing(this)) {
@@ -6079,6 +6095,28 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun rounded(color: Int, stroke: Int) = GradientDrawable().apply { setColor(color); cornerRadius = layoutCornerRadius() * 1.35f; setStroke(dp(1), stroke) }
     private fun matchButton(top: Int = 0, height: Int = 68) = LinearLayout.LayoutParams(-1, dp(height)).apply { topMargin = dp(top) }
+
+    // PSA line: one text field per source region; format "x,y,w,h" in percents of the card canvas.
+    // Saved on focus loss and on IME done; invalid input keeps the previous value.
+    private fun regionField(source: ClusterScreenProfile.Source): EditText {
+        val current = ClusterScreenProfile.region(this, source)
+        val edit = EditText(this).apply {
+            setText(ClusterScreenProfile.Region.toPercent(current))
+            textSize = 14f
+            setSingleLine(true)
+            hint = "0,0,100,100"
+        }
+        fun commit() {
+            val parsed = ClusterScreenProfile.Region.fromPercent(edit.text.toString())
+            if (parsed != null) ClusterScreenProfile.setRegion(this, source, parsed)
+        }
+        edit.setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) commit() }
+        edit.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) commit()
+            false
+        }
+        return edit
+    }
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)); tag = SPACER }
 
     /**

@@ -359,17 +359,36 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
     // Copies of the CarPlay main screen (centre card, launcher maps) each get their own decoder.
-    private val mirrorSink: (String, Surface?) -> Unit = { key, surface -> sink?.setMirrorSurface(SCREEN_TYPE_ALT, key, surface) }
+    // PSA line: the centre card follows the cluster-screen profile source (110/111; MUSIC keeps no
+    // mirror decoder at all); launcher embeds keep the dashboard stream.
+    private fun mirrorTypeFor(key: String): Int? =
+        if (key == MapMirrors.CARD) ClusterScreenProfile.source(this).streamType else SCREEN_TYPE_ALT
+    private val mirrorSink: (String, Surface?) -> Unit = { key, surface ->
+        val type = mirrorTypeFor(key)
+        if (type != null) sink?.setMirrorSurface(type, key, surface)
+    }
     private val mirrorsChanged: () -> Unit = {
         updateClusterMapShown()
         if (MapMirrors.launcherShowsMap) CenterMapOverlay.hide()
+    }
+    // PSA line: on a cluster-screen profile change, re-register the card's mirror under the new
+    // stream type. The sink keys mirrors by (type, key), so the old type must be cleared explicitly.
+    private val clusterProfileChanged: () -> Unit = {
+        val surface = MapMirrors.surfaceFor(MapMirrors.CARD)
+        sink?.setMirrorSurface(SCREEN_TYPE_ALT, MapMirrors.CARD, null)
+        sink?.setMirrorSurface(SCREEN_TYPE_MAIN, MapMirrors.CARD, null)
+        val type = ClusterScreenProfile.source(this).streamType
+        if (surface != null && type != null) sink?.setMirrorSurface(type, MapMirrors.CARD, surface)
+        appendLog("Centre map: card source=${ClusterScreenProfile.source(this).label}")
     }
     // With Usage Access the card shows only over a home screen; null = not known (no monitor).
     private var homeMonitor: HomeScreenMonitor? = null
     private var homeScreenVisible: Boolean? = null
     private var isActivityStarted = false
+    // PSA line: the card's content stream; MUSIC falls back to the main stream as the session proxy.
+    private fun cardStreamType(): Int = ClusterScreenProfile.source(this).streamType ?: SCREEN_TYPE_MAIN
     private val hideIdleCenterMap = Runnable {
-        if (SCREEN_TYPE_ALT !in activeScreenStreamTypes) CenterMapOverlay.hide()
+        if (cardStreamType() !in activeScreenStreamTypes) CenterMapOverlay.hide()
     }
     private var activeDisplaySize: DisplaySize? = null
     private var pendingDisplaySize: DisplaySize? = null
@@ -679,6 +698,7 @@ class CarPlayHostActivity : ComponentActivity() {
         })
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
+        ClusterScreenProfile.addOnChangedListener(clusterProfileChanged)
         languagePreferenceAtCreate = AppLocale.preference(this)
         if (isIphoneUsbAttachment(intent)) {
             AirPlayPersistence.saveWirelessEnabled(this, false)
@@ -1520,7 +1540,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!AirPlayPersistence.loadCenterMapFollowsDashboard(this)) return
         if (MapMirrors.launcherShowsMap) return // the launcher has the map on its own screen
         // Without the stream the card would stay black; it follows once the stream starts.
-        if (SCREEN_TYPE_ALT !in activeScreenStreamTypes) return
+        if (cardStreamType() !in activeScreenStreamTypes) return
         if (!CenterMapOverlay.permitted(this)) {
             appendLog("Centre map: no permission to draw over other apps")
             return
@@ -1538,10 +1558,14 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         if (CenterMapOverlay.shown) return
-        val shown = CenterMapOverlay.show(applicationContext, MapMirrors.streamAspect, ::onCenterMapSurface) {
+        // PSA line: the MAIN source frames carry the CarPlay session display's own aspect.
+        val mainAspect = activeDisplaySize?.let { it.width.toDouble() / it.height.toDouble() }
+            ?: (resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels)
+        val shown = CenterMapOverlay.show(applicationContext, MapMirrors.streamAspect, mainAspect, ::onCenterMapSurface) {
             startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        appendLog("Centre map: card ${if (shown) "shown" else "failed"} streamActive=${SCREEN_TYPE_ALT in activeScreenStreamTypes}")
+        appendLog("Centre map: card ${if (shown) "shown" else "failed"} source=${ClusterScreenProfile.source(this).label} " +
+            "streamActive=${cardStreamType() in activeScreenStreamTypes}")
     }
 
     private fun onHomeScreenVisible(visible: Boolean) {
@@ -1624,6 +1648,7 @@ class CarPlayHostActivity : ComponentActivity() {
             MapMirrors.sink = null
             MapMirrors.setStreamActive(false)
         }
+        ClusterScreenProfile.removeOnChangedListener(clusterProfileChanged)
         if (MapMirrors.onChanged === mirrorsChanged) MapMirrors.onChanged = null
         dismissClusterPresentation()
         mainHandler.removeCallbacks(applyDisplaySize)
@@ -5883,6 +5908,18 @@ class CarPlayHostActivity : ComponentActivity() {
                         !AdbClusterRouter.enabled(this)) {
                         appendLog("Cluster map: stream active without a presentation; showing it now")
                         ensureClusterPresentation()
+                    }
+                }
+                // PSA line: with the NAVIGATION card source the dashboard card follows stream 111
+                // exactly like it follows the main stream; the other sources ignore this branch.
+                if (ClusterScreenProfile.source(this) == ClusterScreenProfile.Source.NAVIGATION &&
+                    AirPlayPersistence.loadClusterMapEnabled(this) &&
+                    AirPlayPersistence.loadCenterMapOverlay(this)) {
+                    if (active) {
+                        mainHandler.removeCallbacks(hideIdleCenterMap)
+                        if (!CenterMapOverlay.shown) CenterMapOverlay.scheduleShow()
+                    } else {
+                        mainHandler.postDelayed(hideIdleCenterMap, CENTER_MAP_IDLE_MILLIS)
                     }
                 }
             } else if (type == SCREEN_TYPE_MAIN) {

@@ -17,8 +17,9 @@ import android.text.StaticLayout
 import android.view.View
 import com.shilapi.xcertplay.host.R
 
-/** Local music card inside the existing projection; does not change any OEM cluster mode. */
-internal class ClusterMusicView(context: Context) : View(context) {
+/** Local music card inside the existing projection; does not change any OEM cluster mode.
+ *  [alwaysVisible] bypasses the music-caption setting gate (the card's MUSIC source uses it). */
+internal class ClusterMusicView(context: Context, private val alwaysVisible: Boolean = false) : View(context) {
     private val main = Handler(Looper.getMainLooper())
     private var stopState: (() -> Unit)? = null
     private var stopSettings: (() -> Unit)? = null
@@ -67,8 +68,9 @@ internal class ClusterMusicView(context: Context) : View(context) {
         val hasTrack = !snapshot.info.title.isNullOrBlank() || !snapshot.info.artist.isNullOrBlank()
         val permanent = ClusterMusicSettings.permanent(context)
         val remaining = visibleUntil - SystemClock.elapsedRealtime()
-        captionVisible = ClusterMusicSettings.enabled(context) && hasTrack && remaining > 0
-        visibility = if (ClusterMusicSettings.enabled(context) && hasTrack && (permanent || captionVisible)) VISIBLE else GONE
+        val enabled = ClusterMusicSettings.enabled(context) || alwaysVisible
+        captionVisible = enabled && hasTrack && remaining > 0
+        visibility = if (enabled && hasTrack && (permanent || captionVisible)) VISIBLE else GONE
         // The caption expires even when permanent artwork keeps the view visible.
         if (visibility == VISIBLE && remaining > 0) main.postDelayed(expire, remaining)
         invalidate()

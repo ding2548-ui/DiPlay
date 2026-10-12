@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.SurfaceTexture
@@ -39,6 +40,14 @@ internal object CenterMapOverlay {
 
     private val main = Handler(Looper.getMainLooper())
     private var root: View? = null
+    // PSA line: the card content follows the cluster-screen profile — source (110/111/music),
+    // a per-source normalized region inside the card, and a FIT/CROP frame mapping.
+    private var contentLayer: FrameLayout? = null
+    private var video: TextureView? = null
+    private var musicView: ClusterMusicView? = null
+    private var appContext: Context? = null
+    private var mainAspect = 16.0 / 9
+    private val profileChanged: () -> Unit = { applyProfile() }
 
     /** The CarPlay screen, asked to show the card once no DiPlay screen is in front. */
     var requestShow: (() -> Unit)? = null
@@ -74,6 +83,7 @@ internal object CenterMapOverlay {
     fun show(
         context: Context,
         aspect: Double,
+        mainAspect: Double,
         onSurface: (Surface?) -> Unit,
         onTap: () -> Unit,
     ): Boolean {
@@ -86,6 +96,8 @@ internal object CenterMapOverlay {
         val screenHeight = metrics.heightPixels
         // The widest card that still fits the screen height; the stream itself is 1600x600.
         if (screenWidth <= 0 || screenHeight <= 0) return false
+        this.mainAspect = if (mainAspect.isFinite() && mainAspect > 0) mainAspect else 16.0 / 9
+        appContext = context.applicationContext
         val maxWidth = minOf(screenWidth, (screenHeight * aspect).toInt()).coerceAtLeast(1)
         val minWidth = (screenWidth * MIN_WIDTH_FRACTION).toInt().coerceIn(1, maxWidth)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -126,7 +138,7 @@ internal object CenterMapOverlay {
             title = "DiPlay centre map"
         }
         var surface: Surface? = null
-        val video = TextureView(context).apply {
+        val videoView = TextureView(context).apply {
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(texture: SurfaceTexture, w: Int, h: Int) {
                     surface = Surface(texture).also(onSurface)
@@ -147,6 +159,18 @@ internal object CenterMapOverlay {
                 }
             }
         }
+        video = videoView
+        val music = ClusterMusicView(context, alwaysVisible = true)
+        musicView = music
+        val layer = FrameLayout(context).apply {
+            addView(videoView, FrameLayout.LayoutParams(-1, -1))
+            addView(music, FrameLayout.LayoutParams(-1, -1))
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                applyRegions()
+                updateTransform()
+            }
+        }
+        contentLayer = layer
         val card = FrameLayout(context).apply {
             setBackgroundColor(Color.BLACK)
             outlineProvider = object : ViewOutlineProvider() {
@@ -154,7 +178,7 @@ internal object CenterMapOverlay {
                     outline.setRoundRect(0, 0, view.width, view.height, radius)
             }
             clipToOutline = true
-            addView(video, FrameLayout.LayoutParams(-1, -1))
+            addView(layer, FrameLayout.LayoutParams(-1, -1))
         }
         val slop = ViewConfiguration.get(context).scaledTouchSlop
         var downX = 0f
@@ -258,6 +282,9 @@ internal object CenterMapOverlay {
         return try {
             windows.addView(card, params)
             root = card
+            ClusterScreenProfile.addOnChangedListener(profileChanged)
+            MapMirrors.addAspectListener(profileChanged)
+            applyProfile()
             Log.i(TAG, "card shown ${width}x$height at ${params.x},${params.y}")
             true
         } catch (error: RuntimeException) {
@@ -270,8 +297,80 @@ internal object CenterMapOverlay {
     fun hide() {
         val view = root ?: return
         root = null
+        ClusterScreenProfile.removeOnChangedListener(profileChanged)
+        MapMirrors.removeAspectListener(profileChanged)
+        contentLayer = null
+        video = null
+        musicView = null
+        appContext = null
         runCatching { view.context.getSystemService(WindowManager::class.java)?.removeViewImmediate(view) }
         Log.i(TAG, "card hidden")
+    }
+
+    /** Applies the cluster-screen profile: source visibility, per-source region, frame mapping. */
+    private fun applyProfile() {
+        val context = appContext ?: return
+        val source = ClusterScreenProfile.source(context)
+        video?.visibility = if (source == ClusterScreenProfile.Source.MUSIC) View.GONE else View.VISIBLE
+        musicView?.visibility = if (source == ClusterScreenProfile.Source.MUSIC) View.VISIBLE else View.GONE
+        applyRegions()
+        updateTransform()
+        Log.i(TAG, "card profile source=${source.label}")
+    }
+
+    private fun applyRegions() {
+        val layer = contentLayer ?: return
+        val context = appContext ?: return
+        if (layer.width <= 0 || layer.height <= 0) return
+        val source = ClusterScreenProfile.source(context)
+        applyRegion(video, ClusterScreenProfile.region(context, source), layer)
+        applyRegion(musicView, ClusterScreenProfile.region(context, ClusterScreenProfile.Source.MUSIC), layer)
+    }
+
+    private fun applyRegion(view: View?, region: ClusterScreenProfile.Region, layer: FrameLayout) {
+        view ?: return
+        if (layer.width <= 0 || layer.height <= 0) return
+        val width = (layer.width * region.width).toInt().coerceIn(1, layer.width)
+        val height = (layer.height * region.height).toInt().coerceIn(1, layer.height)
+        val left = (layer.width * region.x).toInt().coerceIn(0, layer.width - width)
+        val top = (layer.height * region.y).toInt().coerceIn(0, layer.height - height)
+        val params = view.layoutParams
+        if (params is FrameLayout.LayoutParams && params.width == width && params.height == height &&
+            params.leftMargin == left && params.topMargin == top) return
+        val next = FrameLayout.LayoutParams(width, height)
+        next.leftMargin = left
+        next.topMargin = top
+        view.layoutParams = next
+    }
+
+    /** Maps the decoded frame into the video view: FIT letterboxes, CROP fills and clips.
+     *  The TextureView stretches its buffer to the view by default, so the scale factors work
+     *  purely in view space against the frame's aspect ratio. */
+    private fun updateTransform() {
+        val view = video ?: return
+        val context = appContext ?: return
+        if (view.width <= 0 || view.height <= 0) return
+        val source = ClusterScreenProfile.source(context)
+        val frameAspect = when (source) {
+            ClusterScreenProfile.Source.MAIN -> mainAspect
+            ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
+            else -> return
+        }
+        if (!frameAspect.isFinite() || frameAspect <= 0) return
+        val viewAspect = view.width.toDouble() / view.height.toDouble()
+        var scaleX = 1f
+        var scaleY = 1f
+        when (ClusterScreenProfile.scaleMode(context, source)) {
+            ClusterScreenProfile.ScaleMode.FIT ->
+                if (viewAspect > frameAspect) scaleX = (frameAspect / viewAspect).toFloat()
+                else scaleY = (viewAspect / frameAspect).toFloat()
+            ClusterScreenProfile.ScaleMode.CROP ->
+                if (viewAspect > frameAspect) scaleY = (viewAspect / frameAspect).toFloat()
+                else scaleX = (frameAspect / viewAspect).toFloat()
+        }
+        val matrix = Matrix()
+        matrix.setScale(scaleX, scaleY, view.width / 2f, view.height / 2f)
+        view.setTransform(matrix)
     }
 
     // A DiPlay activity in front makes the process foreground; the session service alone does not.
