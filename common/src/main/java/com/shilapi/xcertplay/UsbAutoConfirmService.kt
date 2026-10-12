@@ -25,6 +25,7 @@ class UsbAutoConfirmService : AccessibilityService() {
 
     private var lastClickTime = -DEBOUNCE_MILLIS
     private var usbWindowId: Int? = null
+    private var ignoredWindowId: Int? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
@@ -147,15 +148,16 @@ class UsbAutoConfirmService : AccessibilityService() {
         private val DEFAULT_LABELS = listOf("默认", "始终", "always", "default")
 
         /**
-         * The window is already known to be the system USB dialog, so the prompt only has to name
-         * this app. Android 10+ words it "Allow DiPlay to access iPhone?" with no "USB", and Chinese
-         * puts the name between letters ("要允许DiPlay访问iPhone吗？"), so only ASCII word characters
-         * count as part of a longer name such as "FakeDiPlay".
+         * The prompt must name this app and a USB device. Android 10+ words it "Allow DiPlay to
+         * access iPhone?" with no "USB", Android 7.1 names "the USB device" instead of the phone,
+         * and Chinese puts the name between letters ("要允许DiPlay访问iPhone吗？"), so only ASCII
+         * word characters count as part of a longer name such as "FakeDiPlay".
          */
         internal fun isTargetPrompt(text: String, appLabel: String): Boolean =
             appLabel.isNotBlank() &&
                 Regex("(?<![A-Za-z0-9_])${Regex.escape(appLabel)}(?![A-Za-z0-9_])", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(text)
+                    .containsMatchIn(text) &&
+                USB_DEVICE_WORDS.containsMatchIn(text)
 
 
         fun isEnabled(context: Context): Boolean {

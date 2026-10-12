@@ -28,6 +28,10 @@ android {
             path = file('src/main/jni/Android.mk')
         }
     }
+    buildFeatures {
+        // Geely/Lynk head-unit input API (com.geely.inputservice); declarations in src/main/aidl.
+        aidl true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
