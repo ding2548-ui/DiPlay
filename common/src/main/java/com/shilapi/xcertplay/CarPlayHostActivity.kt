@@ -373,13 +373,21 @@ class CarPlayHostActivity : ComponentActivity() {
     }
     // PSA line: on a cluster-screen profile change, re-register the card's mirror under the new
     // stream type. The sink keys mirrors by (type, key), so the old type must be cleared explicitly.
+    // Region/scale changes must NOT rebuild the decoder — only a source change does. The dashboard
+    // surface follows the source too; region/scale changes re-layout renderer-side.
+    private var cardMirrorSource: ClusterScreenProfile.Source? = null
     private val clusterProfileChanged: () -> Unit = {
-        val surface = MapMirrors.surfaceFor(MapMirrors.CARD)
-        sink?.setMirrorSurface(SCREEN_TYPE_ALT, MapMirrors.CARD, null)
-        sink?.setMirrorSurface(SCREEN_TYPE_MAIN, MapMirrors.CARD, null)
-        val type = ClusterScreenProfile.source(this).streamType
-        if (surface != null && type != null) sink?.setMirrorSurface(type, MapMirrors.CARD, surface)
-        appendLog("Centre map: card source=${ClusterScreenProfile.source(this).label}")
+        val source = ClusterScreenProfile.source(this)
+        if (source != cardMirrorSource) {
+            val surface = MapMirrors.surfaceFor(MapMirrors.CARD)
+            sink?.setMirrorSurface(SCREEN_TYPE_ALT, MapMirrors.CARD, null)
+            sink?.setMirrorSurface(SCREEN_TYPE_MAIN, MapMirrors.CARD, null)
+            val type = source.streamType
+            if (surface != null && type != null) sink?.setMirrorSurface(type, MapMirrors.CARD, surface)
+            cardMirrorSource = source
+        }
+        if (source != dashboardSource) clusterSurface?.let(::attachClusterSurface)
+        appendLog("Cluster profile: source=${source.label}")
     }
     // With Usage Access the card shows only over a home screen; null = not known (no monitor).
     private var homeMonitor: HomeScreenMonitor? = null
@@ -699,6 +707,7 @@ class CarPlayHostActivity : ComponentActivity() {
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
         ClusterScreenProfile.addOnChangedListener(clusterProfileChanged)
+        cardMirrorSource = ClusterScreenProfile.source(this)
         languagePreferenceAtCreate = AppLocale.preference(this)
         if (isIphoneUsbAttachment(intent)) {
             AirPlayPersistence.saveWirelessEnabled(this, false)
@@ -1284,9 +1293,32 @@ class CarPlayHostActivity : ComponentActivity() {
                 !adbClusterConfigured && controller != null) {
                 ClusterActivityOutput.setStreamActive(false)
                 reconnectAfterLoss("DiLink 4 cluster confirmed; requesting its native stream")
-            } else sink?.setSurface(SCREEN_TYPE_ALT, surface)
+            } else attachClusterSurface(surface)
         }
         updateClusterMapShown()
+    }
+
+    // PSA line: the dashboard video follows the cluster-screen profile source — NAVIGATION keeps
+    // stream 111 as the primary dashboard decoder; MAIN mirrors stream 110 into the dashboard
+    // surface without touching the main decoder; MUSIC attaches no video surface at all.
+    private var dashboardSource: ClusterScreenProfile.Source? = null
+
+    private fun attachClusterSurface(surface: Surface) {
+        dashboardSource = ClusterScreenProfile.source(this)
+        when (dashboardSource) {
+            ClusterScreenProfile.Source.MAIN -> {
+                sink?.clearSurface(SCREEN_TYPE_ALT, surface)
+                sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ClusterScreenProfile.DASHBOARD_KEY, surface)
+            }
+            ClusterScreenProfile.Source.MUSIC -> sink?.clearSurface(SCREEN_TYPE_ALT, surface)
+            else -> sink?.setSurface(SCREEN_TYPE_ALT, surface)
+        }
+    }
+
+    private fun detachClusterSurface(surface: Surface) {
+        dashboardSource = null
+        sink?.clearSurface(SCREEN_TYPE_ALT, surface)
+        sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ClusterScreenProfile.DASHBOARD_KEY, null)
     }
 
     private var adbClusterConfigured = false

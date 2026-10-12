@@ -43,6 +43,27 @@ internal object ClusterScreenProfile {
             fun toPercent(region: Region): String =
                 "${(region.x * 100).toInt()},${(region.y * 100).toInt()}," +
                     "${(region.width * 100).toInt()},${(region.height * 100).toInt()}"
+
+            /** Reference-space rect for the edge editor; [refW]/[refH] only define the aspect. */
+            fun toRect(region: Region, refW: Int, refH: Int): com.shilapi.xcertplay.airplay.SafeAreaRect =
+                com.shilapi.xcertplay.airplay.SafeAreaRect(
+                    (region.x * refW).toInt(),
+                    (region.y * refH).toInt(),
+                    ((region.x + region.width) * refW).toInt(),
+                    ((region.y + region.height) * refH).toInt(),
+                )
+
+            fun fromRect(rect: com.shilapi.xcertplay.airplay.SafeAreaRect, refW: Int, refH: Int): Region? {
+                if (refW <= 0 || refH <= 0) return null
+                val region = Region(
+                    rect.left / refW.toFloat(),
+                    rect.top / refH.toFloat(),
+                    (rect.right - rect.left) / refW.toFloat(),
+                    (rect.bottom - rect.top) / refH.toFloat(),
+                )
+                return if (region.width > 0f && region.height > 0f &&
+                    region.x + region.width <= 1.001f && region.y + region.height <= 1.001f) region else null
+            }
         }
     }
 
@@ -50,6 +71,9 @@ internal object ClusterScreenProfile {
     private const val KEY_SOURCE = "profile_source"
     private const val KEY_REGION_PREFIX = "profile_region_"
     private const val KEY_SCALE_PREFIX = "profile_scale_"
+
+    /** Mirror key for the dashboard surface when the profile routes stream 110 into it. */
+    const val DASHBOARD_KEY = "dashboard"
 
     private val main = Handler(Looper.getMainLooper())
     private val listeners = CopyOnWriteArraySet<() -> Unit>()

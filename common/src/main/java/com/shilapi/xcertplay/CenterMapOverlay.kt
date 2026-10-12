@@ -3,7 +3,6 @@ package com.shilapi.xcertplay
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.SurfaceTexture
@@ -19,8 +18,11 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewOutlineProvider
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -303,6 +305,10 @@ internal object CenterMapOverlay {
         video = null
         musicView = null
         appContext = null
+        editor = null
+        calibrationOverlay = null
+        calibratingSource = null
+        calibrationBackup = null
         runCatching { view.context.getSystemService(WindowManager::class.java)?.removeViewImmediate(view) }
         Log.i(TAG, "card hidden")
     }
@@ -323,29 +329,11 @@ internal object CenterMapOverlay {
         val context = appContext ?: return
         if (layer.width <= 0 || layer.height <= 0) return
         val source = ClusterScreenProfile.source(context)
-        applyRegion(video, ClusterScreenProfile.region(context, source), layer)
-        applyRegion(musicView, ClusterScreenProfile.region(context, ClusterScreenProfile.Source.MUSIC), layer)
+        ClusterProfileLayout.applyRegion(video, ClusterScreenProfile.region(context, source), layer)
+        ClusterProfileLayout.applyRegion(musicView, ClusterScreenProfile.region(context, ClusterScreenProfile.Source.MUSIC), layer)
     }
 
-    private fun applyRegion(view: View?, region: ClusterScreenProfile.Region, layer: FrameLayout) {
-        view ?: return
-        if (layer.width <= 0 || layer.height <= 0) return
-        val width = (layer.width * region.width).toInt().coerceIn(1, layer.width)
-        val height = (layer.height * region.height).toInt().coerceIn(1, layer.height)
-        val left = (layer.width * region.x).toInt().coerceIn(0, layer.width - width)
-        val top = (layer.height * region.y).toInt().coerceIn(0, layer.height - height)
-        val params = view.layoutParams
-        if (params is FrameLayout.LayoutParams && params.width == width && params.height == height &&
-            params.leftMargin == left && params.topMargin == top) return
-        val next = FrameLayout.LayoutParams(width, height)
-        next.leftMargin = left
-        next.topMargin = top
-        view.layoutParams = next
-    }
-
-    /** Maps the decoded frame into the video view: FIT letterboxes, CROP fills and clips.
-     *  The TextureView stretches its buffer to the view by default, so the scale factors work
-     *  purely in view space against the frame's aspect ratio. */
+    /** Maps the decoded frame into the video view: FIT letterboxes, CROP fills and clips. */
     private fun updateTransform() {
         val view = video ?: return
         val context = appContext ?: return
@@ -356,21 +344,82 @@ internal object CenterMapOverlay {
             ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
             else -> return
         }
-        if (!frameAspect.isFinite() || frameAspect <= 0) return
-        val viewAspect = view.width.toDouble() / view.height.toDouble()
-        var scaleX = 1f
-        var scaleY = 1f
-        when (ClusterScreenProfile.scaleMode(context, source)) {
-            ClusterScreenProfile.ScaleMode.FIT ->
-                if (viewAspect > frameAspect) scaleX = (frameAspect / viewAspect).toFloat()
-                else scaleY = (viewAspect / frameAspect).toFloat()
-            ClusterScreenProfile.ScaleMode.CROP ->
-                if (viewAspect > frameAspect) scaleY = (viewAspect / frameAspect).toFloat()
-                else scaleX = (frameAspect / viewAspect).toFloat()
+        ClusterProfileLayout.applyTransform(view, frameAspect, ClusterScreenProfile.scaleMode(context, source))
+    }
+
+    // PSA line: in-place region calibration on the live card — an edge editor overlays the card and
+    // every drag re-applies the region, so the video re-layouts in real time (the preview itself).
+    private var editor: SafeAreaEditorView? = null
+    private var calibrationOverlay: ViewGroup? = null
+    private var calibrationBackup: ClusterScreenProfile.Region? = null
+    private var calibratingSource: ClusterScreenProfile.Source? = null
+
+    /** Whether the card currently shows the region editor overlay. */
+    val calibrating: Boolean get() = editor != null
+
+    /** Enters calibration for [source] (also switches the card to it so the preview matches). */
+    fun enterCalibration(context: Context, source: ClusterScreenProfile.Source): Boolean {
+        val card = root as? ViewGroup ?: return false
+        val layer = contentLayer ?: return false
+        if (editor != null || layer.width <= 0 || layer.height <= 0) return false
+        ClusterScreenProfile.setSource(context, source)
+        calibrationBackup = ClusterScreenProfile.region(context, source)
+        calibratingSource = source
+        val refW = layer.width
+        val refH = layer.height
+        val editorView = SafeAreaEditorView(context).apply {
+            interactive = true
+            dimOutside = true
+            setRect(ClusterScreenProfile.Region.toRect(ClusterScreenProfile.region(context, source), refW, refH), refW, refH)
+            onRectChanged = { rect ->
+                ClusterScreenProfile.Region.fromRect(rect, refW, refH)?.let {
+                    ClusterScreenProfile.setRegion(context, source, it)
+                }
+            }
         }
-        val matrix = Matrix()
-        matrix.setScale(scaleX, scaleY, view.width / 2f, view.height / 2f)
-        view.setTransform(matrix)
+        editor = editorView
+        val bar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            addView(Button(context).apply {
+                text = "取消"
+                setOnClickListener { exitCalibration(false) }
+            })
+            addView(Button(context).apply {
+                text = "保存"
+                setOnClickListener { exitCalibration(true) }
+            })
+        }
+        val overlay = FrameLayout(context).apply {
+            addView(editorView, FrameLayout.LayoutParams(-1, -1))
+            addView(bar, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = (12 * context.resources.displayMetrics.density).toInt()
+            })
+        }
+        calibrationOverlay = overlay
+        card.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        applyProfile()
+        Log.i(TAG, "card calibration source=${source.label}")
+        return true
+    }
+
+    /** Leaves calibration; [save]=false restores the region from before the editor opened. */
+    fun exitCalibration(save: Boolean) {
+        val overlay = calibrationOverlay ?: return
+        val context = appContext
+        val source = calibratingSource
+        val backup = calibrationBackup
+        editor = null
+        calibrationOverlay = null
+        calibratingSource = null
+        calibrationBackup = null
+        (overlay.parent as? ViewGroup)?.removeViewImmediate(overlay)
+        if (!save && context != null && source != null && backup != null) {
+            ClusterScreenProfile.setRegion(context, source, backup)
+        }
+        Log.i(TAG, "card calibration done save=$save")
     }
 
     // A DiPlay activity in front makes the process foreground; the session service alone does not.

@@ -36,6 +36,13 @@ internal class ClusterMusicView(context: Context, private val alwaysVisible: Boo
 
     init { visibility = GONE; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
 
+    /** MUSIC source: forced visible regardless of the caption settings and track availability. */
+    private var forced = false
+    fun setForcedVisible(value: Boolean) {
+        forced = value
+        updateVisibility()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         stopSettings = ClusterMusicSettings.observe(context) {
@@ -65,6 +72,12 @@ internal class ClusterMusicView(context: Context, private val alwaysVisible: Boo
 
     private fun updateVisibility() {
         main.removeCallbacks(expire)
+        // MUSIC source: the owning surface forces the card visible regardless of settings.
+        if (forced) {
+            visibility = VISIBLE
+            invalidate()
+            return
+        }
         val hasTrack = !snapshot.info.title.isNullOrBlank() || !snapshot.info.artist.isNullOrBlank()
         val permanent = ClusterMusicSettings.permanent(context)
         val remaining = visibleUntil - SystemClock.elapsedRealtime()

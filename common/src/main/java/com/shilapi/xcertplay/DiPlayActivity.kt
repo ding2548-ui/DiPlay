@@ -2133,6 +2133,35 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             if (clusterMapEnabled) {
                 clusterSpeedometerControls(card)
                 clusterMusicControls(card)
+                // PSA line: 内容源/区域/裁切为卡片与仪表盘共用（仪表盘接上即生效），不依赖卡片开关。
+                val sources = ClusterScreenProfile.Source.entries
+                choice(card, "内容源", sources.map { it.label },
+                    sources.indexOf(ClusterScreenProfile.source(this)).coerceAtLeast(0), reconnects = false) {
+                    ClusterScreenProfile.setSource(this, sources[it])
+                    render()
+                }
+                for (source in sources) {
+                    if (CenterMapOverlay.shown && ClusterScreenProfile.source(this) == source) {
+                        card.addView(button(if (CenterMapOverlay.calibrating) "${source.label} · 完成卡片框选"
+                            else "${source.label} · 在卡片上框选（实况预览）", false) {
+                            if (CenterMapOverlay.calibrating) CenterMapOverlay.exitCalibration(true)
+                            else CenterMapOverlay.enterCalibration(this, source)
+                            render()
+                        }, matchButton(6, 54))
+                    } else {
+                        card.addView(button("${source.label} · 触摸框选区域", false) {
+                            showRegionEditor(source)
+                        }, matchButton(6, 54))
+                    }
+                    val modes = ClusterScreenProfile.ScaleMode.entries
+                    choice(card, "${source.label} · 裁切方式", modes.map { it.label },
+                        modes.indexOf(ClusterScreenProfile.scaleMode(this, source)), reconnects = false) {
+                        ClusterScreenProfile.setScaleMode(this, source, modes[it])
+                    }
+                }
+                if (CenterMapOverlay.calibrating) {
+                    card.addView(label("正在卡片上框选：拖动四条边调整，完成后点卡片上的「保存/取消」。", 14, WARNING))
+                }
                 toggle(card, getString(R.string.center_map_card),
                     if (clusterDisplay != null || adbCluster) getString(R.string.center_map_card_description)
                     else getString(R.string.center_map_card_virtual_description),
@@ -2149,22 +2178,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     toggle(card, getString(R.string.center_map_auto_hide), getString(R.string.center_map_auto_hide_description),
                         AirPlayPersistence.loadCenterMapAutoHide(this)) {
                         AirPlayPersistence.saveCenterMapAutoHide(this, it)
-                    }
-                    // PSA line: OgleaPlay 式卡片内容源 / 区域 / 裁切 — hard-coded Chinese like the
-                    // other PSA-only settings. 区域 = 归一化 x,y,宽,高（卡片画布百分比）。
-                    val sources = ClusterScreenProfile.Source.entries
-                    choice(card, "卡片内容源", sources.map { it.label },
-                        sources.indexOf(ClusterScreenProfile.source(this)).coerceAtLeast(0), reconnects = false) {
-                        ClusterScreenProfile.setSource(this, sources[it])
-                    }
-                    for (source in sources) {
-                        card.addView(label("${source.label} · 区域 x,y,宽,高（%）", 14, MUTED))
-                        card.addView(regionField(source), matchButton(6, 52))
-                        val modes = ClusterScreenProfile.ScaleMode.entries
-                        choice(card, "${source.label} · 裁切方式", modes.map { it.label },
-                            modes.indexOf(ClusterScreenProfile.scaleMode(this, source)), reconnects = false) {
-                            ClusterScreenProfile.setScaleMode(this, source, modes[it])
-                        }
                     }
                 }
                 toggle(card, getString(R.string.launcher_map_sharing), getString(R.string.launcher_map_sharing_description),
@@ -6096,27 +6109,56 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun rounded(color: Int, stroke: Int) = GradientDrawable().apply { setColor(color); cornerRadius = layoutCornerRadius() * 1.35f; setStroke(dp(1), stroke) }
     private fun matchButton(top: Int = 0, height: Int = 68) = LinearLayout.LayoutParams(-1, dp(height)).apply { topMargin = dp(top) }
 
-    // PSA line: one text field per source region; format "x,y,w,h" in percents of the card canvas.
-    // Saved on focus loss and on IME done; invalid input keeps the previous value.
-    private fun regionField(source: ClusterScreenProfile.Source): EditText {
-        val current = ClusterScreenProfile.region(this, source)
-        val edit = EditText(this).apply {
-            setText(ClusterScreenProfile.Region.toPercent(current))
-            textSize = 14f
-            setSingleLine(true)
-            hint = "0,0,100,100"
+    // PSA line: 触摸框选对话框 — SafeAreaEditorView 在与内容源同比例的预览画布上拖动四边，
+    // 实时百分比读数；「保存」写入配置（卡片/仪表盘即时生效），「重置」恢复全画布。
+    private fun showRegionEditor(source: ClusterScreenProfile.Source) {
+        val aspect = when (source) {
+            ClusterScreenProfile.Source.MAIN ->
+                resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
+            ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
+            else -> 8.0 / 3
+        }.coerceIn(0.5, 4.0)
+        val metrics = resources.displayMetrics
+        val previewWidth = (metrics.widthPixels * 0.78f).toInt()
+        val previewHeight = (previewWidth / aspect).toInt().coerceAtLeast(1)
+        val refW = 1000
+        val refH = (1000 / aspect).toInt().coerceAtLeast(1)
+        var pending = ClusterScreenProfile.region(this, source)
+        val readout = label("", 14, MUTED)
+        readout.text = regionReadout(pending)
+        val editor = SafeAreaEditorView(this).apply {
+            interactive = true
+            dimOutside = false
+            setRect(ClusterScreenProfile.Region.toRect(pending, refW, refH), refW, refH)
+            onRectChanged = { rect ->
+                ClusterScreenProfile.Region.fromRect(rect, refW, refH)?.let {
+                    pending = it
+                    readout.text = regionReadout(it)
+                }
+            }
         }
-        fun commit() {
-            val parsed = ClusterScreenProfile.Region.fromPercent(edit.text.toString())
-            if (parsed != null) ClusterScreenProfile.setRegion(this, source, parsed)
+        val preview = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        preview.addView(editor)
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(16), dp(24), dp(8))
+            addView(preview, LinearLayout.LayoutParams(previewWidth, previewHeight).apply {
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+            })
+            addView(readout, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
         }
-        edit.setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) commit() }
-        edit.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) commit()
-            false
-        }
-        return edit
+        appDialogBuilder()
+            .setTitle("${source.label} · 框选区域")
+            .setView(column)
+            .setPositiveButton("保存") { _, _ -> ClusterScreenProfile.setRegion(this, source, pending) }
+            .setNeutralButton("重置") { _, _ -> ClusterScreenProfile.setRegion(this, source, ClusterScreenProfile.Region.FULL) }
+            .setNegativeButton("取消", null)
+            .show()
     }
+
+    private fun regionReadout(region: ClusterScreenProfile.Region): String =
+        "x=${(region.x * 100).toInt()}%  y=${(region.y * 100).toInt()}%  " +
+            "w=${(region.width * 100).toInt()}%  h=${(region.height * 100).toInt()}%"
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)); tag = SPACER }
 
     /**
