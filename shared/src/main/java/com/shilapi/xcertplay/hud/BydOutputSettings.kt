@@ -35,6 +35,22 @@ object BydOutputSettings {
      */
     fun leapmotorHeadUnit(): Boolean = com.shilapi.xcertplay.LmCarProbe.isLeapmotor()
 
+    /**
+     * Record the driver's manual head-unit pick from the setup guide, on the `common` side of the
+     * module boundary. `true` = "零跑 S01/T03" so every Leapmotor protocol turns on without a file
+     * probe; `false` = a BYD DiLink unit, which also suppresses a stale Leapmotor probe. The setup
+     * guide's `DiLinkGeneration.save` is the only caller.
+     */
+    fun setLeapmotorUserChoice(context: Context, leapmotor: Boolean) =
+        com.shilapi.xcertplay.LmCarProbe.setUserChoice(context, leapmotor)
+
+    /** Drop the manual pick ("Not sure") and go back to the runtime file probe. */
+    fun clearLeapmotorUserChoice(context: Context) =
+        com.shilapi.xcertplay.LmCarProbe.clearUserChoice(context)
+
+    /** Load the saved manual pick once at startup so gating matches the driver's choice immediately. */
+    fun loadLeapmotorUserChoice(context: Context) = com.shilapi.xcertplay.LmCarProbe.loadUserChoice(context)
+
     fun setEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
 
     /** Ask the iPhone to stop drawing the cluster map while the cluster hides it (needs ADB over network). */

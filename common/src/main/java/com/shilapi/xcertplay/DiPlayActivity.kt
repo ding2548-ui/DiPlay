@@ -2233,7 +2233,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
             card.addView(label("与桌面“高德悬浮窗插件”配合使用：插件选择本应用后，桌面会按插件设置的位置显示实时 CarPlay 画面。", 14, MUTED))
         }
-        if (BydOutputSettings.available(this)) filteredSection(content, SettingsSection.BYD_NAVIGATION,
+        if (BydOutputSettings.available(this) || lmHeadUnit()) filteredSection(content, SettingsSection.BYD_NAVIGATION,
             getString(R.string.byd_navigation), R.drawable.ic_dp_navigation) { card ->
             toggle(card, getString(R.string.navigation_on_hud_and_instrument_cluster),
                 getString(R.string.show_phone_navigation_arrows_distance_and_street_names_on),
@@ -2725,6 +2725,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         DiLinkGeneration.DILINK_3 -> R.string.dilink_3
         DiLinkGeneration.DILINK_4 -> R.string.dilink_4
         DiLinkGeneration.DILINK_5 -> R.string.dilink_5
+        DiLinkGeneration.LEAPMOTOR -> R.string.head_unit_leapmotor
         DiLinkGeneration.UNKNOWN -> R.string.dilink_not_sure
     })
 
@@ -2766,10 +2767,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun setupCarStep(content: LinearLayout) {
         val detection = DiLinkGeneration.detect()
         val selected = DiLinkGeneration.confirmed(this) ?: detection.generation
-        setupTitle(content, R.string.setup_car_title, when (detection.source) {
-            DiLinkGeneration.Source.SYSTEM_VERSION -> getString(R.string.setup_car_detected, dilinkLabel(detection.generation))
-            DiLinkGeneration.Source.LIKELY -> getString(R.string.setup_car_likely, dilinkLabel(detection.generation))
-            DiLinkGeneration.Source.NONE -> getString(R.string.setup_car_unknown)
+        // The manual pick wins, so the "found in the system version" hint only matters while nothing
+        // is confirmed and the car is a BYD whose version could be read.
+        setupTitle(content, R.string.setup_car_title, when {
+            selected.isLeapmotor -> getString(R.string.setup_car_leapmotor)
+            detection.source == DiLinkGeneration.Source.SYSTEM_VERSION ->
+                getString(R.string.setup_car_detected, dilinkLabel(detection.generation))
+            detection.source == DiLinkGeneration.Source.LIKELY ->
+                getString(R.string.setup_car_likely, dilinkLabel(detection.generation))
+            else -> getString(R.string.setup_car_unknown)
         })
         val card = card()
         card.addView(label(getString(R.string.setup_car_choose), 22, TEXT, true))
@@ -2853,7 +2859,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     ClusterActivityOutput.stopForSettings()
                     render()
                 }
-                SetupGuide.Feature.BYD_NAVIGATION -> if (BydOutputSettings.available(this)) {
+                SetupGuide.Feature.BYD_NAVIGATION -> if (BydOutputSettings.available(this) || lmHeadUnit()) {
                     toggle(card, getString(R.string.navigation_on_hud_and_instrument_cluster),
                         getString(R.string.show_phone_navigation_arrows_distance_and_street_names_on),
                         BydOutputSettings.enabled(this)) { BydOutputSettings.setEnabled(this, it) }

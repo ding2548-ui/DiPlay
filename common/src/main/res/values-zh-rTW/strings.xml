@@ -760,7 +760,9 @@
     <string name="dilink_3">DiLink 3</string>
     <string name="dilink_4">DiLink 4</string>
     <string name="dilink_5">DiLink 5</string>
+    <string name="head_unit_leapmotor">零跑 S01/T03</string>
     <string name="dilink_not_sure">不確定</string>
+    <string name="setup_car_leapmotor">已選擇零跑 S01/T03。無需辨識車型，零跑的全部協定都會預設啟用。</string>
     <string name="setup_connection_title">連線</string>
     <string name="setup_connection_description">選擇 iPhone 連線到車輛的方式。大多數車輛使用車機內建的 5 GHz 熱點效果最好。Wi-Fi Direct 不需要熱點，但可能退回 2.4 GHz。</string>
     <string name="setup_iphone_title">配對 iPhone</string>

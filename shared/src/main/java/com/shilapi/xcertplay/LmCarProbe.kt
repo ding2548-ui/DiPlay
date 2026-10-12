@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.content.Context
 import android.util.Log
 
 /**
@@ -23,6 +24,14 @@ import android.util.Log
  * `com.leapmotor.systemupdate` → `IDeviceCtrlInterface.getCarType()`, transaction 0x15) is
  * deliberately not used: it is asynchronous, needs a `<queries>` package-visibility entry, and
  * answers the same question.
+ *
+ * ## Manual override (setup wizard)
+ * The setup guide also lets the driver pick the head unit by hand ("零跑 S01/T03" or a BYD DiLink
+ * generation). That explicit choice must beat the file probe both ways:
+ *  - pick Leapmotor → treat the unit as a Leapmotor even if the probe file is somehow missing;
+ *  - pick any BYD generation → do **not** run the Leapmotor broadcasts even if the probe file is
+ *    present (an OEM-swapped or re-flashed unit is exactly the case the manual pick exists for).
+ * [setUserChoice] / [clearUserChoice] persist that choice; [isLeapmotor] consults it before probing.
  */
 internal object LmCarProbe {
     /** File the OEM app reads to identify the car. */
@@ -38,10 +47,61 @@ internal object LmCarProbe {
         5 to "S01 460 standard (smart option)",
     )
 
+    private const val PREFS = "diplay"
+
+    /**
+     * Tri-state manual choice. Absent = obey the probe; `true`/`false` = the driver's explicit pick
+     * wins. Stored as an int so "absent" is distinguishable from an explicit `false`.
+     */
+    private const val KEY_USER_CHOICE = "head_unit_leapmotor"
+
+    private const val CHOICE_UNSET = 0
+    private const val CHOICE_BYD = 1
+    private const val CHOICE_LEAPMOTOR = 2
+
     @Volatile private var cached: Boolean? = null
 
-    /** True when this head unit is a Leapmotor car. Cached: the file does not appear at runtime. */
-    fun isLeapmotor(): Boolean = cached ?: probe().also { cached = it }
+    @Volatile private var userChoice: Boolean? = null
+
+    /**
+     * True when this head unit is a Leapmotor car. The driver's manual choice wins; otherwise the
+     * file probe decides. Cached: neither the file nor the choice changes during a session.
+     */
+    fun isLeapmotor(): Boolean = userChoice ?: (cached ?: probe().also { cached = it })
+
+    /**
+     * Load the saved manual choice once, before the first [isLeapmotor] call. Safe to call more than
+     * once; only the first call reads prefs.
+     */
+    fun loadUserChoice(context: Context) {
+        if (userChoice != null) return
+        userChoice = readChoice(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+    }
+
+    /**
+     * Persist the driver's explicit pick. `true` = "this is a Leapmotor", `false` = "this is a BYD
+     * DiLink unit". Writes the loaded prefs and drops the memoised answers so the next
+     * [isLeapmotor] uses the new value.
+     */
+    fun setUserChoice(context: Context, leapmotor: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_USER_CHOICE, if (leapmotor) CHOICE_LEAPMOTOR else CHOICE_BYD).apply()
+        userChoice = leapmotor
+        cached = null
+    }
+
+    /** Forget the manual choice and go back to the file probe. Test/support seam. */
+    fun clearUserChoice(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_USER_CHOICE).apply()
+        userChoice = null
+        cached = null
+    }
+
+    private fun readChoice(prefs: android.content.SharedPreferences): Boolean? = when (prefs.getInt(KEY_USER_CHOICE, CHOICE_UNSET)) {
+        CHOICE_LEAPMOTOR -> true
+        CHOICE_BYD -> false
+        else -> null
+    }
 
     private fun probe(): Boolean {
         val found = runCatching { java.io.File(CAR_TYPE_FILE).isFile }.getOrDefault(false)
@@ -59,6 +119,9 @@ internal object LmCarProbe {
     /** Human-readable model, for the diagnostic line only. */
     fun modelName(): String? = runCatching { MODELS[modelCode()] }.getOrNull()
 
-    /** Test seam: forget the cached answer. */
-    internal fun resetForTests() { cached = null }
+    /** Test seam: forget the cached answer and any manual choice held in memory. */
+    internal fun resetForTests() {
+        cached = null
+        userChoice = null
+    }
 }

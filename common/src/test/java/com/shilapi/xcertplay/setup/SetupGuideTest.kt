@@ -90,6 +90,33 @@ class SetupGuideTest {
         assertFalse(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.DILINK_4, true))
     }
 
+    @Test fun leapmotorIsOnlyAKeyedEnumMemberAndNeverDetected() {
+        // The manual pick round-trips through prefs by key; detection must never invent it.
+        assertEquals(DiLinkGeneration.LEAPMOTOR, DiLinkGeneration.fromKey("leapmotor"))
+        assertTrue(DiLinkGeneration.LEAPMOTOR.isLeapmotor)
+        assertFalse(DiLinkGeneration.DILINK_3.isLeapmotor)
+        assertFalse(DiLinkGeneration.UNKNOWN.isLeapmotor)
+        assertNull(DiLinkGeneration.fromKey("leapmotor-s01"))
+    }
+
+    @Test fun leapmotorOffersEveryFeatureAsTestedWithNoAdb() {
+        val features = SetupGuide.features(DiLinkGeneration.LEAPMOTOR)
+        val expected = listOf(
+            Feature.AUTO_CONNECT, Feature.LOCATION, Feature.CLUSTER_MAP,
+            Feature.BYD_NAVIGATION, Feature.CALLS_ON_DASHBOARD, Feature.CALL_KEYS,
+        )
+        assertEquals(expected, features.map { it.feature })
+        assertTrue(features.all { it.status == Status.TESTED })
+        assertFalse(features.any { it.needsAdb })
+        // The DiLink 4 ADB cluster route is BYD hardware and must stay hidden on Leapmotor.
+        assertFalse(features.any { it.feature == Feature.DILINK4_ADB_CLUSTER })
+    }
+
+    @Test fun leapmotorNeverHasTheDiLink3ClusterRouteConflict() {
+        assertFalse(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.LEAPMOTOR, true))
+        assertFalse(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.LEAPMOTOR, false))
+    }
+
     @Test fun guideOpensByItselfOnlyOnAFreshSetup() {
         assertTrue(SetupGuide.shouldOpenOnLaunch(seen = false, phoneChosen = false))
         assertFalse(SetupGuide.shouldOpenOnLaunch(seen = false, phoneChosen = true))

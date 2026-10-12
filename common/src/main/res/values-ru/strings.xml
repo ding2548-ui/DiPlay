@@ -695,7 +695,9 @@
     <string name="dilink_3">DiLink 3</string>
     <string name="dilink_4">DiLink 4</string>
     <string name="dilink_5">DiLink 5</string>
+    <string name="head_unit_leapmotor">Leapmotor S01/T03</string>
     <string name="dilink_not_sure">Не уверен</string>
+    <string name="setup_car_leapmotor">Выбран Leapmotor S01/T03. Определять автомобиль не нужно — все протоколы Leapmotor включены по умолчанию.</string>
     <string name="setup_connection_title">Подключение</string>
     <string name="setup_connection_description">Выберите, как iPhone подключается к автомобилю. Большинство автомобилей лучше всего работают с собственной точкой доступа на 5 ГГц. Wi-Fi Direct не требует точки доступа, но может перейти на 2,4 ГГц.</string>
     <string name="setup_iphone_title">Подключите iPhone</string>

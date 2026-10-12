@@ -836,7 +836,9 @@
     <string name="dilink_3">DiLink 3</string>
     <string name="dilink_4">DiLink 4</string>
     <string name="dilink_5">DiLink 5</string>
+    <string name="head_unit_leapmotor">Leapmotor S01/T03</string>
     <string name="dilink_not_sure">Not sure</string>
+    <string name="setup_car_leapmotor">Leapmotor S01/T03 selected. No car detection is needed — all Leapmotor protocols are turned on by default.</string>
     <string name="setup_connection_title">Connection</string>
     <string name="setup_connection_description">Choose how the iPhone reaches the car. Most cars work best with the car’s own hotspot on 5 GHz. Wi-Fi Direct needs no hotspot but may fall back to 2.4 GHz.</string>
     <string name="setup_iphone_title">Pair your iPhone</string>

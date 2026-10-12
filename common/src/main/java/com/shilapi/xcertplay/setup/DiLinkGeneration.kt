@@ -2,13 +2,27 @@ package com.shilapi.xcertplay.setup
 
 import android.content.Context
 import android.os.Build
+import com.shilapi.xcertplay.hud.BydOutputSettings
 
-/** The BYD head unit generation. The setup guide uses it only to explain which features apply. */
+/**
+ * The car the driver told DiPlay about. The setup guide uses it to explain which features apply and
+ * to route the OEM outputs to the right protocol family.
+ *
+ * Historically this was BYD-only (DiLink 3/4/5); the PSA/Leapmotor ports added a manual
+ * [LEAPMOTOR] entry so a driver of an S01/T03 can pick their car outright. [LEAPMOTOR] is never
+ * produced by [detect] — the Leapmotor file probe answers that — it only comes from a manual pick,
+ * and once saved it also drives that probe's override so every downstream transport flips together.
+ */
 enum class DiLinkGeneration(val key: String) {
     DILINK_3("dilink3"),
     DILINK_4("dilink4"),
     DILINK_5("dilink5"),
+    /** 零跑 S01 / T03 (and siblings): use the car's broadcast protocols, no BYD ADB. */
+    LEAPMOTOR("leapmotor"),
     UNKNOWN("unknown");
+
+    /** True for the one non-BYD family, so callers can branch without naming the constant. */
+    val isLeapmotor: Boolean get() = this == LEAPMOTOR
 
     /** How the guess was made, so the guide can say how sure it is. */
     enum class Source { SYSTEM_VERSION, LIKELY, NONE }
@@ -26,6 +40,9 @@ enum class DiLinkGeneration(val key: String) {
         /**
          * BYD names the build after the head unit: DiLink 3.0 reports product `DiLink3.0` and a
          * `BYD-AUTO/DiLink3.0/...` fingerprint. DiLink 5.1 reports a generic `IVI` product on Android 13.
+         *
+         * [LEAPMOTOR] is never returned here: the Leapmotor probe owns that answer and the guide
+         * only offers the manual pick. Detection stays a pure function of the build strings.
          */
         fun detect(product: String?, fingerprint: String?, display: String?, sdkInt: Int,
                    controllerVersion: String? = null): Detection {
@@ -69,8 +86,21 @@ enum class DiLinkGeneration(val key: String) {
         /** The driver's confirmed choice, or the detected generation when they have not picked one. */
         fun current(context: Context): DiLinkGeneration = confirmed(context) ?: detect().generation
 
+        /**
+         * Save the driver's pick and push it into the shared probe so every module agrees.
+         *
+         * - [LEAPMOTOR] marks the unit as Leapmotor (all Leapmotor protocols on, no detection needed).
+         * - A BYD generation explicitly marks it as *not* Leapmotor, which also overrides a stale
+         *   probe file on a re-flashed unit.
+         * - [UNKNOWN] ("Not sure") clears the override and defers to the runtime probe, so leaving it
+         *   on Not sure never breaks a real Leapmotor car.
+         */
         fun save(context: Context, generation: DiLinkGeneration) {
             prefs(context).edit().putString(KEY, generation.key).apply()
+            when (generation) {
+                DiLinkGeneration.UNKNOWN -> BydOutputSettings.clearLeapmotorUserChoice(context)
+                else -> BydOutputSettings.setLeapmotorUserChoice(context, generation.isLeapmotor)
+            }
         }
     }
 }

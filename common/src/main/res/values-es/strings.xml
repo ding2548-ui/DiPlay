@@ -695,7 +695,9 @@
     <string name="dilink_3">DiLink 3</string>
     <string name="dilink_4">DiLink 4</string>
     <string name="dilink_5">DiLink 5</string>
+    <string name="head_unit_leapmotor">Leapmotor S01/T03</string>
     <string name="dilink_not_sure">No estoy seguro</string>
+    <string name="setup_car_leapmotor">Leapmotor S01/T03 seleccionado. No hace falta detectar el coche: todos los protocolos de Leapmotor se activan de forma predeterminada.</string>
     <string name="setup_connection_title">Conexión</string>
     <string name="setup_connection_description">Elige cómo llega el iPhone al coche. La mayoría de los coches funcionan mejor con el punto de acceso del propio coche en 5 GHz. Wi-Fi Direct no necesita punto de acceso, pero puede pasar a 2,4 GHz.</string>
     <string name="setup_iphone_title">Empareja tu iPhone</string>
