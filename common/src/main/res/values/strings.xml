@@ -913,4 +913,20 @@
     <string name="settings_cluster_music_vertical">Music card · vertical position</string>
     <string name="settings_cluster_music_size">Music card · size</string>
     <string name="settings_cluster_music_unknown">Unknown artist</string>
+    <!-- PSA line: the auto-start triggers and their setup entries. -->
+    <string name="auto_car_hotspot_setup_description">Turns the saved car hotspot on by itself when connecting. DiPlay asks once for the “Modify system settings” permission it needs. The hotspot name and password are left as they are, and the hotspot is not turned off afterwards.</string>
+    <string name="auto_car_hotspot_needs_permission">To turn the hotspot on automatically, allow “Modify system settings” for DiPlay in the next screen.</string>
+    <string name="auto_start_bluetooth_title">Bluetooth auto-start</string>
+    <string name="auto_start_bluetooth_description">When a selected paired iPhone connects over Bluetooth, opens DiPlay and starts the wireless connection.</string>
+    <string name="auto_start_bluetooth_devices">Choose auto-start devices</string>
+    <string name="auto_start_bluetooth_devices_unset">Choose auto-start devices (none selected)</string>
+    <string name="auto_start_bluetooth_devices_title">Auto-start devices</string>
+    <string name="auto_start_bluetooth_devices_saved">Saved. The selected iPhones open DiPlay when they connect.</string>
+    <string name="auto_start_bluetooth_no_devices">No paired devices. Pair your iPhone with the car’s Bluetooth first.</string>
+    <string name="auto_start_wifi_title">Wi-Fi auto-start</string>
+    <string name="auto_start_wifi_description">When this head unit joins the Wi-Fi network named below, opens DiPlay and starts the wireless connection.</string>
+    <string name="auto_start_wifi_network">Target Wi-Fi network</string>
+    <string name="auto_start_wifi_network_unset">Target Wi-Fi network (not set)</string>
+    <string name="auto_start_wifi_network_title">Target Wi-Fi network</string>
+    <string name="auto_start_wifi_ssid_hint">The Wi-Fi network this head unit joins — for example the phone hotspot’s name</string>
 </resources>

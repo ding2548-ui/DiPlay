@@ -301,6 +301,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             permissionHelp(getString(R.string.nearby_devices), getString(R.string.allow_nearby_devices_so_diplay_can_connect_to_your_paired))
         }
     }
+    private val autoStartBluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            if (DiPlayPreferences.autoStartBluetoothMacs(this).isEmpty()) chooseAutoStartDevices()
+        } else {
+            DiPlayPreferences.saveAutoStartBluetooth(this, false)
+            render()
+            permissionHelp(getString(R.string.nearby_devices), getString(R.string.allow_nearby_devices_so_diplay_can_connect_to_your_paired))
+        }
+    }
     private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (hasPreciseLocation()) {
             applyLocationReporting(true)
@@ -427,9 +436,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun consumeBluetoothAutoConnectIntent(intent: Intent): Boolean {
         val requested = intent.getBooleanExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT, false)
         intent.removeExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT)
-        return requested && DiPlayPreferences.connectOnPhoneBluetooth(this) &&
-            DiPlayPreferences.phoneAddress(this) != null && setupError == null &&
-            !CarPlayBackgroundSession.hasSession()
+        if (!requested || setupError != null || CarPlayBackgroundSession.hasSession()) return false
+        // PSA line: the auto-start receivers land on this same extra. Any one of the three armed
+        // paths is enough to justify the auto-connect the extra asks for — the receivers have
+        // already matched their own gate (trusted MAC / target SSID) before launching.
+        val legacy = DiPlayPreferences.connectOnPhoneBluetooth(this) &&
+            DiPlayPreferences.phoneAddress(this) != null
+        val bluetooth = DiPlayPreferences.autoStartBluetooth(this) &&
+            DiPlayPreferences.autoStartBluetoothMacs(this).isNotEmpty()
+        val wifi = DiPlayPreferences.autoStartWifi(this) &&
+            DiPlayPreferences.autoStartWifiSsid(this).isNotBlank()
+        return legacy || bluetooth || wifi
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
@@ -1796,20 +1813,42 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     setPadding(0, dp(4), 0, dp(8))
                 })
             }
-            if (!autoConfirmActive) {
-                card.addView(
-                    button(
-                        getString(R.string.btn_auto_apply_permissions),
-                        true,
-                    ) {
-                        autoApplyPermissions()
-                    },
-                    matchButton(8, 54),
-                )
-            } else {
-                card.addView(label(getString(R.string.usb_auto_confirm_active_hint), 14, READY).apply {
-                    setPadding(0, dp(4), 0, dp(8))
-                })
+            // PSA line: the MiAuto-style auto-start triggers, below the USB auto-confirm controls.
+            // Bluetooth wake launches DiPlay when a selected paired iPhone connects; Wi-Fi wake
+            // launches it when the car joins the named network. Both land on the same auto-connect
+            // path as the phone-wake receiver (see consumeBluetoothAutoConnectIntent), and both
+            // stay silent while a session is already up.
+            toggle(card, getString(R.string.auto_start_bluetooth_title),
+                getString(R.string.auto_start_bluetooth_description),
+                DiPlayPreferences.autoStartBluetooth(this)) { enabled ->
+                DiPlayPreferences.saveAutoStartBluetooth(this, enabled)
+                if (enabled) {
+                    if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                        autoStartBluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                    } else if (DiPlayPreferences.autoStartBluetoothMacs(this).isEmpty()) {
+                        chooseAutoStartDevices()
+                    }
+                }
+            }
+            if (DiPlayPreferences.autoStartBluetooth(this)) {
+                val trusted = DiPlayPreferences.autoStartBluetoothMacs(this)
+                card.addView(button(
+                    if (trusted.isEmpty()) getString(R.string.auto_start_bluetooth_devices_unset)
+                    else "${getString(R.string.auto_start_bluetooth_devices)} · ${trusted.size}",
+                    false) { chooseAutoStartDevices() }, matchButton(12, 60))
+            }
+            toggle(card, getString(R.string.auto_start_wifi_title),
+                getString(R.string.auto_start_wifi_description),
+                DiPlayPreferences.autoStartWifi(this)) { enabled ->
+                DiPlayPreferences.saveAutoStartWifi(this, enabled)
+                if (enabled && DiPlayPreferences.autoStartWifiSsid(this).isBlank()) askAutoStartWifiSsid()
+            }
+            if (DiPlayPreferences.autoStartWifi(this)) {
+                val ssid = DiPlayPreferences.autoStartWifiSsid(this)
+                card.addView(button(
+                    if (ssid.isBlank()) getString(R.string.auto_start_wifi_network_unset)
+                    else "${getString(R.string.auto_start_wifi_network)}：$ssid",
+                    false) { askAutoStartWifiSsid() }, matchButton(12, 60))
             }
             card.addView(button(getString(R.string.boot_start_repair), false) { repairBootStart() }, matchButton(6, 56))
             card.addView(label(getString(R.string.boot_start_repair_desc), 14, MUTED).apply { setPadding(0, dp(8), 0, dp(6)) })
@@ -3266,6 +3305,26 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     applyWirelessLink(WirelessHotspotMode.MANUAL)
                 }
             }, matchButton(12, 60))
+            // PSA line: the car-hotspot auto-enable surfaced outside the BYD/ADB gate, so a unit
+            // without ADB (no adbd on this firmware) can still opt in. The permission it needs is
+            // granted from the system Write-settings page, not through ADB appops; the connect
+            // path that acts on the flag is shared with the BYD toggle (CarHotspotTethering).
+            toggle(parent, getString(R.string.auto_car_hotspot_title),
+                getString(R.string.auto_car_hotspot_setup_description),
+                CarHotspotSettings.enabled(this)) { enabled ->
+                if (enabled) {
+                    if (CarHotspotTethering.permitted(this)) {
+                        CarHotspotSettings.setEnabled(this, true)
+                        startupHotspotCancelled = false
+                    } else {
+                        toast(getString(R.string.auto_car_hotspot_needs_permission))
+                        openSystem(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
+                    }
+                } else {
+                    CarHotspotSettings.setEnabled(this, false)
+                    startupHotspotCancelled = true
+                }
+            }
             parent.addView(label(if (pendingCarHotspotSetup) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
             val join = hotspotJoinControls ?: HotspotJoinControls(this,
                 { CarPlayBackgroundSession.hasSession() }, beforeAction = { startupHotspotCancelled = true },
@@ -5294,8 +5353,55 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 val start = pendingWireless; pendingWireless = false
                 render()
                 if (start) connect(true)
-            }.setNeutralButton(getString(R.string.pair_another)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+            }            .setNeutralButton(getString(R.string.pair_another)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
             .setNegativeButton(getString(R.string.cancel)) { _, _ -> pendingWireless = false }.show()
+    }
+
+    /** PSA line: the trusted-device picker behind the Bluetooth auto-start trigger. */
+    private fun chooseAutoStartDevices() {
+        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            autoStartBluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT); return
+        }
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        if (adapter == null || !adapter.isEnabled) {
+            appDialogBuilder().setTitle(getString(R.string.turn_on_bluetooth))
+                .setMessage(getString(R.string.enable_the_car_s_bluetooth_and_pair_your_iphone_first))
+                .setPositiveButton(getString(R.string.open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                .setNegativeButton(getString(R.string.later), null).show(); return
+        }
+        val devices = runCatching { adapter.bondedDevices.sortedBy { it.name ?: "" } }.getOrDefault(emptyList())
+        if (devices.isEmpty()) {
+            toast(getString(R.string.auto_start_bluetooth_no_devices)); return
+        }
+        val selected = DiPlayPreferences.autoStartBluetoothMacs(this).toMutableSet()
+        appDialogBuilder().setTitle(getString(R.string.auto_start_bluetooth_devices_title))
+            .setMultiChoiceItems(
+                devices.map { it.name ?: getString(R.string.paired_device) }.toTypedArray(),
+                devices.map { it.address in selected }.toBooleanArray(),
+            ) { _, which, checked ->
+                if (checked) selected.add(devices[which].address) else selected.remove(devices[which].address)
+            }
+            .setPositiveButton(getString(R.string.save)) { _, _ ->
+                DiPlayPreferences.saveAutoStartBluetoothMacs(this, selected)
+                toast(getString(R.string.auto_start_bluetooth_devices_saved))
+                render()
+            }
+            .setNegativeButton(getString(R.string.cancel), null).show()
+    }
+
+    /** PSA line: the target-network prompt behind the Wi-Fi auto-start trigger. */
+    private fun askAutoStartWifiSsid() {
+        val input = android.widget.EditText(this)
+        input.setText(DiPlayPreferences.autoStartWifiSsid(this))
+        input.setSelection(input.text.length)
+        appDialogBuilder().setTitle(getString(R.string.auto_start_wifi_network_title))
+            .setMessage(getString(R.string.auto_start_wifi_ssid_hint))
+            .setView(input)
+            .setPositiveButton(getString(R.string.save)) { _, _ ->
+                DiPlayPreferences.saveAutoStartWifiSsid(this, input.text.toString().trim())
+                render()
+            }
+            .setNegativeButton(getString(R.string.cancel), null).show()
     }
 
     private fun wirelessHelp() {

@@ -871,4 +871,20 @@
     <string name="settings_cluster_music_vertical">音乐卡片 · 垂直位置</string>
     <string name="settings_cluster_music_size">音乐卡片 · 大小</string>
     <string name="settings_cluster_music_unknown">未知艺人</string>
+    <!-- PSA line: the auto-start triggers and their setup entries. -->
+    <string name="auto_car_hotspot_setup_description">连接时自动打开已保存的车载热点。需要「修改系统设置」权限，DiPlay 会引导你在系统设置中授权。保留热点名称和密码，连接结束后不会关闭热点。</string>
+    <string name="auto_car_hotspot_needs_permission">自动开启热点需要「修改系统设置」权限，接下来请在系统设置中允许。</string>
+    <string name="auto_start_bluetooth_title">蓝牙自动启动</string>
+    <string name="auto_start_bluetooth_description">所选的已配对 iPhone 蓝牙连上车机时，自动打开 DiPlay 并开始无线连接。</string>
+    <string name="auto_start_bluetooth_devices">选择自动启动设备</string>
+    <string name="auto_start_bluetooth_devices_unset">选择自动启动设备（未选择）</string>
+    <string name="auto_start_bluetooth_devices_title">自动启动设备</string>
+    <string name="auto_start_bluetooth_devices_saved">已保存。所选 iPhone 连上蓝牙后会自动打开 DiPlay。</string>
+    <string name="auto_start_bluetooth_no_devices">没有已配对设备。请先把 iPhone 与车机蓝牙配对。</string>
+    <string name="auto_start_wifi_title">Wi-Fi 自动启动</string>
+    <string name="auto_start_wifi_description">车机连上下方指定的 Wi-Fi 网络时，自动打开 DiPlay 并开始无线连接。</string>
+    <string name="auto_start_wifi_network">目标 Wi-Fi 网络</string>
+    <string name="auto_start_wifi_network_unset">目标 Wi-Fi 网络（未设置）</string>
+    <string name="auto_start_wifi_network_title">目标 Wi-Fi 网络</string>
+    <string name="auto_start_wifi_ssid_hint">车机要连接的 Wi-Fi 名称，例如手机热点的名称</string>
 </resources>

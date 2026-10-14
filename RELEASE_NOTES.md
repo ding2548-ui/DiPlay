@@ -70,6 +70,18 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   方控的接听/挂断走 iAP2（与 BYD 同一套），零跑上直接可用。
   设置项在零跑上**不需要 ADB 支持性探测**，打开即可。
 - **USB 权限弹窗**：`MANAGE_USB` + 无障碍按内容判定自动确认。
+- **自动开启热点** 🆕：连接设置 →「车载热点（推荐）」→「保存热点信息并使用此模式」下方的开关。
+  打开后**每次无线连接（含开机/事件自动连接）都会在热点未开时自动尝试打开车机热点**：
+  反射 `startTethering`（走车机自己保存的热点配置，不动名称/密码/频段），连接结束后**不关热点**。
+  需要「修改系统设置」权限，开关打开时引导到系统设置授权（无需 ADB）；BYD 高级组里的原开关
+  仍保留（同一条实现通路），**本版起零跑等无 ADB 车机也能用这个功能**。
+- **蓝牙自动启动** 🆕：设置 → 连接 →「自动连接」卡片（「自动确认 USB 权限」下方）。
+  从已配对设备里**多选信任名单**；名单里的 iPhone 蓝牙连上车机 → 自动打开 DiPlay 并走自动连接流程。
+  会话进行中不触发，15 s 去重；与原有的「iPhone 蓝牙连接时自动连接」（单选手机）并存，互不影响。
+- **Wi-Fi 自动启动** 🆕：同一卡片。填入目标 Wi-Fi 名称（SSID）；**车机连上这个网络**（例如手机热点）
+  → 自动打开 DiPlay 并走自动连接流程。适合「外置 Wi-Fi / 同一局域网」模式：车机入网即拉起连接。
+- **修复：自动连接卡片按钮重复渲染** 🔧：「自动确认 USB 权限」下方的「自动应用权限」按钮 /
+  提示行此前被添加了两次，本版去重。
 - **修复：点击连接手机闪退** 🔧：`CarPlayHostActivity.onCreate` 注册 showmap 广播接收器时未声明
   `RECEIVER_EXPORTED`，Android 13+（API 33+）抛 `SecurityException` 导致 Activity 无法启动
   （Android 7 真车无此检查；诊断报告 20261013-000740-569，小米 Android 16 测试机必现）。
@@ -156,6 +168,19 @@ CarPlay 来电卡片（零跑，需车辆通电）：
 - 车载热点：`wireless hotspot backend=Manual hotspot` → `AirPlay session active`
 - 出画面：`Video: first frame rendered`
 - 悬浮卡片：`Centre map: card shown streamActive=true`（流应为 **111 / dashboard stream**）
+
+自动启动三开关（实车）：
+
+1. **自动开启热点**：关掉车机热点 → 连接设置里打开开关（按引导授予「修改系统设置」）→ 点
+   「连接手机」：热点应被自动打开并继续无线连接；日志（TAG `DiPlay-Hotspot` / 连接诊断行）应出现
+   `car hotspot auto-enable: ...`。若权限没给到位，结果是 `PERMISSION_REQUIRED`，不会反复重试。
+2. **蓝牙自动启动**：从最近任务划掉（或确认无会话）→ iPhone 蓝牙连上车机 → DiPlay 应自动打开
+   并开始无线连接。报告 `Phone Bluetooth wake:` 行：`result=startActivity-returned` 即拉起成功；
+   `result=matched-bluetooth` 说明匹配到了但拉起没跑完，`failureClass=` 给出原因。
+3. **Wi-Fi 自动启动**：车机手动连上设置的 SSID → DiPlay 自动打开并开始无线连接；
+   报告同一行应显示 `result=matched-wifi`（→ `startActivity-returned`）。
+   注意：车机连上 Wi-Fi 后**射频被占用**（STA 模式），随后的无线连接要按所连接的模式走
+   （外置 Wi-Fi 模式才是这个开关的主场景）。
 
 无线失败时先看这两行（本版新增）：
 
