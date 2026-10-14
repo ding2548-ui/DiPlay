@@ -72,7 +72,7 @@ class AdbClusterActivity : Activity() {
         region.addView(waiting, FrameLayout.LayoutParams(-1, -1))
         turnCard = ClusterTurnCardView(this).apply { visibility = View.GONE }
         root.addView(turnCard, FrameLayout.LayoutParams(-1, -1))
-        val music = ClusterMusicView(this, alwaysVisible = true)
+        val music = ClusterMusicView(this)
         musicView = music
         root.addView(music, FrameLayout.LayoutParams(-1, -1))
         root.addView(ClusterSpeedometerView(this), FrameLayout.LayoutParams(-1, -1))

@@ -88,6 +88,15 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   按代码库既有 SDK 分支模式修复三处：showmap 接收器（EXPORTED）、Leapmotor 方控广播接收器
   （EXPORTED）、方控学习广播绑定（EXPORTED）；全树 registerReceiver 已扫净，其余为受保护
   系统广播或已有分支。
+- **修复：自动开启热点在本车机不生效** 🔧：此前只反射 4 参 `startTethering(int, ResultReceiver,
+  boolean, String)`——该签名 Android 8 才引入，本车机（Android 7.1.2）的绑定接口只有 3 参
+  形式，反射直接 `NoSuchMethodException` → 误报「固件不支持自动开启热点」→ 无线连接失败、
+  一直提示重连（诊断报告 20261014-184116-352）。现按签名级联尝试：4 参（Android 8+）→
+  3 参（Android 7.x 绑定接口）→ 传统的 `setWifiApEnabled(null, true)`（用车机自己保存的
+  热点配置启动，不动名称/密码/频段）。开启成功后仍由原有轮询确认热点真的起来才算成功。
+- **修复：仪表音乐开关失效** 🔧：「仪表音乐（实验性）」关掉后，音乐封面图标仍持续显示在
+  中控悬浮卡片上。原因是悬浮卡片与仪表盘侧的音乐图标构造时绕过了总开关。现恢复开关闸门：
+  开关关闭即不出图标；卡片的「音乐」内容源（用户明确选择的整卡音乐）仍照常显示，不受该开关影响。
 - **界面汉化**、零跑档位识别、倒车暂停、iOS 27 视频车内播放（N 挡门控）。
 - **在线更新**（首页快捷设置下方 → 在线更新）：检查 GitHub 上的新构建 → 下载 → 安装。
 - CarPlay 应用列表里那个「回到原车」的图标按钮，名称与图标都是**零跑**。
@@ -109,7 +118,7 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 - **Wi-Fi Direct 在 API 25 上无法指定信道**：`WifiP2pGroup.getFrequency()` 与带 config 的
   `createGroup` 都是 API 29 才有的，所以信道由系统选择。升到 Android 10 以上才能手动指定。
 - **CI 不再跑 lint 与单元测试**，只出 release 包。改运行时代码时请手动跑一次
-  `python D:\Launcher\kotlin_static_check.py <改动的 .kt 文件>`。
+  `python E:\Launcher\kotlin_static_check.py <改动的 .kt 文件>`。
 - **APK 必须带 `arm64-v8a`**：为某个 native 库钉 ABI 会把**整个进程变成 32 位**，
   而 32 位会打挂车载热点。CI 里已加断言。
 - **开无线 CarPlay 时车机自身没有网络**（msm8953 单射频，不支持 STA+GO 并发）。

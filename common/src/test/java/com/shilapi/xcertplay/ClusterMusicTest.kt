@@ -59,6 +59,23 @@ class ClusterMusicTest {
         controller.pause().stop().destroy()
     }
 
+    @Test fun masterSwitchGatesTheTileButForcedSourceStillShows() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
+        val view = ClusterMusicView(controller.get())
+        controller.get().setContentView(view)
+        assertFalse(ClusterMusicSettings.enabled(context))
+        val track = CarPlayNowPlaying(title = "Song", artist = "Artist", playing = true)
+        ClusterMusicState.publish(track, null); idle()
+        assertEquals(View.GONE, view.visibility)
+        ClusterMusicState.publish(track.copy(title = "Next song"), null); idle()
+        assertEquals(View.GONE, view.visibility)
+        view.setForcedVisible(true); idle()
+        assertEquals(View.VISIBLE, view.visibility)
+        view.setForcedVisible(false); idle()
+        assertEquals(View.GONE, view.visibility)
+        controller.pause().stop().destroy()
+    }
+
     @Test fun permanentSurvivesPauseButDisableAndDisconnectClearItAndReattachKeepsDeadline() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
         val view = ClusterMusicView(controller.get())

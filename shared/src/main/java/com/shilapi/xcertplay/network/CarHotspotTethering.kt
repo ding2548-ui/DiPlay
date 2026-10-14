@@ -3,6 +3,8 @@ package com.shilapi.xcertplay.network
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.wifi.WifiConfiguration
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.ResultReceiver
 import android.provider.Settings
@@ -46,11 +48,27 @@ object CarHotspotTethering {
                 .apply { isAccessible = true }
                 .get(context.getSystemService(ConnectivityManager::class.java))
                 ?: throw NoSuchMethodException("Connectivity service unavailable")
-            @SuppressLint("SoonBlockedPrivateApi")
-            service.javaClass.getMethod(
-                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                Boolean::class.javaPrimitiveType, String::class.java,
-            ).invoke(service, 0, receiver, false, context.packageName)
+            // Android 8+ carries the caller package in the binder signature; Android 7.x does not.
+            try {
+                service.javaClass.getMethod(
+                    "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
+                    Boolean::class.javaPrimitiveType, String::class.java,
+                ).invoke(service, 0, receiver, false, context.packageName)
+            } catch (error: NoSuchMethodException) {
+                try {
+                    service.javaClass.getMethod(
+                        "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
+                        Boolean::class.javaPrimitiveType,
+                    ).invoke(service, 0, receiver, false)
+                } catch (legacyError: NoSuchMethodException) {
+                    // Last resort on old firmwares: the classic SoftAP toggle reuses the car's
+                    // saved hotspot configuration, exactly like startTethering does.
+                    val wifi = context.getSystemService(WifiManager::class.java) ?: throw error
+                    WifiManager::class.java.getMethod(
+                        "setWifiApEnabled", WifiConfiguration::class.java, Boolean::class.javaPrimitiveType,
+                    ).invoke(wifi, null, true)
+                }
+            }
         }
         val startAdb: () -> Boolean = {
             val client = AtomicReference<LocalAdb?>()

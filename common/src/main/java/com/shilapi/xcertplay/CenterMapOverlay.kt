@@ -162,7 +162,7 @@ internal object CenterMapOverlay {
             }
         }
         video = videoView
-        val music = ClusterMusicView(context, alwaysVisible = true)
+        val music = ClusterMusicView(context)
         musicView = music
         val layer = FrameLayout(context).apply {
             addView(videoView, FrameLayout.LayoutParams(-1, -1))
@@ -318,7 +318,7 @@ internal object CenterMapOverlay {
         val context = appContext ?: return
         val source = ClusterScreenProfile.source(context)
         video?.visibility = if (source == ClusterScreenProfile.Source.MUSIC) View.GONE else View.VISIBLE
-        musicView?.visibility = if (source == ClusterScreenProfile.Source.MUSIC) View.VISIBLE else View.GONE
+        musicView?.setForcedVisible(source == ClusterScreenProfile.Source.MUSIC)
         applyRegions()
         updateTransform()
         Log.i(TAG, "card profile source=${source.label}")
