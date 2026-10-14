@@ -23,11 +23,21 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 - **有线 CarPlay（VPN/NCM 通路）**：设备发现、重枚举、配对、NCM 数据通路、MFi 认证、
   `0x4300` / `0x4301`、出画面（`Video: first frame rendered`）、音频（`audioType=media`）全部正常。
-- **无线 CarPlay** —— 三种模式**都可用**，按车机条件任选：
-  - **Wi-Fi Direct**：✅ 可用。车机自建 P2P 组，iPhone 直连，不依赖车机热点。
-    API 25 上信道由系统选择（见「已知限制」）。
-  - **车载自建热点**：✅ 可用。走车机自己的热点，需要车机 Wi-Fi 开关打开。
-  - **外置 Wi-Fi / 同一局域网**：✅ 可用。车机与 iPhone 连同一个网络。
+- **无线 CarPlay** —— 三种模式，按车机条件任选：
+  - **Wi-Fi Direct**：✅ 可用。车机自建 P2P 组，iPhone 直连，不依赖车机热点，
+    **也不需要把密码交给 iPhone**。API 25 上信道由系统选择（见「已知限制」）。
+  - **车载自建热点**：⚠️ 可用但**不稳定**。车机自建热点由系统持有，DiPlay 只读它的配置
+    （SSID / 安全类型 / 信道）并把凭据交给 iPhone，由 iPhone 自己去入网。
+    **首次入网常失败**：30 秒内 iPhone 不发起 AirPlay TCP 连接
+    （报告里是 `No AirPlay TCP after CarPlay StartSession`），重试几次通常成功。
+    2026-10-09 的日志里第 4 次才成功；同一份构建在 iPhone 已在该网上时 3/3 秒连。
+  - **外置 Wi-Fi / 同一局域网**：⚠️ 尚未复现成功。车机与 iPhone 连同一个网络，
+    但 iPhone 始终不发起 AirPlay TCP 连接（报告里 `mdnsFamilies=IPv4,IPv6`、两个
+    `airplay listener ready`）。
+  - **本版起，交给 iPhone 的 Wi-Fi 密码优先取车机自己那份配置**（热点走
+    `getWifiApConfiguration()`，外置 Wi-Fi 走车机自己保存的网络配置），设置里填的那份
+    只在车机不暴露时使用；报告里 `Manual hotspot pskMatches=` / `Existing Wi-Fi pskMatches=`
+    给出两者的比对结果。
 
 ### 功能
 
@@ -146,6 +156,14 @@ CarPlay 来电卡片（零跑，需车辆通电）：
 - 车载热点：`wireless hotspot backend=Manual hotspot` → `AirPlay session active`
 - 出画面：`Video: first frame rendered`
 - 悬浮卡片：`Centre map: card shown streamActive=true`（流应为 **111 / dashboard stream**）
+
+无线失败时先看这两行（本版新增）：
+
+- `Manual hotspot pskMatches=true|false|unknown` / `Existing Wi-Fi pskMatches=...`
+  —— `true` 两份密码一致；`unknown` 车机不暴露自己的密码，用的是设置里填的那份；
+  `false` 两份不一致，此时已改用**车机那份**，请把这一行一起回报。
+- 之后若仍是 `No AirPlay TCP after CarPlay StartSession`，说明密码已经不是问题，
+  而是 iPhone 没能入网 —— 属车机射频/iPhone 侧，不是 DiPlay 的连接代码。
 
 ## 装包说明
 
