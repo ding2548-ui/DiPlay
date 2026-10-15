@@ -5,11 +5,10 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
 import android.provider.Settings
-import com.shilapi.xcertplay.adb.AdbKeys
-import com.shilapi.xcertplay.adb.LocalAdb
 import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -38,61 +37,57 @@ object CarHotspotTethering {
         log: (String) -> Unit,
     ): Result {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
-        val observedAdbState = AtomicReference<Boolean?>()
-        val startReflection: (ResultReceiver) -> Unit = { receiver ->
-            // There is no public API for the car hotspot's startTethering overload on this platform,
-            // so the binder field has to be reached reflectively. The call is already wrapped by the
-            // caller's runCatching, and a missing field surfaces as NoSuchMethodException.
-            @SuppressLint("SoonBlockedPrivateApi")
-            val service = ConnectivityManager::class.java.getDeclaredField("mService")
-                .apply { isAccessible = true }
-                .get(context.getSystemService(ConnectivityManager::class.java))
-                ?: throw NoSuchMethodException("Connectivity service unavailable")
-            // Android 8+ carries the caller package in the binder signature; Android 7.x does not.
-            try {
-                service.javaClass.getMethod(
-                    "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                    Boolean::class.javaPrimitiveType, String::class.java,
-                ).invoke(service, 0, receiver, false, context.packageName)
-            } catch (error: NoSuchMethodException) {
-                try {
-                    service.javaClass.getMethod(
-                        "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                        Boolean::class.javaPrimitiveType,
-                    ).invoke(service, 0, receiver, false)
-                } catch (legacyError: NoSuchMethodException) {
-                    // Last resort on old firmwares: the classic SoftAP toggle reuses the car's
-                    // saved hotspot configuration, exactly like startTethering does.
-                    val wifi = context.getSystemService(WifiManager::class.java) ?: throw error
-                    WifiManager::class.java.getMethod(
-                        "setWifiApEnabled", WifiConfiguration::class.java, Boolean::class.javaPrimitiveType,
-                    ).invoke(wifi, null, true)
-                }
+        // FreeAuto-style primary path: on Android 7.x the classic SoftAP toggle only needs
+        // CHANGE_WIFI_STATE, reuses the car's saved hotspot configuration and is confirmed by
+        // polling the AP state — no ADB, no binder reflection. The startTethering binder
+        // overloads arrived with Android 8 and remain the path on newer firmwares.
+        val start: (ResultReceiver) -> Unit =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                { receiver -> startTetheringByBinder(context, receiver) }
+            } else {
+                { _ -> startLegacySoftAp(context) }
             }
-        }
-        val startAdb: () -> Boolean = {
-            val client = AtomicReference<LocalAdb?>()
-            CarHotspotAdbFallback.bounded(deadline, isCancelled,
-                abort = { client.get()?.cancelPendingOperations() }) {
-                val adb = LocalAdb(AdbKeys.load(context))
-                client.set(adb)
-                adb.use {
-                    if (isCancelled() || Thread.currentThread().isInterrupted || System.nanoTime() >= deadline) false
-                    else if (adb.connect(mayAsk = false) != LocalAdb.Access.READY) false
-                    else CarHotspotAdbFallback.start(deadline, isCancelled,
-                        state = { CarHotspotStatus.isEnabled(context) }, shell = adb::shell, log = log)
-                        .also { if (it) observedAdbState.set(true) }
-                }
-            }
-        }
         return enableUntil(
             deadline,
             isCancelled,
             { permitted(context) },
-            stateWithAdbObservation({ CarHotspotStatus.isEnabled(context) }, observedAdbState),
-            startFallback = startAdb,
-            start = startReflection,
+            { CarHotspotStatus.isEnabled(context) },
+            startFallback = null,
+            start = start,
         ).also { log("car hotspot auto-enable: ${it.diagnostic}") }
+    }
+
+    private fun startTetheringByBinder(context: Context, receiver: ResultReceiver) {
+        // There is no public API for the car hotspot's startTethering overload on this platform,
+        // so the binder field has to be reached reflectively. The call is already wrapped by the
+        // caller's runCatching, and a missing field surfaces as NoSuchMethodException.
+        @SuppressLint("SoonBlockedPrivateApi")
+        val service = ConnectivityManager::class.java.getDeclaredField("mService")
+            .apply { isAccessible = true }
+            .get(context.getSystemService(ConnectivityManager::class.java))
+            ?: throw NoSuchMethodException("Connectivity service unavailable")
+        // Android 8+ carries the caller package in the binder signature; Android 8.0 does not.
+        try {
+            service.javaClass.getMethod(
+                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
+                Boolean::class.javaPrimitiveType, String::class.java,
+            ).invoke(service, 0, receiver, false, context.packageName)
+        } catch (error: NoSuchMethodException) {
+            service.javaClass.getMethod(
+                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
+                Boolean::class.javaPrimitiveType,
+            ).invoke(service, 0, receiver, false)
+        }
+    }
+
+    private fun startLegacySoftAp(context: Context) {
+        // The classic toggle: on this API level CHANGE_WIFI_STATE suffices and the system
+        // applies its own saved hotspot configuration (name/password/band untouched).
+        val wifi = context.getSystemService(WifiManager::class.java)
+            ?: throw NoSuchMethodException("Wi-Fi manager unavailable")
+        WifiManager::class.java.getMethod(
+            "setWifiApEnabled", WifiConfiguration::class.java, Boolean::class.javaPrimitiveType,
+        ).invoke(wifi, null, true)
     }
 
     /** An ADB observation supplements hidden platform status, but never overrides a current off state. */
