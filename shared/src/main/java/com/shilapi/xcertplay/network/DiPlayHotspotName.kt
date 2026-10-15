@@ -34,10 +34,11 @@ internal object DiPlayHotspotName {
 
     fun needsRename(currentSsid: String?, target: String): Boolean = unquoted(currentSsid) != target
 
-    fun unquoted(ssid: String?): String = ssid
-        ?.takeIf { it.length >= 2 && it.startsWith("\"") && it.endsWith("\"") }
-        ?.substring(1, it.length - 1)
-        ?: ssid.orEmpty()
+    fun unquoted(ssid: String?): String {
+        val value = ssid?.takeIf { it.length >= 2 && it.startsWith("\"") && it.endsWith("\"") }
+            ?: return ssid.orEmpty()
+        return value.substring(1, value.length - 1)
+    }
 
     /** The system password, security and band are left exactly as saved; only the name moves. */
     fun withNameOnly(config: WifiConfiguration, target: String): WifiConfiguration {
