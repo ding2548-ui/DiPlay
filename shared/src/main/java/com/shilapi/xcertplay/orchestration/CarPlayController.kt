@@ -146,6 +146,15 @@ internal fun isWirelessHandoffInProgress(
     sessionActive: Boolean,
 ): Boolean = handoffRequested || tunnelActive || sessionActive
 
+/** A dead Bluetooth bootstrap is tolerable while an AirPlay session is live inside the handoff
+ *  window: the phone may drop its RFCOMM right after requesting the handoff, long before the
+ *  tunnel watchdog completes the fallback. Losing the control link must not tear down projection. */
+internal fun keepsWirelessSessionAfterBootstrapError(
+    error: Throwable,
+    handoffInProgress: Boolean,
+    wirelessActiveReported: Boolean,
+): Boolean = error !is Error && (handoffInProgress || wirelessActiveReported)
+
 /**
  * Wires the complete wired or wireless CarPlay path: MFi coprocessor discovery, iPhone bring-up,
  * iAP2 control, transport setup, and the AirPlay media/input sessions.
@@ -1484,7 +1493,16 @@ class CarPlayController(
             if (isStaleWirelessRun(generation)) {
                 return
             }
-            if (wirelessActiveReported.get() && error !is Error) {
+            if (activeSession != null && keepsWirelessSessionAfterBootstrapError(
+                    error,
+                    isWirelessHandoffInProgress(
+                        handoffRequested = wirelessHandoffRequested.get(),
+                        tunnelActive = wirelessTunnelChannel != null,
+                        sessionActive = activeSession != null,
+                    ),
+                    wirelessActiveReported.get(),
+                )
+            ) {
                 debugLog("wireless RFCOMM control ended after tunnel handoff: ${error.message}")
             } else {
                 debugLog("wireless bring-up failed", error)
