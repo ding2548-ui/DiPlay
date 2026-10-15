@@ -16,6 +16,23 @@ internal object DiPlayHotspotName {
 
     fun nameFor(suffix: String): String = PREFIX + suffix
 
+    /** FreeAuto namedConfiguration parity: null means "switch on as the system has it" (either
+     *  the configuration is hidden or the name already belongs to this install); otherwise the
+     *  saved configuration comes back with only the SSID replaced by our name. */
+    fun namedConfiguration(context: Context, saved: WifiConfiguration?, log: (String) -> Unit): WifiConfiguration? {
+        if (saved == null) {
+            log("hotspot name rule: the system hides the hotspot configuration; switching on with its current name")
+            return null
+        }
+        val target = nameFor(suffix(context, saved.SSID, log))
+        if (!needsRename(saved.SSID, target)) {
+            log("hotspot name rule: the saved name is already this install's (password left as system)")
+            return null
+        }
+        log("hotspot name rule: the saved name is ${unquoted(saved.SSID)}; switching on with the DiPlay- name only (system password/security/band unchanged)")
+        return withNameOnly(saved, target)
+    }
+
     fun suffix(context: Context, currentSsid: String?, log: (String) -> Unit): String {
         val prefs = context.applicationContext
             .getSharedPreferences("diplay_hotspot_name", Context.MODE_PRIVATE)
