@@ -47,14 +47,6 @@ object CarHotspotTethering {
             } else {
                 { _ -> startLegacySoftAp(context, log) }
             }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
-            CarHotspotStatus.isEnabled(context) == true
-        ) {
-            // FreeAuto applyNameRule parity: a hotspot that is already running but does not
-            // carry this install's name is bounced once under our name; one already named ours
-            // is left untouched.
-            renameRunningHotspotIfForeign(context, log)
-        }
         return enableUntil(
             deadline,
             isCancelled,
@@ -91,52 +83,15 @@ object CarHotspotTethering {
     private fun startLegacySoftAp(context: Context, log: (String) -> Unit) {
         val wifi = context.getSystemService(WifiManager::class.java)
             ?: throw NoSuchMethodException("Wi-Fi manager unavailable")
-        val saved = readSavedHotspotConfiguration(wifi)
-        // FreeAuto sequence: switch on with this install's name first — the configuration whose
-        // SSID differs from the stored one pushes the framework through its full AP start path;
-        // if the system refuses it, retry with the saved configuration as it is. A hidden
-        // configuration or an already-ours name passes null, exactly like FreeAuto.
-        val named = DiPlayHotspotName.namedConfiguration(context, saved, log)
-        if (!setAp(wifi, named, true, log) && named != null) {
-            log("hotspot name rule: the system refused the DiPlay- name; switching on with the saved configuration as it is")
-            setAp(wifi, saved, true, log)
-        }
-    }
-
-    /** FreeAuto applyNameRule parity: a running hotspot that does not carry this install's name
-     *  is bounced once under our name; one already named ours is left untouched. */
-    private fun renameRunningHotspotIfForeign(context: Context, log: (String) -> Unit) {
-        val wifi = context.getSystemService(WifiManager::class.java) ?: return
-        val saved = readSavedHotspotConfiguration(wifi) ?: return
-        val target = DiPlayHotspotName.nameFor(DiPlayHotspotName.suffix(context, saved.SSID, log))
-        if (!DiPlayHotspotName.needsRename(saved.SSID, target)) return
-        log("hotspot name rule: restarting once with the DiPlay- name " +
-            "(system password/security/band unchanged; connected devices drop briefly)")
-        setAp(wifi, saved, false, log)
-        try {
-            Thread.sleep(2_000)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            return
-        }
-        setAp(wifi, DiPlayHotspotName.withNameOnly(saved, target), true, log)
-    }
-
-    private fun readSavedHotspotConfiguration(wifi: WifiManager): WifiConfiguration? =
-        runCatching {
+        // FreeAuto parity: switch the hotspot on with the car's own saved configuration — its
+        // name and password stay exactly as the user set them in the car settings.
+        val saved = runCatching {
             WifiManager::class.java.getMethod("getWifiApConfiguration").invoke(wifi) as? WifiConfiguration
         }.getOrNull()
-
-    private fun setAp(
-        wifi: WifiManager,
-        config: WifiConfiguration?,
-        enabled: Boolean,
-        log: (String) -> Unit,
-    ): Boolean {
-        val result = WifiManager::class.java.getMethod(
+        log("car hotspot legacy start: saved config ${if (saved != null) "applied (ssid known)" else "unavailable (null)"}")
+        WifiManager::class.java.getMethod(
             "setWifiApEnabled", WifiConfiguration::class.java, Boolean::class.javaPrimitiveType,
-        ).invoke(wifi, config, enabled)
-        return (result as? Boolean) ?: false
+        ).invoke(wifi, saved, true)
     }
 
     /** An ADB observation supplements hidden platform status, but never overrides a current off state. */
