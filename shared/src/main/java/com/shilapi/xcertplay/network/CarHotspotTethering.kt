@@ -45,7 +45,7 @@ object CarHotspotTethering {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 { receiver -> startTetheringByBinder(context, receiver) }
             } else {
-                { _ -> startLegacySoftAp(context) }
+                { _ -> startLegacySoftAp(context, log) }
             }
         return enableUntil(
             deadline,
@@ -80,14 +80,19 @@ object CarHotspotTethering {
         }
     }
 
-    private fun startLegacySoftAp(context: Context) {
-        // The classic toggle: on this API level CHANGE_WIFI_STATE suffices and the system
-        // applies its own saved hotspot configuration (name/password/band untouched).
+    private fun startLegacySoftAp(context: Context, log: (String) -> Unit) {
         val wifi = context.getSystemService(WifiManager::class.java)
             ?: throw NoSuchMethodException("Wi-Fi manager unavailable")
+        // FreeAuto parity: always pass the car's saved hotspot configuration object. Passing null
+        // makes this firmware bring the AP up without its tethering setup — clients associate but
+        // get no DHCP (diagnostic 20261015-115236-952: wlan0 IPv6-only, no AirPlay TCP).
+        val saved = runCatching {
+            WifiManager::class.java.getMethod("getWifiApConfiguration").invoke(wifi) as? WifiConfiguration
+        }.getOrNull()
+        log("car hotspot legacy start: saved config ${if (saved != null) "applied (ssid known)" else "unavailable (null)"}")
         WifiManager::class.java.getMethod(
             "setWifiApEnabled", WifiConfiguration::class.java, Boolean::class.javaPrimitiveType,
-        ).invoke(wifi, null, true)
+        ).invoke(wifi, saved, true)
     }
 
     /** An ADB observation supplements hidden platform status, but never overrides a current off state. */

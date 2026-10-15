@@ -80,6 +80,14 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   **Android 7.x 直接用传统 `setWifiApEnabled` 开关**（仅需清单内 `CHANGE_WIFI_STATE` 普通权限 +
   「修改系统设置」授权），**热点自动启用链路中的 ADB 兜底整段移除**；`startTethering` 仅保留
   给 Android 8+。开启成功仍以轮询确认热点真正起来为准。
+- **修复：反射创建的热点无互联网（iPhone 连上但无 DHCP）** 🔧：诊断报告 20261015-115236-952
+  ——反射拉起的热点在 wlan0 上只有 IPv6 链路本地地址（`ipv4Usable=0`，Bonjour 仅 IPv6，
+  iPhone 入网后无 IPv4/互联网，CarPlay 一次都没连上），而车机设置里手动开的热点正常。
+  根因：上一版把 `null` 传给 `setWifiApEnabled`，本车 ROM 对 null 走的分支**不带 tethering/
+  DHCP**。FreeAuto 的反射路径**从不传 null**（永远传已保存的热点配置对象）。现对齐：反射启动
+  前先反射读取车机保存的热点配置对象并原样传入（不改名、不动机主 SSID/密码），并打
+  `car hotspot legacy start:` 诊断行供核对。**升级后请先手动关一次车机热点再连**（清掉旧版
+  创建的无 DHCP 热点，一次性）。
 - **蓝牙自动启动** 🆕：设置 → 连接 →「自动连接」卡片（「自动确认 USB 权限」下方）。
   从已配对设备里**多选信任名单**；名单里的 iPhone 蓝牙连上车机 → 自动打开 DiPlay 并走自动连接流程。
   会话进行中不触发，15 s 去重；与原有的「iPhone 蓝牙连接时自动连接」（单选手机）并存，互不影响。
