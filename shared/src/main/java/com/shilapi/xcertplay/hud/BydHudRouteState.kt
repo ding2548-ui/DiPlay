@@ -34,9 +34,12 @@ internal class BydHudRouteState(
     /**
      * The dashboard overlay keeps the last instruction across a wireless session drop: the iPhone
      * often sends NoRouteSet (0) while the tunnel is tearing down, which is not a real arrival.
-     * Arrived (2) still ends the route. The overlay's own stale window retires a truly ended one.
+     * Arrived (2) still ends the route. While the session stays up, NoRouteSet is the driver
+     * ending guidance, and the card goes after [noRouteHideNs] unless guidance comes back; a
+     * card left showing the last turn after a cancelled route was #511.
      */
     private val keepAcrossNoRoute: Boolean = false,
+    private val noRouteHideNs: Long = NO_ROUTE_HIDE_NS,
 ) {
     private data class Maneuver(val type: Int, val drivingSide: Int, val afterRoad: String)
 
@@ -50,6 +53,8 @@ internal class BydHudRouteState(
     private var remainingMeters: Long? = null
     private var emptyListSinceNs: Long? = null
     private var lastRouteUpdateNs: Long? = null
+    private var noRouteSinceNs: Long? = null
+    private var holdingAcrossDrop = false
 
     fun accept(messageId: Int, payload: ByteArray): BydHudRouteChange {
         if (!validTlvs(payload)) return BydHudRouteChange.NONE
@@ -92,8 +97,20 @@ internal class BydHudRouteState(
         remainingMeters = null
         emptyListSinceNs = null
         lastRouteUpdateNs = null
+        noRouteSinceNs = null
+        holdingAcrossDrop = false
         maneuvers.clear()
         return wasActive
+    }
+
+    /**
+     * The wireless session dropped with guidance on screen. NoRouteSet before the drop, and from the
+     * session that replaces it, is the handoff's, so the card stays until new guidance or its stale
+     * window.
+     */
+    fun holdAcrossDrop() {
+        noRouteSinceNs = null
+        holdingAcrossDrop = true
     }
 
     private fun activeManeuver(): Maneuver? {
@@ -102,6 +119,8 @@ internal class BydHudRouteState(
         if (nanoTime() - updated >= staleRouteNs) return null
         val emptySince = emptyListSinceNs
         if (emptySince != null && nanoTime() - emptySince >= emptyListHideNs) return null
+        val noRouteSince = noRouteSinceNs
+        if (noRouteSince != null && nanoTime() - noRouteSince >= noRouteHideNs) return null
         return maneuvers[activeIndex]
     }
 
@@ -116,7 +135,13 @@ internal class BydHudRouteState(
             forEachTlv(data) { type, value, valueLength ->
                 if (type == 0x01 && valueLength >= 1) noRoute = data[value] == 0.toByte()
             }
-            if (noRoute) return BydHudRouteChange.NONE
+            if (noRoute) {
+                // Repeats keep the first time, so they cannot postpone the hide.
+                if (!holdingAcrossDrop && noRouteSinceNs == null) noRouteSinceNs = nanoTime()
+                return BydHudRouteChange.NONE
+            }
+            noRouteSinceNs = null
+            holdingAcrossDrop = false
         }
         lastRouteUpdateNs = nanoTime()
         var state: Int? = null
@@ -223,5 +248,6 @@ internal class BydHudRouteState(
         private const val TLV_HEADER_BYTES = 4
         private const val STALE_ROUTE_NS = 30_000_000_000L
         private const val EMPTY_LIST_HIDE_NS = 3_000_000_000L
+        private const val NO_ROUTE_HIDE_NS = 5_000_000_000L
     }
 }

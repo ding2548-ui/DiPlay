@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ExistingWifiManager(
     context: Context,
     private val ssid: String,
-    private val passphrase: String,
+    private var passphrase: String,
     private val onDiagnostic: (String) -> Unit = {},
     private val onNetworkChanged: () -> Unit = {},
 ) : WirelessHotspotManager {
@@ -91,6 +91,17 @@ class ExistingWifiManager(
                 val liveSsid = readableSsid(info)
                 if (liveSsid != null && liveSsid != ssid) {
                     throw IOException("Configured Wi-Fi does not match the connected network; check Wi-Fi settings and saved details")
+                }
+                // This head unit is already joined to that network, so its own saved profile holds
+                // the password that actually works. A password typed into DiPlay is never verified,
+                // and a stale one only ever shows up as an iPhone that never opens the AirPlay TCP
+                // connection. Prefer the platform's copy and report whether the saved one agreed.
+                val platformPassphrase = liveSsid?.let(::savedPassphraseFor)
+                if (platformPassphrase != null) {
+                    onDiagnostic("Existing Wi-Fi pskMatches=${platformPassphrase == passphrase}")
+                    passphrase = platformPassphrase
+                } else {
+                    onDiagnostic("Existing Wi-Fi pskMatches=unknown")
                 }
                 val frequency = info?.frequency?.takeIf { it > 0 }
                 val channel = frequency?.let(::wifiFrequencyMhzToChannel) ?: 0
@@ -166,6 +177,29 @@ class ExistingWifiManager(
 
     private fun readableSsid(info: WifiInfo?): String? = info?.ssid?.removeSurrounding("\"")
         ?.takeUnless { it == WifiManager.UNKNOWN_SSID || it.isEmpty() }
+
+    /**
+     * The password this head unit itself stored for [ssid], when the platform still exposes it.
+     *
+     * Android 10+ restricts the saved-network list to system apps, and vendors may mask the secret,
+     * so an unreadable or implausible value must never replace the configured one.
+     */
+    @Suppress("DEPRECATION")
+    private fun savedPassphraseFor(ssid: String): String? {
+        val networks = try {
+            wifi.configuredNetworks
+        } catch (_: SecurityException) {
+            null
+        } ?: return null
+        val value = networks
+            .firstOrNull { it.SSID?.removeSurrounding("\"") == ssid }
+            ?.preSharedKey
+            ?.removeSurrounding("\"")
+            ?: return null
+        if (value.length !in 8..63) return null
+        if (value.all { it == '*' || it == '.' || it == '\u2022' }) return null
+        return value
+    }
 
     private fun accessPointAddress(text: String?): ByteArray? {
         if (text == null || !text.matches(Regex("(?i)[0-9a-f]{2}(:[0-9a-f]{2}){5}"))) return null

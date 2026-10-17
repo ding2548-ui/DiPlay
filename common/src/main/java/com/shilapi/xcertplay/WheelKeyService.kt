@@ -16,10 +16,12 @@ import android.widget.Toast
 import java.util.concurrent.atomic.AtomicBoolean
 import com.shilapi.xcertplay.adb.AdbKeys
 import com.shilapi.xcertplay.adb.LocalAdb
+import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 import com.shilapi.xcertplay.airplay.AirPlayKnobState
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.glance.CarPlayGlance
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.media.NavigationPlayback
 import com.shilapi.xcertplay.hud.BydNavigationOutputs
 import com.shilapi.xcertplay.hud.BydOutputSettings
 
@@ -40,6 +42,7 @@ import com.shilapi.xcertplay.hud.BydOutputSettings
  */
 class WheelKeyService : AccessibilityService() {
     private val keys = WheelZoomKeys()
+    private val navigationKeys = NavigationWheelKeyPolicy()
     private val joystick = WheelJoystick()
     private val siriKey = WheelSiriKey()
     private val handler = Handler(Looper.getMainLooper())
@@ -53,6 +56,7 @@ class WheelKeyService : AccessibilityService() {
         if (keys.timeOut() && eligibleRoute() != null) announce(zoomOn = false)
     }
     // This read is nonblocking: no ADB, input-device query or network lock in the periodic poll.
+    internal var navigationPlayback: () -> com.shilapi.xcertplay.media.NavigationPlaybackSnapshot = { NavigationPlayback.snapshot() }
     internal var mapRoute: () -> Any? = { CarPlayBackgroundSession.snapshot()?.controller?.dashboardMapRoute() }
     internal var session: () -> Any? = { CarPlayBackgroundSession.snapshot()?.controller?.activeAirPlaySessionToken() }
     internal var knob: (AirPlayKnobState) -> Boolean = { CarPlayBackgroundSession.snapshot()?.controller?.sendKnob(it) == true }
@@ -85,7 +89,10 @@ class WheelKeyService : AccessibilityService() {
 
     override fun onServiceConnected() {
         running = this
+        NavigationWheelSettings.recordAuthorization(this)
         CarPlayCallKeys.install(this)
+        // Lets the watcher for other apps' calls run whenever this accessibility service does.
+        PhoneAudioRoute.attach(this)
         refreshEligibility()
         handler.removeCallbacks(pollEligibility)
         handler.postDelayed(pollEligibility, ELIGIBILITY_POLL_MILLIS)
@@ -129,6 +136,7 @@ class WheelKeyService : AccessibilityService() {
             rearmTimedMode()
             return true
         }
+        if (navigationKeys.owns(event.keyCode, event.deviceId, event.downTime)) return navigationKey(event)
         if (CarPlayCallKeys.onKey(this, event.keyCode, down)) return true
         if (BydOutputSettings.carPlayCallControls(this) &&
             CarPlayMediaButton.opensSiriWhileCarPlay(event.keyCode) && session() != null) {
@@ -173,7 +181,7 @@ class WheelKeyService : AccessibilityService() {
             },
         )
         when (action) {
-            WheelZoomKeys.Action.PASS -> return false
+            WheelZoomKeys.Action.PASS -> return navigationKey(event)
             WheelZoomKeys.Action.CONSUME -> Unit
             WheelZoomKeys.Action.MODE_ON -> announce(zoomOn = true)
             WheelZoomKeys.Action.MODE_OFF -> announce(zoomOn = false)
@@ -182,6 +190,39 @@ class WheelKeyService : AccessibilityService() {
         }
         rearmTimedMode()
         return true
+    }
+
+    private fun navigationKey(event: KeyEvent): Boolean = navigationKeys.onKey(
+        event.action, event.keyCode, event.deviceId, event.downTime, event.repeatCount,
+        eligible = navigationStream() != null,
+    ) { delta -> adjustNavigation(delta) }
+
+    private fun navigationStream(): Int? {
+        if (!NavigationWheelSettings.enabled(this) || running !== this || inCall(this) || session() == null) return null
+        val playback = navigationPlayback()
+        if (!playback.active || playback.priorityVoiceActive) return null
+        // Usage routing and a rejected legacy route cannot identify a safe volume stream.
+        return playback.legacyStreamType?.takeIf { it in 1..20 && it != AudioManager.STREAM_MUSIC }
+    }
+
+    private fun adjustNavigation(delta: Int): Boolean {
+        val stream = navigationStream() ?: return false
+        val audio = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        return try {
+            val minimum = navigationWheelMinimum(stream, android.os.Build.VERSION.SDK_INT) {
+                if (android.os.Build.VERSION.SDK_INT >= 28) audio.getStreamMinVolume(it) else 0
+            }
+            val current = audio.getStreamVolume(stream)
+            val maximum = audio.getStreamMaxVolume(stream)
+            val target = navigationWheelTarget(current, minimum, maximum, delta) ?: return false
+            if (navigationStream() != stream) return false
+            audio.setStreamVolume(stream, target, AudioManager.FLAG_SHOW_UI)
+            // Failed/unsupported writes leave the initial press with the head unit.
+            audio.getStreamVolume(stream) == target
+        } catch (error: Exception) {
+            Log.w(TAG, "navigation volume unavailable for stream $stream", error)
+            false
+        }
     }
 
     private fun eligibleRoute(): Any? = if (WheelZoomSettings.enabled(this)) mapRoute() else null
@@ -310,6 +351,9 @@ class WheelKeyService : AccessibilityService() {
         private const val ROUTE_CHECK_MILLIS = 1_000L
         internal const val LEARNING_TIMEOUT_MILLIS = 10_000L
         private const val RESTORE_GRACE_MILLIS = 4_000L
+        private const val RESTORE_RETRY_MILLIS = 10_000L
+        private const val RESTORE_ATTEMPTS = 6
+        private const val RESTORE_PREFS = "wheel_key_restore"
         @Volatile private var running: WheelKeyService? = null
         private val restoring = AtomicBoolean(false)
 
@@ -352,11 +396,13 @@ class WheelKeyService : AccessibilityService() {
             val allowed = applyServiceSettings(context, adb::shell) {
                 mayAsk || wanted(context)
             }
+            if (allowed && mayAsk) NavigationWheelSettings.recordAuthorization(context)
             if (allowed) Log.i(TAG, "wheel key service allowed over adb")
             if (allowed) access else LocalAdb.Access.UNREACHABLE
         }
 
         private const val GRANT_EXIT = "DIPLAY_WHEEL_EXIT"
+        private const val CRASH_RESET_PAUSE_SECONDS = 1
         private fun checkedShell(command: String, shell: (String) -> String?): String? {
             val lines = shell("( $command ); result=\$?; printf '\\n$GRANT_EXIT:%s\\n' \"\$result\"")
                 ?.trimEnd()?.lines() ?: return null
@@ -377,9 +423,18 @@ class WheelKeyService : AccessibilityService() {
             val lists = allowedServices(current, component(context).flattenToString()) ?: return false
             // Binding may finish after the read. Check again immediately before a destructive rebind,
             // after the continuation callback, without blocking the service's main-thread callback.
+            // Android marks a service whose process died as crashed and does not bind it again until
+            // its settings observer reads a list without it. Written back at once, the observer read
+            // the full list both times, and the keys stayed on "Allowed, starting…" with the service
+            // under "Crashed services" in dumpsys accessibility (#606), so the list is left without
+            // it for a moment first.
             lists.first?.let {
                 if (!shouldContinue()) return false
-                if (!connected() && checkedShell("settings put secure enabled_accessibility_services '$it'", shell) == null) return false
+                if (!connected() && checkedShell(
+                        "settings put secure enabled_accessibility_services '$it' && sleep $CRASH_RESET_PAUSE_SECONDS",
+                        shell,
+                    ) == null
+                ) return false
             }
             for (command in listOf(
                 "settings put secure enabled_accessibility_services '${lists.second}'",
@@ -395,30 +450,80 @@ class WheelKeyService : AccessibilityService() {
 
         /**
          * The call controls need the service too: outside the CarPlay screen the call key reaches DiPlay
-         * only through it, and without it BYD's window manager opens its own phone app instead.
+         * only through it, and without it BYD's window manager opens its own phone app instead. So does the
+         * watcher for other apps' calls, which runs only while something keeps DiPlay alive.
          */
         internal fun wanted(context: Context): Boolean = WheelZoomSettings.anyEnabled(context) ||
-            BydOutputSettings.carPlayCallControls(context)
+            BydOutputSettings.carPlayCallControls(context) || NavigationWheelSettings.restoreAllowed(context) ||
+            BydOutputSettings.phoneAudioRouteApps(context)
 
         /**
          * Android takes the service off the allowed list when the app is force-stopped (BYD's system does
          * that), and an update or a crash can leave it unbound. With a wheel key setting or the call controls on, DiPlay
          * puts it back over the car's adb, already allowed, when it is still not running a few seconds after
-         * DiPlay starts, so the keys work without a visit to the settings.
+         * a DiPlay screen opens or comes back to the front, so the keys work without a visit to the settings.
+         * The front check matters when the service stays unbound after the retries at startup: the keys
+         * stayed on "Allowed, starting…" with the car's adb working until DiPlay was restarted (#606).
          */
         fun restoreIfNeeded(context: Context) {
             val app = context.applicationContext
             if (!needsRestore(app) || !restoring.compareAndSet(false, true)) return
             Thread({
                 try {
-                    Thread.sleep(RESTORE_GRACE_MILLIS)
-                    if (needsRestore(app)) Log.i(TAG, "wheel key service not running; restoring over adb: ${enableOverAdb(app, mayAsk = false)}")
+                    restoreWithRetries(
+                        needsRestore = { needsRestore(app) },
+                        restore = { enableOverAdb(app, mayAsk = false) },
+                        sleep = Thread::sleep,
+                    ) { attempt, access ->
+                        Log.i(TAG, "wheel key service restore attempt=$attempt adb=$access bound=${connected()}")
+                        recordRestore(app, attempt, access)
+                    }
                 } catch (error: Exception) {
                     Log.w(TAG, "wheel key service restore failed", error)
                 } finally {
                     restoring.set(false)
                 }
             }, "diplay-wheel-keys-restore").start()
+        }
+
+        /**
+         * At boot the car's adb can come up after DiPlay, and a single early attempt left the keys on
+         * "Allowed, starting…" until DiPlay was force-stopped (#606, #619). Unreachable adb, or a service
+         * that the rewritten list did not bind yet, is tried again; a key the driver has not approved is not.
+         */
+        internal fun restoreWithRetries(
+            needsRestore: () -> Boolean,
+            restore: () -> LocalAdb.Access,
+            sleep: (Long) -> Unit,
+            attempts: Int = RESTORE_ATTEMPTS,
+            onAttempt: (Int, LocalAdb.Access) -> Unit,
+        ) {
+            for (attempt in 1..attempts) {
+                sleep(if (attempt == 1) RESTORE_GRACE_MILLIS else RESTORE_RETRY_MILLIS)
+                if (!needsRestore()) return
+                val access = restore()
+                onAttempt(attempt, access)
+                if (access == LocalAdb.Access.NOT_APPROVED || access == LocalAdb.Access.UNSUPPORTED) return
+            }
+        }
+
+        private fun recordRestore(context: Context, attempt: Int, access: LocalAdb.Access) {
+            context.getSharedPreferences(RESTORE_PREFS, Context.MODE_PRIVATE).edit()
+                .putLong("at", System.currentTimeMillis())
+                .putInt("attempt", attempt)
+                .putString("adb", access.name)
+                .apply()
+        }
+
+        /** One line for the diagnostic report: why the keys may still read "Allowed, starting…". */
+        fun report(context: Context): String {
+            val prefs = context.getSharedPreferences(RESTORE_PREFS, Context.MODE_PRIVATE)
+            val at = prefs.getLong("at", 0L)
+            val last = if (at == 0L) "none" else
+                "attempt=${prefs.getInt("attempt", 0)} adb=${prefs.getString("adb", null)} " +
+                    "ageMs=${System.currentTimeMillis() - at}"
+            return "Wheel key service: wanted=${wanted(context)} allowedInSettings=${enabledInSettings(context)} " +
+                "bound=${connected()} lastRestore=$last"
         }
 
         /**

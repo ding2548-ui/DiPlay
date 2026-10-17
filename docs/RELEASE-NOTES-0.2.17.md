@@ -1,0 +1,57 @@
+# DiPlay 0.2.17 — 2026-10-10
+
+Public preview for compatible BYD Android head units. Android 7.1+ (API 25) remains the minimum; Android 7.1–8.1 still needs vehicle testing. This update focuses on wired USB stability, Wi-Fi Direct stutter, voice notes in messaging apps and update notices. USB and wireless remain available, subject to the head unit's firmware and hardware.
+
+## Highlights
+
+- Wired CarPlay no longer reconnects when the head unit delivers one damaged USB network block, which dropped sessions 1–2 s after the picture appeared on several head units. Older iPhones get a second identification attempt, and USB auto-confirm recognizes the Android 10+ and Chinese permission prompts. Related: [#565](https://github.com/shihabal3amri/DiPlay/issues/565), [#558](https://github.com/shihabal3amri/DiPlay/issues/558), [#556](https://github.com/shihabal3amri/DiPlay/issues/556), [#409](https://github.com/shihabal3amri/DiPlay/issues/409). [#575](https://github.com/shihabal3amri/DiPlay/pull/575)
+- New **Settings → Connection → USB connection → iPhone charging** for cars whose USB port may not supply the iPhone's charging current. Reduced (1.5 A) or Low (0.5 A) replace the Normal 2.4 A offer. Related: [#514](https://github.com/shihabal3amri/DiPlay/issues/514). [#583](https://github.com/shihabal3amri/DiPlay/pull/583)
+- Voice notes in apps such as WhatsApp now record the head unit's microphone and no longer sound slurred. [#548](https://github.com/shihabal3amri/DiPlay/pull/548), [#547](https://github.com/shihabal3amri/DiPlay/pull/547)
+- Smoother Wi-Fi Direct: Settings recommends the built-in car hotspot, and with approved network ADB, DiPlay pauses the car's Wi-Fi network search during Wi-Fi Direct on Android 7.1 and later. [#570](https://github.com/shihabal3amri/DiPlay/pull/570)
+- DiPlay checks for a new release once a day and shows "Update available" on Home. The check can be turned off in About. [#488](https://github.com/shihabal3amri/DiPlay/pull/488)
+- Ambient lighting can follow the album cover on compatible BYD lamps. [#537](https://github.com/shihabal3amri/DiPlay/pull/537)
+
+## Connection setup and recovery
+
+- Settings recommends the built-in car hotspot and lists it first, and the Wi-Fi Direct description says why it can stutter. Diagnostic reports from DiLink 4.0 and 5.0 cars lost Wi-Fi Direct audio packets on a 10 s rhythm while the car's own Wi-Fi client searched for networks; the car hotspot on the same cars lost none or almost none. [#570](https://github.com/shihabal3amri/DiPlay/pull/570)
+- Pause that network search during Wi-Fi Direct sessions on every supported Android version (7.1 and later), not only Android 10, when network ADB is already approved. A shell-user helper turns off Android's automatic joining (`enableWifiConnectivityManager` on Android 7.1–10, `allowAutojoinGlobal` on 11+), restores it when CarPlay ends, and on Android 13+ leaves a setting someone else turned off alone. The diagnostic report now says why a pause did not happen, for example `reason=adb-not-approved`. The car hotspot and Same LAN no longer pause it. Pending in-car acceptance. [#570](https://github.com/shihabal3amri/DiPlay/pull/570)
+- Keep a wired session running when a USB transfer delivers a damaged NCM block. Android reports a transfer that failed part way as complete, so one damaged block misaligned the stream and the whole session reconnected 1–2 s after the picture appeared ([#565](https://github.com/shihabal3amri/DiPlay/issues/565), [#558](https://github.com/shihabal3amri/DiPlay/issues/558), [#563](https://github.com/shihabal3amri/DiPlay/issues/563)). DiPlay now skips to the next valid block, as the Linux NCM driver does, and lets TCP resend what was lost; damage that keeps recurring still reconnects. The optional pad byte now follows the link's real USB packet size, which is 64 bytes on a full-speed link. Pending in-car acceptance. [#575](https://github.com/shihabal3amri/DiPlay/pull/575)
+- Older iPhones reject identification when it lists CarPlay messages they do not know: iOS 13.6.1 rejected the 0x4300/0x4301 pair on every attempt ([#556](https://github.com/shihabal3amri/DiPlay/issues/556)). When a rejection only names unsupported messages, DiPlay now sends identification once more without them and logs `iap2 identification retry without unsupported messages`. Whether the session then starts through Bonjour on that iOS version is not yet confirmed. [#575](https://github.com/shihabal3amri/DiPlay/pull/575)
+- The USB auto-confirm accessibility service now recognizes the Android 10+ permission dialog, which reads "Allow DiPlay to access iPhone?" without the word USB, and the Chinese wording "要允许DiPlay访问iPhone吗？". **Open accessibility settings** falls back to BYD's own accessibility screen when the standard Android screen is missing ([#409](https://github.com/shihabal3amri/DiPlay/issues/409), [#521](https://github.com/shihabal3amri/DiPlay/issues/521)). [#575](https://github.com/shihabal3amri/DiPlay/pull/575)
+- When an iPhone refuses to switch into wired CarPlay mode, DiPlay now asks to unlock it and reconnect the cable, and says that iOS 15 or earlier may need an iOS update or wireless CarPlay, instead of "Connection interrupted". iOS 12 and 15 refused the switch while unlocked, and iOS 17 and later accept it ([#509](https://github.com/shihabal3amri/DiPlay/issues/509), [#455](https://github.com/shihabal3amri/DiPlay/issues/455)). The diagnostic report now records the iPhone's current USB mode and configurations when it refuses. [#575](https://github.com/shihabal3amri/DiPlay/pull/575)
+- Retry claiming and selecting the NCM interfaces up to five times, 100 ms apart, when the head unit's own USB network driver briefly holds them ([#518](https://github.com/shihabal3amri/DiPlay/issues/518), [#557](https://github.com/shihabal3amri/DiPlay/issues/557)). When the wired or wireless network setup fails, the report now names the exception chain and where it was thrown; Android 7.1 had logged only "Invalid argument" ([#557](https://github.com/shihabal3amri/DiPlay/issues/557)). [#575](https://github.com/shihabal3amri/DiPlay/pull/575)
+- New **Settings → Connection → USB connection → iPhone charging** choice: Normal (2.4 A, unchanged default), Reduced (1.5 A) or Low (0.5 A). It sets how much current DiPlay offers the iPhone in the wired iAP2 power message. On a Qin PLUS DM-i with an MT6765 head unit, the iPhone left the USB bus 0.5–8 s after the 2,400 mA offer, 13 times in 3 minutes, and came back in its default USB mode ([#514](https://github.com/shihabal3amri/DiPlay/issues/514)). A port that cannot supply that current is suspected but not measured. The offer does not limit the port itself. The change applies at the next USB connection, and the report records the choice (`USB charging offer`) and each offer (`availableCurrentMa`). Pending in-car acceptance. [#583](https://github.com/shihabal3amri/DiPlay/pull/583)
+
+## Audio, calls and Siri
+
+- App voice notes, for example in WhatsApp, now record the head unit's microphone when the iPhone asks for input on app audio. Calls and Siri are unchanged, and guidance prompts stay without the microphone. The report logs each app-audio setup and whether the microphone opened. Pending in-car acceptance ([#548](https://github.com/shihabal3amri/DiPlay/pull/548)).
+- Opus 16 kHz microphone packets, used for voice notes, now advance the RTP clock at 16 kHz instead of 48 kHz, which made voice notes sound slurred. The report measures the iPhone's own clock for each audio stream ([#547](https://github.com/shihabal3amri/DiPlay/pull/547)). Pending in-car acceptance.
+
+## Vehicle
+
+- Experimental and off by default: hide BYD's own call popup while connected CarPlay is in the foreground, on BYD Android 12L with approved network ADB. The original popup setting is restored when CarPlay leaves the foreground, disconnects or stops ([#539](https://github.com/shihabal3amri/DiPlay/pull/539)). Not yet run in a car through DiPlay.
+- Ambient lighting can follow the album cover: usable artwork sets a base color and the music moves within nearby supported colors. Gray, dark or missing covers keep the selected colors. Ported from a fork that was field-tested on a 2023 Tang DM-i; this port has not yet run in a car ([#537](https://github.com/shihabal3amri/DiPlay/pull/537)).
+- Ambient lighting settings can be saved on firmware whose hotfix framework prints a line before the lamp worker's reply, seen on a 2024 Tang, where saving and lamp control then worked ([#550](https://github.com/shihabal3amri/DiPlay/pull/550)).
+- Experimental: **Vehicle → Wheel keys → External controller** lets a paired Bluetooth keyboard, remote or rotary controller move and select in CarPlay alongside touch. Only keys from a real input device are used ([#549](https://github.com/shihabal3amri/DiPlay/pull/549)).
+
+## Setup, updates and diagnostics
+
+- The setup guide recognizes the DiLink generation from BYD's controller version, for example 21 for DiLink 4 and 23 for DiLink 5 ([#531](https://github.com/shihabal3amri/DiPlay/pull/531)).
+- DiPlay checks GitHub for a new release once a day and shortly after it opens, and shows "Update available" on Home. Nothing downloads without a tap, and **About** turns the check off. On Android 10 and later, a verified update is also copied to `Download/DiPlay` for head units whose installer cannot open it. Tested on a head unit by its contributor ([#488](https://github.com/shihabal3amri/DiPlay/pull/488)).
+- On Android 9 and earlier, **Save diagnostic report** asks for storage access and saves to `Download/DiPlay`; without it, the report is saved in app storage as before. Android 11 and later also save there when the system Downloads provider fails ([#541](https://github.com/shihabal3amri/DiPlay/pull/541)).
+
+## Development
+
+- Release notes, privacy and install documentation for the reviewed contributions. [#576](https://github.com/shihabal3amri/DiPlay/pull/576)
+
+## Updating and reporting problems
+
+Install the official APK over the previous public release to preserve settings and pairing records. The package remains `com.shihab.diplay`; release packaging verifies the existing signing certificate. Source builds omit runtime authentication assets by default; see [building from source](BUILD.md).
+
+Reproduce remaining problems on **0.2.17**, then open **Settings → Diagnostics → Save diagnostic report**. Android 10+ normally saves to **Downloads/DiPlay**; on Android 7.1–9, DiPlay asks for storage access and saves there too. If it is unavailable, follow the save confirmation and use **View report** or **Share**. Review the `.txt` and attach it to a matching [existing issue](https://github.com/shihabal3amri/DiPlay/issues) or [new issue](https://github.com/shihabal3amri/DiPlay/issues/new/choose). Connection reports require the diagnostic log. Reports are not uploaded automatically.
+
+Include car/head unit, Android/DiLink and full firmware, iPhone/iOS, USB or wireless mode, relevant settings, reproduction steps and failure time.
+
+See [validation](VALIDATION.md) for automated checks. No new maintainer vehicle test of the complete release is claimed. The wired NCM recovery, the identification retry, the Wi-Fi Direct scan pause beyond Android 10, the USB charging choice, the voice-note fixes and the experimental options above need current in-car feedback; test optional features while parked.
+
+Thanks to the contributors linked in the 13 pull requests above, and to the users supplying diagnostic reports and vehicle feedback.

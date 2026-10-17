@@ -64,6 +64,9 @@ internal object MapMirrors {
 
     val any: Boolean get() = surfaces.isNotEmpty()
 
+    /** The live surface registered under [key], if any (mirror re-registration on profile changes). */
+    fun surfaceFor(key: String): Surface? = surfaces[key]
+
     /** Whether a launcher shows the map (see [MapEmbedService]), so the centre card is not needed. */
     val launcherShowsMap: Boolean get() = surfaces.keys.any { it != CARD }
 

@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import com.shilapi.xcertplay.airplay.AirPlayKnobState
 import com.shilapi.xcertplay.orchestration.CarPlayController
@@ -14,6 +15,14 @@ import com.shilapi.xcertplay.orchestration.CarPlayController
 internal object CarPlayRemoteKeys {
     private const val WHEEL_STEP = 1
     private const val HELD_REPEAT_INTERVAL = 3
+
+    /**
+     * With the external-controller setting on a touchscreen head unit, only keys from a real input
+     * device drive the knob. The system navigation bar's Back is a virtual key and keeps leaving
+     * CarPlay as before.
+     */
+    fun fromExternalController(event: KeyEvent, enabled: Boolean): Boolean =
+        enabled && event.deviceId != KeyCharacterMap.VIRTUAL_KEYBOARD && event.device?.isVirtual != true
 
     fun dispatch(event: KeyEvent, controller: CarPlayController?): Boolean =
         dispatchToKnob(event) { state, momentary -> controller?.sendKnob(state, momentary) == true }

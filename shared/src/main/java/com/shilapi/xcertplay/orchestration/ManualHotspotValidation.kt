@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.orchestration
 
 /** Rules an existing (car) hotspot must meet before CarPlay can hand its credentials to the iPhone. */
 object ManualHotspotValidation {
-    /** Security implied by the password: the car hotspot UI only offers open or WPA2 networks. */
+    /** Default when no security mode was selected; a password alone cannot identify WPA3. */
     fun securityFor(passphrase: String): ManualHotspotSecurity =
         if (passphrase.isEmpty()) ManualHotspotSecurity.OPEN else ManualHotspotSecurity.WPA2
 
@@ -20,6 +20,13 @@ object ManualHotspotValidation {
         passphrase.isNotEmpty() && passphrase.length !in 8..63 -> Error.PASSWORD_LENGTH
         else -> null
     }
+
+    /**
+     * Some head units broadcast a Chinese hotspot name in a form the iPhone does not find, and CarPlay
+     * stayed on "Getting CarPlay ready" until the hotspot was renamed in English (#303). Only a warning:
+     * other units handle such names.
+     */
+    fun nameMayNotReachIphone(ssid: String): Boolean = ssid.any { it.code > 0x7e }
 
     /** English diagnostic text retained for non-UI callers. */
     fun validate(ssid: String, passphrase: String): String? = error(ssid, passphrase)?.message

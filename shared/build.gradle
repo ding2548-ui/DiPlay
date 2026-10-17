@@ -7,6 +7,7 @@ android {
 
     defaultConfig {
         minSdk = 25
+        consumerProguardFiles 'ambient-consumer-rules.pro'
         targetSdk = 37
 
         ndk {
@@ -26,6 +27,10 @@ android {
         ndkBuild {
             path = file('src/main/jni/Android.mk')
         }
+    }
+    buildFeatures {
+        // Geely/Lynk head-unit input API (com.geely.inputservice); declarations in src/main/aidl.
+        aidl true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

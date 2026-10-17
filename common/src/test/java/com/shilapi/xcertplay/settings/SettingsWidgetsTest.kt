@@ -147,6 +147,16 @@ class SettingsWidgetsTest {
         assertEquals(WirelessHotspotMode.MANUAL, options.first { it.isChecked }.tag)
     }
 
+    @Test fun carHotspotIsTheFirstAndRecommendedHotspotChoice() {
+        val row = ConnectionSettingsSection.createHotspotModeChoice(context, WirelessHotspotMode.WIFI_P2P,
+            onSelected = {})
+        val options = views(row.container).filterIsInstance<RadioButton>().toList()
+        assertEquals(listOf(WirelessHotspotMode.MANUAL, WirelessHotspotMode.WIFI_P2P, WirelessHotspotMode.EXISTING_WIFI),
+            options.map { it.tag })
+        assertEquals("Built-in car hotspot (recommended)", options.first().text.toString())
+        assertEquals(WirelessHotspotMode.WIFI_P2P, options.first { it.isChecked }.tag)
+    }
+
     private fun views(view: View): Sequence<View> = sequence {
         yield(view)
         if (view is ViewGroup) for (i in 0 until view.childCount) yieldAll(views(view.getChildAt(i)))

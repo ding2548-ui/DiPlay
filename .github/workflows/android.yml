@@ -1,7 +1,7 @@
 name: DiPlay PSA release
 on:
   push:
-    branches: [main, psa-verify]
+    branches: [main, psa-verify, psa-beta]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -83,9 +83,9 @@ jobs:
           # are derived from this flag, so a build can never be published into the wrong one.
           if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
             echo "DIPLAY_CHANNEL=beta" >> "$GITHUB_ENV"
-            echo "beta versionName will be stamped 0.2.15（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）-beta"
+            echo "beta versionName will be stamped 0.2.17（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）-beta"
           else
-            echo "release versionName will be stamped 0.2.15（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）"
+            echo "release versionName will be stamped 0.2.17（${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}）"
           fi
       - name: Platform-signed release APK
         if: env.DIPLAY_RELEASE_ENABLED == 'true'
@@ -141,18 +141,20 @@ jobs:
           # prefix, so a shared namespace would let the release channel and the beta channel hand
           # each other their APKs through releases.atom or /releases/latest.
           if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
-            TAG="v0.2.15-beta-${GITHUB_RUN_NUMBER}"
-            TITLE="DiPlay 0.2.15（${GITHUB_RUN_NUMBER}）· PSA beta 测试版"
+            TAG="v0.2.17-beta-${GITHUB_RUN_NUMBER}"
+            TITLE="DiPlay 0.2.17（${GITHUB_RUN_NUMBER}）· PSA beta 测试版"
           else
-            TAG="v0.2.15-${GITHUB_RUN_NUMBER}"
-            TITLE="DiPlay 0.2.15（${GITHUB_RUN_NUMBER}）· PSA"
+            # The release channel tags diplay-<run>: a version-free namespace, so bumping the
+            # in-app versionName (0.2.17, …) never touches the OTA channel.
+            TAG="diplay-${GITHUB_RUN_NUMBER}"
+            TITLE="DiPlay 0.2.17（${GITHUB_RUN_NUMBER}）· PSA"
           fi
           NOTES="$RUNNER_TEMP/release-notes.md"
           {
             if [ -f RELEASE_NOTES.md ]; then
               cat RELEASE_NOTES.md
             else
-              printf 'DiPlay 0.2.15（%s）\n' "$GITHUB_RUN_NUMBER"
+              printf 'DiPlay 0.2.17（%s）\n' "$GITHUB_RUN_NUMBER"
             fi
             echo
             echo '---'
@@ -166,16 +168,19 @@ jobs:
             --notes-file "$NOTES" \
             --target "$GITHUB_SHA"
           echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
-          # Legacy tag alias: installs of the previous major version (0.2.12) only scan the
-          # "v0.2.12-<run>" namespace, so a major bump would otherwise make the in-app updater
-          # never see a new release again. Publish the same APK under the old prefix too; drop
-          # this alias once every live install has moved past 0.2.12. When bumping the major
-          # version later, change the alias here to the version being replaced — and add that
-          # same prefix to AppUpdater's scan list so both old and new installs keep finding
-          # releases.
-          LEGACY_TAG="v0.2.12-${GITHUB_RUN_NUMBER}"
-          gh release create "$LEGACY_TAG" "$APK" \
-            --title "$TITLE" \
-            --notes-file "$NOTES" \
-            --target "$GITHUB_SHA"
-          echo "published legacy alias https://github.com/${GITHUB_REPOSITORY}/releases/tag/${LEGACY_TAG}"
+          # Older installs still scan an earlier tag namespace (see LEGACY_* in AppUpdater.kt).
+          # Alias this same release under every legacy prefix so bumping the major version never
+          # orphans the in-app updater: an old build keeps finding new releases through the prefix
+          # it scans, then switches to the current one once it updates.
+          if [ "${GITHUB_REF_NAME}" = "psa-beta" ]; then
+            LEGACY_TAGS=("v0.2.15-beta-${GITHUB_RUN_NUMBER}" "v0.2.12-beta-${GITHUB_RUN_NUMBER}")
+          else
+            LEGACY_TAGS=("v0.2.17-${GITHUB_RUN_NUMBER}" "v0.2.15-${GITHUB_RUN_NUMBER}" "v0.2.12-${GITHUB_RUN_NUMBER}")
+          fi
+          for LEGACY_TAG in "${LEGACY_TAGS[@]}"; do
+            gh release create "$LEGACY_TAG" "$APK" \
+              --title "$TITLE" \
+              --notes-file "$NOTES" \
+              --target "$GITHUB_SHA"
+            echo "aliased https://github.com/${GITHUB_REPOSITORY}/releases/tag/${LEGACY_TAG}"
+          done

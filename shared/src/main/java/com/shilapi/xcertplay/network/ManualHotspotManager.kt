@@ -122,7 +122,16 @@ class ManualHotspotManager(
             "security=$security channelKnown=${channel > 0} " +
             "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
             "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
-        if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
+        // Android never verifies the saved password, so a stale one can only ever surface as an
+        // iPhone that receives the credentials and then never joins. This class already treats
+        // getWifiApConfiguration() as authoritative for the SSID and the security type, so the
+        // password it exposes is authoritative too — prefer it, and report whether the saved one
+        // agreed so a stale entry is visible in a diagnostic report.
+        val livePassphrase = apConfiguration?.passphrase
+        val savedPassphraseMatches = livePassphrase?.let { it == passphrase }
+        onDiagnostic("Manual hotspot pskMatches=${savedPassphraseMatches ?: "unknown"}")
+        val effectivePassphrase = livePassphrase ?: passphrase
+        if (security != Iap2WirelessSecurity.NONE && effectivePassphrase.isEmpty()) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot is secured but no passphrase was provided")
         }
 
@@ -137,7 +146,7 @@ class ManualHotspotManager(
         val observedBandLabel = wifiBandLabel(apConfiguration?.band)
         return WirelessHotspotInfo(
             ssid = expectedSsid,
-            passphrase = passphrase,
+            passphrase = effectivePassphrase,
             security = security,
             channel = channel,
             frequencyMHz = frequencyMHz,
@@ -304,10 +313,24 @@ class ManualHotspotManager(
                 channel = channel,
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapWifiConfigurationSecurity(configuration),
+                passphrase = readableApPassphrase(configuration),
             )
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /**
+     * The AP's own password, as the platform reports it.
+     *
+     * Some vendors hide it behind a mask instead of the secret, so an implausible value must never
+     * be treated as authoritative — the saved password stays in charge when this returns null.
+     */
+    private fun readableApPassphrase(configuration: WifiConfiguration): String? {
+        val value = unquote(configuration.preSharedKey) ?: return null
+        if (value.length !in 8..63) return null
+        if (value.all { it == '*' || it == '.' || it == '\u2022' }) return null
+        return value
     }
 
     private fun mapSoftApSecurity(securityType: Int): Iap2WirelessSecurity = when (securityType) {
@@ -360,6 +383,8 @@ class ManualHotspotManager(
         val channel: Int,
         val frequencyMHz: Int?,
         val security: Iap2WirelessSecurity,
+        /** The AP's own password when the platform exposes it; null when hidden or masked. */
+        val passphrase: String? = null,
     )
 
     private class LocalHotspotInterface(

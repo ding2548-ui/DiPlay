@@ -72,6 +72,9 @@ class WifiP2pGroupManager(
     private var startAttempt: StartAttempt? = null
     @Volatile private var observedCreatedName: String? = null
     @Volatile private var requestedName: String? = null
+    // Legacy (API < 29) GO channel armed before createGroup; awaitUsableGroup verifies the group
+    // actually landed there and feeds the resolved frequency back to the iPhone.
+    @Volatile private var forcedChannel: Int? = null
 
     // Wi-Fi P2P needs a permission the platform can refuse; every call below reports a failure
     // through the returned diagnostic or a rejected-attempt exception instead of crashing.
@@ -179,7 +182,12 @@ class WifiP2pGroupManager(
             val requestGroup: (P2pCreationRequest) -> Unit = { selection ->
                 ensureStartActive(attempt)
                 if (remainingNanos(deadlineNanos) == 0L) throw IOException("Wi-Fi Direct startup timed out")
-                val config = if (selection.mode == P2pCreationMode.SYSTEM_DEFAULT) null else {
+                // Below API 29 WifiP2pConfig.Builder does not exist: the legacy path arms the
+                // GO channel through the hidden setWifiP2pChannels API instead, and the
+                // framework default configuration is the only creation request.
+                val config = if (selection.mode == P2pCreationMode.SYSTEM_DEFAULT ||
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                ) null else {
                     P2pConfigBuildDiagnostics.build(Build.VERSION.SDK_INT, selection, diagnostic) {
                         val builder = WifiP2pConfig.Builder()
                             .setNetworkName(credentials.ssid)
@@ -202,6 +210,9 @@ class WifiP2pGroupManager(
                     attempt.request = createRequest
                 }
                 diagnostic("Wi-Fi P2P create mode=${selection.mode} frequencyMHz=${selection.frequencyMHz ?: "auto"}")
+                forcedChannel = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    selection.frequencyMHz?.let { P2pLegacyChannel.channelOf(it) }
+                } else null
                 // The API 29 overload with a null config uses system-generated credentials without
                 // requesting a persistent group, unlike the two-argument API. That overload does not
                 // exist below API 29, where the two-argument form is the only way to ask the
@@ -222,16 +233,54 @@ class WifiP2pGroupManager(
                     throw failure
                 }
             }
-            // Below API 29 WifiP2pConfig.Builder does not exist, so every explicit-frequency mode
-            // P2pStartupRecovery.plan would offer throws before createGroup is reached. The
-            // framework's own default configuration is the only request those releases can make,
-            // and it is also the one whose credentials the framework generates.
-            val creation = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                val systemDefault = P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)
-                requestGroup(systemDefault)
-                systemDefault
+            // Below API 29 WifiP2pConfig.Builder does not exist, so the framework default
+            // configuration is the only creation request. The GO channel is armed per candidate
+            // through the hidden setWifiP2pChannels API (station-aligned first), and each
+            // candidate's group is verified against the armed channel before it is accepted.
+            // The plain system default stays as the last resort.
+            val creation: P2pCreationRequest
+            val group: WirelessHotspotInfo
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                var legacyInfo: WirelessHotspotInfo? = null
+                creation = P2pStartupRecovery.createLegacyForced(
+                    channels = buildList {
+                        WifiP2pChannels.frequencyMhz(preferredChannel)
+                            ?.let { P2pLegacyChannel.channelOf(it) }
+                            ?.let { add(it) }
+                        addAll(P2pLegacyChannel.candidates(stationFrequency))
+                    }.distinct(),
+                    force = { channel ->
+                        val (outcome, detail) = P2pLegacyChannel.set(p2pManager, p2pChannel, channel)
+                        diagnostic("Wi-Fi P2P legacy channel set channel=$channel outcome=$outcome detail=$detail")
+                        outcome == P2pLegacyChannel.Outcome.OK
+                    },
+                    beforeRetry = {
+                        ensureStartActive(attempt)
+                        // Do not cancel discovery, toggle Wi-Fi, or remove a newly observed group.
+                        // A competing app may have acquired the radio since our rejected request.
+                        synchronized(stateLock) { waitNanos(TimeUnit.MILLISECONDS.toNanos(500)) }
+                        ensureStartActive(attempt)
+                        checkPrerequisites(readStation())
+                        if (requestGroupInfo(attempt, p2pChannel, REQUEST_POLL_NANOS, requireResponse = true) != null) {
+                            throw P2pResetRequiredException()
+                        }
+                    },
+                    request = { selection ->
+                        requestGroup(selection)
+                        // The two-argument createGroup generates framework credentials; the real
+                        // ones are read back from the group inside awaitUsableGroup.
+                        legacyInfo = awaitUsableGroup(
+                            attempt = attempt,
+                            channel = p2pChannel,
+                            credentials = null,
+                            deadlineNanos = deadlineNanos,
+                            timeoutMillis = timeoutMillis,
+                        )
+                    },
+                )
+                group = requireNotNull(legacyInfo)
             } else {
-                P2pStartupRecovery.create(
+                creation = P2pStartupRecovery.create(
                     stationFrequency = stationFrequency,
                     preferred = preferred?.request,
                     preferredChannel = preferredChannel,
@@ -248,14 +297,14 @@ class WifiP2pGroupManager(
                     },
                     request = requestGroup,
                 )
+                group = awaitUsableGroup(
+                    attempt = attempt,
+                    channel = p2pChannel,
+                    credentials = if (creation.mode == P2pCreationMode.SYSTEM_DEFAULT) null else credentials,
+                    deadlineNanos = deadlineNanos,
+                    timeoutMillis = timeoutMillis,
+                )
             }
-            val group = awaitUsableGroup(
-                attempt = attempt,
-                channel = p2pChannel,
-                credentials = if (creation.mode == P2pCreationMode.SYSTEM_DEFAULT) null else credentials,
-                deadlineNanos = deadlineNanos,
-                timeoutMillis = timeoutMillis,
-            )
             if (!ownership.edit().putString("owned_ssid", group.ssid).commit()) {
                 throw IOException("Could not record Wi-Fi P2P group ownership")
             }
@@ -435,9 +484,29 @@ class WifiP2pGroupManager(
                 ?: credentials?.passphrase
             val interfaceName = group.getInterface()?.takeIf { it.isNotBlank() }
             // WifiP2pGroup.getFrequency is API 29. Below that the framework does not expose the
-            // group's channel at all, so it stays unknown instead of being invented: the band is
-            // reported as system-selected and the channel as 0, which is what the iPhone is told.
-            val frequencyMHz = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) group.frequency else null
+            // group's channel: resolve it from the driver (LegacyHotspotRadio) and the channel the
+            // legacy creation armed, instead of reporting it as unknown.
+            val frequencyMHz: Int?
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                frequencyMHz = group.frequency
+            } else {
+                val reading = interfaceName?.let {
+                    runCatching { LegacyHotspotRadio.read(it, null) }.getOrNull()
+                }
+                val resolved = P2pLegacyChannel.resolve(reading?.frequencyMHz, forcedChannel)
+                diagnostic("Wi-Fi P2P legacy frequency iface=${interfaceName ?: "unknown"} " +
+                    "frequency=${reading?.frequencyMHz ?: "unknown"} error=${reading?.error ?: "none"}")
+                diagnostic("Wi-Fi P2P legacy channel forced=${forcedChannel ?: "none"} " +
+                    "usingMHz=${resolved.mhz ?: "unknown"} source=${resolved.source}")
+                val forcedMHz = forcedChannel?.let { P2pLegacyChannel.frequencyOf(it) }
+                if (forcedMHz != null && resolved.mhz != forcedMHz) {
+                    // Take the wrongly placed group down so the next candidate can create cleanly.
+                    networkName?.let { name -> runCatching { removeGroupBlocking(channel, name) } }
+                    throw P2pCreateRejected(WifiP2pManager.ERROR,
+                        "Wi-Fi P2P group did not start on the forced channel")
+                }
+                frequencyMHz = resolved.mhz
+            }
             val channelNumber = frequencyMHz?.let(::wifiFrequencyMhzToChannel)
             if (
                 networkName == null || passphrase == null ||

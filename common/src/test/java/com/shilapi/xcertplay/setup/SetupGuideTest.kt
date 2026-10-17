@@ -31,6 +31,33 @@ class SetupGuideTest {
         assertEquals(Source.LIKELY, detection.source)
     }
 
+    @Test fun controllerVersionIsDetectedBeforeTheGenericIviFallback() {
+        val expected = mapOf(
+            DiLinkGeneration.DILINK_3 to listOf(13, 15, 18),
+            DiLinkGeneration.DILINK_4 to listOf(16, 17, 21),
+            DiLinkGeneration.DILINK_5 to listOf(23, 34, 57, 59),
+        )
+        expected.forEach { (generation, controllers) ->
+            controllers.forEach { controller ->
+                val version = "$controller.1.22.2304120.1"
+                val detection = DiLinkGeneration.detect("IVI",
+                    "BYD-AUTO/IVI/IVI:13/TP1A.220624.014/x:user/release-keys", null, 33, version)
+                assertEquals(generation, detection.generation)
+                assertEquals(Source.SYSTEM_VERSION, detection.source)
+                assertEquals(version, detection.evidence)
+            }
+        }
+    }
+
+    @Test fun unknownControllerVersionKeepsTheExistingFallbacks() {
+        val fingerprint = "BYD-AUTO/IVI/IVI:13/TP1A.220624.014/x:user/release-keys"
+        for (version in listOf("", "unknown", "99.1.22.2304120.1")) {
+            val detection = DiLinkGeneration.detect("IVI", fingerprint, null, 33, version)
+            assertEquals(DiLinkGeneration.DILINK_5, detection.generation)
+            assertEquals(Source.LIKELY, detection.source)
+        }
+    }
+
     @Test fun otherHeadUnitsAreUnknown() {
         val detection = DiLinkGeneration.detect("sdk_car_x86", "google/sdk_car_x86/generic:10/x:user/release-keys", "", 29)
         assertEquals(DiLinkGeneration.UNKNOWN, detection.generation)
@@ -61,6 +88,33 @@ class SetupGuideTest {
         assertTrue(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.DILINK_3, true))
         assertFalse(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.DILINK_3, false))
         assertFalse(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.DILINK_4, true))
+    }
+
+    @Test fun leapmotorIsOnlyAKeyedEnumMemberAndNeverDetected() {
+        // The manual pick round-trips through prefs by key; detection must never invent it.
+        assertEquals(DiLinkGeneration.LEAPMOTOR, DiLinkGeneration.fromKey("leapmotor"))
+        assertTrue(DiLinkGeneration.LEAPMOTOR.isLeapmotor)
+        assertFalse(DiLinkGeneration.DILINK_3.isLeapmotor)
+        assertFalse(DiLinkGeneration.UNKNOWN.isLeapmotor)
+        assertNull(DiLinkGeneration.fromKey("leapmotor-s01"))
+    }
+
+    @Test fun leapmotorOffersEveryFeatureAsTestedWithNoAdb() {
+        val features = SetupGuide.features(DiLinkGeneration.LEAPMOTOR)
+        val expected = listOf(
+            Feature.AUTO_CONNECT, Feature.LOCATION, Feature.CLUSTER_MAP,
+            Feature.BYD_NAVIGATION, Feature.CALLS_ON_DASHBOARD, Feature.CALL_KEYS,
+        )
+        assertEquals(expected, features.map { it.feature })
+        assertTrue(features.all { it.status == Status.TESTED })
+        assertFalse(features.any { it.needsAdb })
+        // The DiLink 4 ADB cluster route is BYD hardware and must stay hidden on Leapmotor.
+        assertFalse(features.any { it.feature == Feature.DILINK4_ADB_CLUSTER })
+    }
+
+    @Test fun leapmotorNeverHasTheDiLink3ClusterRouteConflict() {
+        assertFalse(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.LEAPMOTOR, true))
+        assertFalse(SetupGuide.hasConflictingClusterRoute(DiLinkGeneration.LEAPMOTOR, false))
     }
 
     @Test fun guideOpensByItselfOnlyOnAFreshSetup() {

@@ -51,6 +51,51 @@ internal object P2pStartupRecovery {
         if (none { it.mode == P2pCreationMode.SYSTEM_DEFAULT }) add(P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT))
     }
 
+    /** FreeAuto-style legacy path (API < 29): arm each candidate GO channel through the hidden
+     *  channel API, ask the framework for its default configuration, and let the manager's
+     *  request callback reject groups that landed elsewhere. The plain system default stays the
+     *  last resort (channels=null). */
+    fun createLegacyForced(
+        channels: List<Int>,
+        force: (Int) -> Boolean,
+        beforeRetry: () -> Unit,
+        request: (P2pCreationRequest) -> Unit,
+    ): P2pCreationRequest {
+        val plans: List<Int?> = channels + listOf<Int?>(null)
+        var lastRejection: P2pCreateRejected? = null
+        for ((index, channel) in plans.withIndex()) {
+            if (channel != null && !force(channel)) {
+                val rejection = P2pCreateRejected(
+                    WifiP2pManager.ERROR,
+                    "Wi-Fi P2P legacy channel set rejected channel=$channel",
+                )
+                lastRejection = rejection
+                if (index < plans.lastIndex) { beforeRetry(); continue }
+                throw rejection
+            }
+            val mode = when (val frequency = channel?.let(P2pLegacyChannel::frequencyOf)) {
+                null -> P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)
+                else -> if (frequency > 4900) P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, frequency)
+                    else P2pCreationRequest(P2pCreationMode.FIXED_2_GHZ, frequency)
+            }
+            try {
+                request(mode)
+                return mode
+            } catch (failure: P2pCreateRejected) {
+                when {
+                    failure.reason == WifiP2pManager.NO_PERMISSION ||
+                        failure.reason == WifiP2pManager.P2P_UNSUPPORTED -> throw failure
+                    else -> {
+                        lastRejection = failure
+                        if (index < plans.lastIndex) { beforeRetry(); continue }
+                        throw failure
+                    }
+                }
+            }
+        }
+        throw (lastRejection ?: error("No Wi-Fi Direct creation mode attempted"))
+    }
+
     fun create(
         stationFrequency: Int?,
         beforeRetry: () -> Unit,

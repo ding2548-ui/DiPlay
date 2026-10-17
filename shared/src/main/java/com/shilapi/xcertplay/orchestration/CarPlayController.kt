@@ -146,6 +146,15 @@ internal fun isWirelessHandoffInProgress(
     sessionActive: Boolean,
 ): Boolean = handoffRequested || tunnelActive || sessionActive
 
+/** A dead Bluetooth bootstrap is tolerable while an AirPlay session is live inside the handoff
+ *  window: the phone may drop its RFCOMM right after requesting the handoff, long before the
+ *  tunnel watchdog completes the fallback. Losing the control link must not tear down projection. */
+internal fun keepsWirelessSessionAfterBootstrapError(
+    error: Throwable,
+    handoffInProgress: Boolean,
+    wirelessActiveReported: Boolean,
+): Boolean = error !is Error && (handoffInProgress || wirelessActiveReported)
+
 /**
  * Wires the complete wired or wireless CarPlay path: MFi coprocessor discovery, iPhone bring-up,
  * iAP2 control, transport setup, and the AirPlay media/input sessions.
@@ -230,6 +239,16 @@ class CarPlayController(
     private val dashboardMapEpoch = AtomicInteger()
     private val playbackStatus = com.shilapi.xcertplay.media.CarPlayPlaybackStatus()
 
+    private val albumReplayLock = Any()
+    private var initialArtworkReplay: com.shilapi.xcertplay.transport.Iap2ArtworkTransfer? = null
+
+    fun nowPlayingSnapshot(): com.shilapi.xcertplay.media.CarPlayNowPlaying =
+        synchronized(playbackStatus) { playbackStatus.nowPlaying }
+
+    /** One bounded payload, never a nearest-cover guess when a reference is absent. */
+    fun matchingArtworkSnapshot(id: Int?): com.shilapi.xcertplay.transport.Iap2ArtworkTransfer? =
+        synchronized(albumReplayLock) { initialArtworkReplay?.takeIf { id != null && it.id == id } }
+
     /** Told when the iPhone starts or stops playing media; may run on any thread. */
     @Volatile var playbackListener: ((Boolean) -> Unit)? = null
 
@@ -294,7 +313,7 @@ class CarPlayController(
             val replacement = activeSession !== session
             if (replacement) {
                 BydNavigationOutputs.start(appContext)
-                BydNavigationOutputs.carPlaySessionStarted()
+                BydNavigationOutputs.carPlaySessionStarted(appContext)
                 com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(true)
                 // The gear may have changed since /info.
                 if (videoListener != null) {
@@ -314,6 +333,7 @@ class CarPlayController(
         override fun onSessionEnded(session: AirPlaySession) {
             if (activeSession === session) {
                 activeSession = null
+                synchronized(albumReplayLock) { initialArtworkReplay = null }
                 BydNavigationOutputs.endNow(preserveTurnOverlay = !closed && config.transport == CarPlayTransport.WIRELESS)
                 com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(false)
                 videoListener?.onVideoSessionEnded()
@@ -754,7 +774,47 @@ class CarPlayController(
         }
     }
 
+    enum class InitialAlbumRefreshResult { SENT, FAILED, CLOSED, INACTIVE_SESSION, CANCELLED, CHANNEL_UNAVAILABLE }
+
+    /** Existing metadata channel and worker; the caller owns the single-send budget. */
+    fun refreshInitialNowPlaying(
+        stillNeeded: () -> Boolean,
+        beforeSend: () -> Boolean = { true },
+        onFinished: (InitialAlbumRefreshResult) -> Unit = {},
+    ) {
+        var result = InitialAlbumRefreshResult.CANCELLED
+        run {
+            try {
+                if (closed) { result = InitialAlbumRefreshResult.CLOSED; return@run }
+                if (activeSession == null) { result = InitialAlbumRefreshResult.INACTIVE_SESSION; return@run }
+                if (!stillNeeded()) return@run
+                // The RFCOMM bootstrap is not the runtime metadata channel after wireless handoff.
+                val channel = if (config.transport == CarPlayTransport.WIRELESS) wirelessTunnelChannel else csm
+                if (channel == null) {
+                    result = InitialAlbumRefreshResult.CHANNEL_UNAVAILABLE
+                    debugLog("album recovery skipped channel=unavailable")
+                    return@run
+                }
+                if (closed) { result = InitialAlbumRefreshResult.CLOSED; return@run }
+                if (!stillNeeded() || !beforeSend()) return@run
+                // Claim only at the send boundary; preflight skips leave the budget intact.
+                result = InitialAlbumRefreshResult.FAILED
+                channel.send(com.shilapi.xcertplay.iap2.message.Iap2ControlMessages.startNowPlayingUpdates(), 250)
+                result = InitialAlbumRefreshResult.SENT
+                debugLog("album recovery subscription sent")
+            } catch (error: Exception) {
+                debugLog("album recovery subscription failed type=${error.javaClass.simpleName}")
+            } finally {
+                onFinished(result)
+            }
+        }
+    }
+
     private fun onArtworkTransfer(transfer: com.shilapi.xcertplay.transport.Iap2ArtworkTransfer) {
+        if (closed) return
+        synchronized(albumReplayLock) {
+            initialArtworkReplay = transfer.takeIf { it.bytes.size <= 1024 * 1024 }
+        }
         debugLog("iap2 artwork transfer id=0x${transfer.id.toString(16)} bytes=${transfer.bytes.size}")
         artworkListener?.invoke(transfer.id, transfer.bytes)
     }
@@ -1433,7 +1493,16 @@ class CarPlayController(
             if (isStaleWirelessRun(generation)) {
                 return
             }
-            if (wirelessActiveReported.get() && error !is Error) {
+            if (activeSession != null && keepsWirelessSessionAfterBootstrapError(
+                    error,
+                    isWirelessHandoffInProgress(
+                        handoffRequested = wirelessHandoffRequested.get(),
+                        tunnelActive = wirelessTunnelChannel != null,
+                        sessionActive = activeSession != null,
+                    ),
+                    wirelessActiveReported.get(),
+                )
+            ) {
                 debugLog("wireless RFCOMM control ended after tunnel handoff: ${error.message}")
             } else {
                 debugLog("wireless bring-up failed", error)

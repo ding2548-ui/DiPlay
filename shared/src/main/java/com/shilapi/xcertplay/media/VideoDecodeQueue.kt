@@ -34,11 +34,25 @@ internal class VideoReferenceChain {
 
 /** Limit latency and memory without ever dropping a reference frame silently. */
 internal class VideoDecodeQueue(
-    // Wi-Fi delivers frames in bursts after a radio gap; the decoder's 250 ms age check bounds latency.
+    // Recovery observes sustained backlog; short delayed bursts keep their reference chain.
     private val maxFrames: Int = 60,
     private val maxBytes: Int = 8 * 1024 * 1024,
 ) {
     private val jobs = LinkedBlockingQueue<VideoJob>()
+
+    data class Backlog(val pendingFrames: Int, val newestPendingReceivedNs: Long?)
+
+    /** Called by the sole consumer after taking its current frame. Control jobs end this chain. */
+    @Synchronized fun backlogAfterCurrent(): Backlog {
+        var frames = 0
+        var newest: Long? = null
+        for (job in jobs) {
+            if (job !is VideoJob.Frame) break
+            frames++
+            newest = newest?.let { maxOf(it, job.receivedNs) } ?: job.receivedNs
+        }
+        return Backlog(frames, newest)
+    }
 
     @Synchronized fun offer(job: VideoJob) {
         if (job is VideoJob.Frame) {
@@ -53,6 +67,17 @@ internal class VideoDecodeQueue(
         jobs.offer(job)
     }
 
+    /** Drop only the invalidated chain; the next config/surface owns later frames. */
+    @Synchronized fun discardCurrentChain() {
+        val iterator = jobs.iterator()
+        while (iterator.hasNext()) {
+            when (iterator.next()) {
+                is VideoJob.Frame, VideoJob.Resync -> iterator.remove()
+                else -> return
+            }
+        }
+    }
+
     @Synchronized fun discardFrames() {
         jobs.removeIf { it is VideoJob.Frame || it is VideoJob.Resync }
     }
@@ -63,8 +88,8 @@ internal class VideoDecodeQueue(
     @Synchronized fun drain(): List<VideoJob> = ArrayList<VideoJob>().also { jobs.drainTo(it) }
 }
 
-/** Drain output while waiting for input: full output buffers can otherwise starve input forever. */
-internal object VideoInputPump {
+/** Drain output while waiting for input: full output buffers can otherwise starve input forever. Video and audio decoders share it. */
+internal object DecoderInputPump {
     fun acquire(
         running: () -> Boolean,
         drain: () -> Unit,

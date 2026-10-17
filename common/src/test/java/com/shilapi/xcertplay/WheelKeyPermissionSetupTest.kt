@@ -23,6 +23,7 @@ class WheelKeyPermissionSetupTest {
     private var allow = true
 
     @Before fun setup() {
+        context.getSharedPreferences("diplay_navigation_wheel", android.content.Context.MODE_PRIVATE).edit().clear().commit()
         WheelZoomSettings.setEnabled(context, false)
         WheelZoomSettings.setJoystick(context, false)
         Settings.Secure.putString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, other)
@@ -53,6 +54,9 @@ class WheelKeyPermissionSetupTest {
         val writes = commands.filter { it.contains("settings put secure enabled_accessibility_services") }
         assertEquals(2, writes.size)
         assertTrue(writes[0].contains("'$other:another.package/.Service'"))
+        // Android clears its crashed mark only if its observer sees the list without the service (#606).
+        assertTrue(writes[0].contains("&& sleep 1"))
+        assertFalse(writes[1].contains("sleep"))
         assertEquals("$other:another.package/.Service:$ours",
             Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES))
     }
@@ -111,6 +115,19 @@ class WheelKeyPermissionSetupTest {
     @Test fun disablingAfterTheReadStopsAllWrites() {
         assertFalse(WheelKeyService.applyServiceSettings(context, { command -> shell(command).also { allow = false } }) { allow })
         assertEquals(1, commands.size)
+    }
+
+    @Test fun navigationOnlyRestorationRequiresRecordedAuthorizationAndStopsWhenDisabled() {
+        val prefs = context.getSharedPreferences("diplay_navigation_wheel", android.content.Context.MODE_PRIVATE)
+        assertFalse(NavigationWheelSettings.enabled(context))
+        prefs.edit().putBoolean("enabled", true).commit()
+        assertFalse(WheelKeyService.needsRestore(context))
+        NavigationWheelSettings.recordAuthorization(context)
+        assertTrue(WheelKeyService.needsRestore(context))
+        prefs.edit().putBoolean("enabled", false).commit()
+        assertFalse(WheelKeyService.needsRestore(context))
+        assertFalse(WheelKeyService.applyServiceSettings(context, ::shell) { WheelKeyService.needsRestore(context) })
+        assertTrue(commands.isEmpty())
     }
 
     private fun shell(command: String): String? {

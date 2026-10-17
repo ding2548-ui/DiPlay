@@ -4,6 +4,8 @@ The Wi-Fi channel and the size of the picture can affect how smooth wireless Car
 
 This guide describes 0.2.13 channel-policy and rotation behavior. Wi-Fi Direct is available on Android 9+ with suitable firmware. Android 9 uses the legacy group/channel path and cannot verify the negotiated frequency; see [Android 9 limits](ANDROID9_WIFI_DIRECT.md). Android 10+ retains actual-frequency verification. The contributor measurements below describe their specified Tang setup, not every device.
 
+**Use the built-in car hotspot if your car has one.** Wi-Fi Direct needs the car's Wi-Fi switch on, and while the car is not joined to a network it searches for one, every 10 s in reports from DiLink 4.0 and 5.0 cars. Each search takes the car's single radio off the CarPlay channel; audio packets sent meanwhile are lost, so music and navigation voice stutter on that rhythm whatever channel you choose, and a larger music buffer cannot bring them back. The car hotspot runs with the car's Wi-Fi client off: on the same cars it lost no audio, or almost none. With network ADB already approved, DiPlay pauses this search during Wi-Fi Direct sessions on Android 7.1 and later; see [Compatibility](COMPATIBILITY.md).
+
 ## 1. Wi-Fi channel
 
 **Settings → Connection setup → Wi-Fi Direct → Preferred channel**

@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.provider.Settings
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -58,14 +59,49 @@ class UsbAutoConfirmServiceTest {
         assertFalse(UsbAutoConfirmService.isTargetPrompt("允许 其他应用 访问 USB 设备？", "DiPlay"))
     }
 
-    @Test fun promptMustNameDiPlayAndUsbExplicitly() {
-        assertTrue(UsbAutoConfirmService.isTargetPrompt("Allow DiPlay to access this USB device?", "DiPlay"))
-        assertTrue(UsbAutoConfirmService.isTargetPrompt("允许 DiPlay 访问 USB 设备？", "DiPlay"))
+    @Test fun theUsbDialogIsSeenUnderTheNameAlertActivityReports() {
+        // AlertActivity reports UsbPermissionActivity as android.app.Dialog (#409).
+        assertTrue(UsbAutoConfirmService.isSystemUsbWindow("com.android.systemui", "android.app.Dialog"))
+        assertFalse(UsbAutoConfirmService.isSystemUsbWindow("evil.app", "android.app.Dialog"))
+    }
+
+    @Test fun otherSystemDialogsNamingDiPlayAreLeftAlone() {
+        assertFalse(UsbAutoConfirmService.isTargetPrompt("Start recording or casting with DiPlay?", "DiPlay"))
+        assertFalse(UsbAutoConfirmService.isTargetPrompt(
+            "DiPlay will have access to all of the information that is visible on your screen", "DiPlay",
+        ))
+        assertFalse(UsbAutoConfirmService.isTargetPrompt("要开始使用DiPlay录制或投放内容吗？", "DiPlay"))
+    }
+
+    @Test fun promptMustNameDiPlayInEveryAndroidWording() {
+        // Android 7.1 and 10+ wording, in English and Chinese (#409, #521).
+        assertTrue(UsbAutoConfirmService.isTargetPrompt("Allow the app DiPlay to access the USB device?", "DiPlay"))
+        assertTrue(UsbAutoConfirmService.isTargetPrompt("允许应用“DiPlay”访问该USB设备吗？", "DiPlay"))
+        assertTrue(UsbAutoConfirmService.isTargetPrompt("Allow DiPlay to access iPhone?", "DiPlay"))
+        assertTrue(UsbAutoConfirmService.isTargetPrompt("要允许DiPlay访问iPhone吗？", "DiPlay"))
+        assertTrue(UsbAutoConfirmService.isTargetPrompt("Always open DiPlay when iPhone is connected", "DiPlay"))
         assertFalse(UsbAutoConfirmService.isTargetPrompt("Allow CarPlay access to iPhone?", "DiPlay"))
-        assertFalse(UsbAutoConfirmService.isTargetPrompt("Allow DiPlay to access your contacts?", "DiPlay"))
-        assertFalse(UsbAutoConfirmService.isTargetPrompt("Allow FakeDiPlay USB access?", "DiPlay"))
+        assertFalse(UsbAutoConfirmService.isTargetPrompt("Allow FakeDiPlay to access iPhone?", "DiPlay"))
+        assertFalse(UsbAutoConfirmService.isTargetPrompt("要允许DiPlayer访问iPhone吗？", "DiPlay"))
         assertFalse(UsbAutoConfirmService.isTargetPrompt("Allow USB access?", ""))
     }
+
+    @Test fun bydAccessibilityScreenIsUsedWhenTheStandardActionIsMissing() {
+        val context = org.mockito.Mockito.mock(Context::class.java)
+        val opened = mutableListOf<android.content.Intent>()
+        org.mockito.Mockito.doAnswer { call ->
+            val intent = call.getArgument<android.content.Intent>(0)
+            if (intent.action == Settings.ACTION_ACCESSIBILITY_SETTINGS) throw android.content.ActivityNotFoundException()
+            opened += intent
+            null
+        }.`when`(context).startActivity(org.mockito.ArgumentMatchers.any(android.content.Intent::class.java))
+        assertTrue(UsbAutoConfirmService.openSettings(context))
+        assertEquals(
+            listOf("com.byd.systemsettings/com.byd.systemsettings.accessibility.AccessibilityMainActivity"),
+            opened.map { it.component!!.flattenToString() },
+        )
+    }
+
     @Test fun systemUsbPromptClicksOnlyWhenTheNamedAppMatches() {
         val service = org.mockito.Mockito.spy(org.robolectric.Robolectric.buildService(UsbAutoConfirmService::class.java).create().get())
         val root = org.mockito.Mockito.mock(android.view.accessibility.AccessibilityNodeInfo::class.java)

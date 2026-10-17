@@ -146,10 +146,16 @@ class UsbAutoConfirmService : AccessibilityService() {
         /** Substring matches for the optional "always allow for this device" checkbox. */
         private val DEFAULT_LABELS = listOf("默认", "始终", "always", "default")
 
+        /**
+         * The window is already known to be the system USB dialog, so the prompt only has to name
+         * this app. Android 10+ words it "Allow DiPlay to access iPhone?" with no "USB", and Chinese
+         * puts the name between letters ("要允许DiPlay访问iPhone吗？"), so only ASCII word characters
+         * count as part of a longer name such as "FakeDiPlay".
+         */
         internal fun isTargetPrompt(text: String, appLabel: String): Boolean =
             appLabel.isNotBlank() &&
-                Regex("(?<![\\p{L}\\p{N}_])${Regex.escape(appLabel)}(?![\\p{L}\\p{N}_])", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(text) && text.contains("USB", ignoreCase = true)
+                Regex("(?<![A-Za-z0-9_])${Regex.escape(appLabel)}(?![A-Za-z0-9_])", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(text)
 
 
         fun isEnabled(context: Context): Boolean {
@@ -172,12 +178,19 @@ class UsbAutoConfirmService : AccessibilityService() {
             return false
         }
 
-        fun openSettings(context: Context): Boolean = runCatching {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-            true
-        }.getOrDefault(false)
+        /** BYD's settings app does not answer the standard action but has its own screen (#409). */
+        private val ACCESSIBILITY_SCREENS = listOf(
+            ComponentName("com.byd.systemsettings", "com.byd.systemsettings.accessibility.AccessibilityMainActivity"),
+            ComponentName("com.android.settings", "com.android.settings.Settings\$AccessibilitySettingsActivity"),
+        )
+
+        fun openSettings(context: Context): Boolean =
+            (listOf(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) + ACCESSIBILITY_SCREENS.map { Intent().setComponent(it) })
+                .any { intent ->
+                    runCatching {
+                        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        true
+                    }.getOrDefault(false)
+                }
     }
 }

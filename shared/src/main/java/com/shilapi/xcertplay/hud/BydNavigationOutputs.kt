@@ -7,12 +7,18 @@ import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 object BydNavigationOutputs {
     /** Recover a journaled interrupted output when the app opens, even before a phone reconnects. */
     fun onAppOpened(context: Context) {
+        // Honour the driver's manual head-unit pick from the setup guide before anything probes.
+        BydOutputSettings.loadLeapmotorUserChoice(context)
+        BydBluetoothSuspend.onAppOpened(context)
         BydOemClusterNavi.restoreIfNeeded(context)
         BydDiLink3ClusterOutput.restoreIfNeeded(context)
         com.shilapi.xcertplay.network.WifiScanPause.restoreIfNeeded(context)
         if (BydStandaloneHudOutput.available(context)) start(context)
         // Read the battery early, so a reading is ready when CarPlay identifies (see batteryStatus).
-        if (BydOutputSettings.batteryToIphoneActive(context)) BydBatteryStatus.start(context)
+        if (BydOutputSettings.batteryToIphoneActive(context)) {
+            if (com.shilapi.xcertplay.LmCarProbe.isLeapmotor()) LeapmotorBatteryStatus.start(context)
+            else BydBatteryStatus.start(context)
+        }
         // DiLink 3 creates its cluster map display only once the cluster has projected.
         if (BydOutputSettings.enabled(context)) BydClusterBridge.prepareProjectionDisplay(context.applicationContext)
     }
@@ -29,6 +35,7 @@ object BydNavigationOutputs {
     private val standalone = NavigationOutputWorker("diplay-standalone-output", BydStandaloneNavigationBridge::clear)
     private val hud = NavigationOutputWorker("diplay-hud-output", BydHudBridge::clear)
     private val cluster = NavigationOutputWorker("diplay-cluster-output", BydClusterBridge::clear)
+    private val fceCluster = NavigationOutputWorker("diplay-fce-cluster-output", FceClusterBridge::clear)
 
     /** The host reports whether its CarPlay map window is on the cluster (see [BydClusterMapPause]). */
     fun setClusterMapShown(shown: Boolean) {
@@ -53,15 +60,21 @@ object BydNavigationOutputs {
     }
 
     /**
-     * The car's battery for the iPhone's vehicle status; starts reading it over adb. The electric
-     * vehicle is declared only once a reading is there (see withVehicleStatusFrom).
+     * The car's battery for the iPhone's vehicle status. On a Leapmotor head unit the reading comes
+     * from the CAN broadcast; on a BYD unit from adb. The electric vehicle is declared only once a
+     * reading is there (see withVehicleStatusFrom).
      */
     fun batteryStatus(context: Context): com.shilapi.xcertplay.transport.VehicleStatusProvider =
-        BydBatteryStatus.also { it.start(context) }
+        if (com.shilapi.xcertplay.LmCarProbe.isLeapmotor()) {
+            LeapmotorBatteryStatus.also { it.start(context) }
+        } else {
+            BydBatteryStatus.also { it.start(context) }
+        }
 
-    /** The car's wheel speed and gear for the iPhone's dead reckoning; read over adb while asked for. */
+    /** The car's wheel speed and gear for the iPhone's dead reckoning; CAN on Leapmotor, adb on BYD. */
     fun wheelSpeed(context: Context): com.shilapi.xcertplay.transport.VehicleSpeedSource =
-        BydWheelSpeedSource.attach(context)
+        if (com.shilapi.xcertplay.LmCarProbe.isLeapmotor()) LeapmotorSpeedSource.attach(context)
+        else BydWheelSpeedSource.attach(context)
     /** Whether the car is in P (read over adb), or null when it cannot tell. Blocking. */
     fun parked(context: Context): Boolean? = BydParkedState.parked(context.applicationContext)
 
@@ -73,10 +86,15 @@ object BydNavigationOutputs {
             hud.start { BydHudBridge.initialize(app) }
             cluster.start { BydClusterBridge.initialize(app) }
         }
+        if (FceClusterBridge.available()) fceCluster.start { FceClusterBridge.initialize(app) }
         BydClusterMapPause.initialize(app)
         BydClusterSong.attach(app)
-        BydCarPlayCall.attach(app)
+        if (BydOutputSettings.leapmotorHeadUnit()) LeapmotorCarPlayCallOutput.attach(app)
+        else BydCarPlayCall.attach(app)
     }
+
+    /** Whether the call card runs on the Leapmotor broadcast path rather than the BYD ADB one. */
+    private fun leapmotorCalls(): Boolean = BydOutputSettings.leapmotorHeadUnit()
 
     internal fun onFrame(frame: Iap2Frame) {
         if (frame.messageId == ClusterSongState.NOW_PLAYING_UPDATE) {
@@ -84,13 +102,15 @@ object BydNavigationOutputs {
             return
         }
         if (frame.messageId == CarPlayCallState.CALL_STATE_UPDATE) {
-            BydCarPlayCall.onFrame(frame)
+            if (leapmotorCalls()) LeapmotorCarPlayCallOutput.onFrame(frame)
+            else BydCarPlayCall.onFrame(frame)
             return
         }
         if (frame.messageId != BydHudRouteState.ROUTE_GUIDANCE_UPDATE &&
             frame.messageId != BydHudRouteState.ROUTE_GUIDANCE_MANEUVER_UPDATE) return
         val owned = frame // Iap2Frame is immutable and defensively copies its payload.
         updateOverlay(owned)
+        fceCluster.submit { FceClusterBridge.onFrame(owned) }
         if (useStandalone) standalone.submit { BydStandaloneNavigationBridge.onFrame(owned) }
         else {
             hud.submit { BydHudBridge.onFrame(owned) }
@@ -136,13 +156,20 @@ object BydNavigationOutputs {
     fun clusterSongChanged(enabled: Boolean) = BydClusterSong.settingChanged(enabled)
 
     /** The CarPlay call setting changed; applies at once. */
-    fun carPlayCallsChanged(enabled: Boolean) = BydCarPlayCall.settingChanged(enabled)
+    fun carPlayCallsChanged(enabled: Boolean) {
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.settingChanged(enabled)
+        else BydCarPlayCall.settingChanged(enabled)
+    }
 
     /** A CarPlay session became active; ready the call card so calls show without the watcher's start delay. */
-    fun carPlaySessionStarted() = BydCarPlayCall.sessionStarted()
+    fun carPlaySessionStarted(context: Context) {
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.sessionStarted(context)
+        else BydCarPlayCall.sessionStarted()
+    }
 
     /** The iPhone's current call, for the steering wheel's call keys. */
-    fun carPlayCall(): CarPlayCallCard? = BydCarPlayCall.current()
+    fun carPlayCall(): CarPlayCallCard? =
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.current() else BydCarPlayCall.current()
 
     /** The dashboard song's "only when it changes" setting changed; applies at once. */
     fun clusterSongOnChangeChanged() = BydClusterSong.onChangeSettingChanged()
@@ -152,12 +179,15 @@ object BydNavigationOutputs {
 
     /** Best effort while alive; Android does not guarantee callbacks before force-stop. */
     fun endNow(preserveTurnOverlay: Boolean = false) {
-        standalone.clear(); hud.clear(); cluster.clear(); BydClusterSong.end(); BydCarPlayCall.end()
+        standalone.clear(); hud.clear(); cluster.clear(); fceCluster.clear(); BydClusterSong.end()
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.end() else BydCarPlayCall.end()
         // Only a wireless session replacement retains the card. Explicit controller close
         // and wired disconnect still clear it immediately.
         if (!preserveTurnOverlay) {
             synchronized(overlayLock) { overlayRoute.clear() }
             refreshTurnOverlay()
+        } else {
+            synchronized(overlayLock) { overlayRoute.holdAcrossDrop() }
         }
     }
 }

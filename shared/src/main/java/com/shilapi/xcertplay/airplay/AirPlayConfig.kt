@@ -29,6 +29,15 @@ data class AirPlayDisplayConfig(
     val viewAreas: List<AirPlayViewArea>? = null,
     /** The area CarPlay starts in, an index into [viewAreas]. */
     val initialViewArea: Int = 0,
+    /**
+     * When true, CarPlay video stream fills the entire display with right-angled corners.
+     * With corner masks advertised, iOS sends an unclipped rectangular video stream alongside
+     * corner mask PNG assets for blending. On rectangular vehicle screens, advertising true allows
+     * the video stream to fill the entire display as right angles without requiring additional clipping.
+     */
+    val mainDisplayCornerMasks: Boolean? = null,
+    /** When true, do not declare safeArea in viewAreas dictionary to avoid conflict with cornerMasks. */
+    val mainDisplayDisableSafeArea: Boolean = (mainDisplayCornerMasks == true),
 )
 
 /**
@@ -65,6 +74,12 @@ data class AirPlayConfig(
     val hevc: Boolean = false,
     val disableAudioOutput: Boolean = false,
     val microphone: Boolean = false,
+    /**
+     * Whether to offer Opus alongside PCM for the microphone. Both platform and bundled software
+     * encoding count toward [com.shilapi.xcertplay.media.OpusEncoderSupport]; an older Android
+     * version or absent MediaCodec encoder alone must not remove the wireless Opus formats.
+     */
+    val microphoneOpus: Boolean = true,
     val manufacturer: String = "xcertplay",
     val model: String = "xcertplay",
     val oemLabel: String = "xcertplay",
@@ -76,6 +91,11 @@ data class AirPlayConfig(
      * ahead of time over TCP, so short Wi-Fi gaps do not interrupt it.
      */
     val mainBufferedAudio: Boolean = false,
+    /**
+     * Over USB the iPhone sent navigation prompts as 8 kHz PCM, the lowest rate offered for the
+     * default stream (#148, #341). When set, 8 and 16 kHz are not offered for default and alert audio.
+     */
+    val speechWithout8And16Khz: Boolean = false,
 )
 
 /** The offer, SETUP and controls must all honor the user's audio-output setting. */

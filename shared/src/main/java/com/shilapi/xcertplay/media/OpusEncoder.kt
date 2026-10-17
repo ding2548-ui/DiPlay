@@ -3,13 +3,14 @@ package com.shilapi.xcertplay.media
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.util.Log
-import java.io.Closeable
 
 /**
  * Encodes 20 ms chunks of 48 kHz mono PCM into raw Opus access units for the CarPlay
- * microphone uplink.
+ * microphone uplink, using Android's MediaCodec encoder (Android 10 and later).
  */
-internal class OpusEncoder(bitrate: Int) : Closeable {
+internal class OpusEncoder(bitrate: Int) : MicrophoneOpusEncoder {
+    override val implementation: String = "mediacodec"
+
     private val codec: MediaCodec? = try {
         val format = MediaFormat.createAudioFormat(
             MediaFormat.MIMETYPE_AUDIO_OPUS,
@@ -38,12 +39,12 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
     private var closed = false
     private var outputPackets = 0
 
-    val available: Boolean get() = codec != null && !closed
+    override val available: Boolean get() = codec != null && !closed
 
     /**
      * Queues one 20 ms PCM frame and returns all Opus access units made available by the codec.
      */
-    fun encode(pcm: ByteArray): List<ByteArray> {
+    override fun encode(pcm: ByteArray): List<ByteArray> {
         val codec = codec ?: return emptyList()
         if (closed) return emptyList()
         val inputIndex = try {

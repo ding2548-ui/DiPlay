@@ -6,6 +6,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLConnection
 
 internal object UpdateClient {
     internal const val RELEASES_URL =
@@ -15,8 +16,14 @@ internal object UpdateClient {
     private const val MAXIMUM_TEXT_BYTES = 4 * 1024 * 1024
     private const val BUFFER_BYTES = 64 * 1024
 
-    internal fun fetchText(url: String, accept: String?, userAgent: String): String {
-        val connection = URL(url).openConnection() as HttpURLConnection
+    internal fun fetchText(
+        url: String,
+        accept: String?,
+        userAgent: String,
+        openConnection: (URL) -> URLConnection = { it.openConnection() },
+    ): String {
+        val connection = openConnection(URL(url)) as? HttpURLConnection
+            ?: throw IOException("Request to $url did not open an HTTP connection")
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = CONNECT_TIMEOUT_MILLIS

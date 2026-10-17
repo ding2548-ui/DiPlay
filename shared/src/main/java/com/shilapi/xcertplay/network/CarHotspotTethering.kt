@@ -3,11 +3,12 @@ package com.shilapi.xcertplay.network
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.wifi.WifiConfiguration
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
 import android.provider.Settings
-import com.shilapi.xcertplay.adb.AdbKeys
-import com.shilapi.xcertplay.adb.LocalAdb
 import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -36,45 +37,61 @@ object CarHotspotTethering {
         log: (String) -> Unit,
     ): Result {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
-        val observedAdbState = AtomicReference<Boolean?>()
-        val startReflection: (ResultReceiver) -> Unit = { receiver ->
-            // There is no public API for the car hotspot's startTethering overload on this platform,
-            // so the binder field has to be reached reflectively. The call is already wrapped by the
-            // caller's runCatching, and a missing field surfaces as NoSuchMethodException.
-            @SuppressLint("SoonBlockedPrivateApi")
-            val service = ConnectivityManager::class.java.getDeclaredField("mService")
-                .apply { isAccessible = true }
-                .get(context.getSystemService(ConnectivityManager::class.java))
-                ?: throw NoSuchMethodException("Connectivity service unavailable")
-            @SuppressLint("SoonBlockedPrivateApi")
-            service.javaClass.getMethod(
-                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                Boolean::class.javaPrimitiveType, String::class.java,
-            ).invoke(service, 0, receiver, false, context.packageName)
-        }
-        val startAdb: () -> Boolean = {
-            val client = AtomicReference<LocalAdb?>()
-            CarHotspotAdbFallback.bounded(deadline, isCancelled,
-                abort = { client.get()?.cancelPendingOperations() }) {
-                val adb = LocalAdb(AdbKeys.load(context))
-                client.set(adb)
-                adb.use {
-                    if (isCancelled() || Thread.currentThread().isInterrupted || System.nanoTime() >= deadline) false
-                    else if (adb.connect(mayAsk = false) != LocalAdb.Access.READY) false
-                    else CarHotspotAdbFallback.start(deadline, isCancelled,
-                        state = { CarHotspotStatus.isEnabled(context) }, shell = adb::shell, log = log)
-                        .also { if (it) observedAdbState.set(true) }
-                }
+        // FreeAuto-style primary path: on Android 7.x the classic SoftAP toggle only needs
+        // CHANGE_WIFI_STATE, reuses the car's saved hotspot configuration and is confirmed by
+        // polling the AP state — no ADB, no binder reflection. The startTethering binder
+        // overloads arrived with Android 8 and remain the path on newer firmwares.
+        val start: (ResultReceiver) -> Unit =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                { receiver -> startTetheringByBinder(context, receiver) }
+            } else {
+                { _ -> startLegacySoftAp(context, log) }
             }
-        }
         return enableUntil(
             deadline,
             isCancelled,
             { permitted(context) },
-            stateWithAdbObservation({ CarHotspotStatus.isEnabled(context) }, observedAdbState),
-            startFallback = startAdb,
-            start = startReflection,
+            { CarHotspotStatus.isEnabled(context) },
+            startFallback = null,
+            start = start,
         ).also { log("car hotspot auto-enable: ${it.diagnostic}") }
+    }
+
+    private fun startTetheringByBinder(context: Context, receiver: ResultReceiver) {
+        // There is no public API for the car hotspot's startTethering overload on this platform,
+        // so the binder field has to be reached reflectively. The call is already wrapped by the
+        // caller's runCatching, and a missing field surfaces as NoSuchMethodException.
+        @SuppressLint("SoonBlockedPrivateApi")
+        val service = ConnectivityManager::class.java.getDeclaredField("mService")
+            .apply { isAccessible = true }
+            .get(context.getSystemService(ConnectivityManager::class.java))
+            ?: throw NoSuchMethodException("Connectivity service unavailable")
+        // Android 8+ carries the caller package in the binder signature; Android 8.0 does not.
+        try {
+            service.javaClass.getMethod(
+                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
+                Boolean::class.javaPrimitiveType, String::class.java,
+            ).invoke(service, 0, receiver, false, context.packageName)
+        } catch (error: NoSuchMethodException) {
+            service.javaClass.getMethod(
+                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
+                Boolean::class.javaPrimitiveType,
+            ).invoke(service, 0, receiver, false)
+        }
+    }
+
+    private fun startLegacySoftAp(context: Context, log: (String) -> Unit) {
+        val wifi = context.getSystemService(WifiManager::class.java)
+            ?: throw NoSuchMethodException("Wi-Fi manager unavailable")
+        // FreeAuto parity: switch the hotspot on with the car's own saved configuration — its
+        // name and password stay exactly as the user set them in the car settings.
+        val saved = runCatching {
+            WifiManager::class.java.getMethod("getWifiApConfiguration").invoke(wifi) as? WifiConfiguration
+        }.getOrNull()
+        log("car hotspot legacy start: saved config ${if (saved != null) "applied (ssid known)" else "unavailable (null)"}")
+        WifiManager::class.java.getMethod(
+            "setWifiApEnabled", WifiConfiguration::class.java, Boolean::class.javaPrimitiveType,
+        ).invoke(wifi, saved, true)
     }
 
     /** An ADB observation supplements hidden platform status, but never overrides a current off state. */

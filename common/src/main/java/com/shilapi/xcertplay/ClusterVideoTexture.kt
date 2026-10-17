@@ -6,7 +6,8 @@ import android.view.Surface
 import android.view.TextureView
 
 /** Owns only the Surface wrapper; returning true lets TextureView release its texture. */
-internal class ClusterVideoTexture(context: Context, private val onSurface: (Surface?) -> Unit) :
+internal class ClusterVideoTexture(context: Context, private val onPresented: () -> Unit = {},
+    private val onSurface: (Surface?) -> Unit) :
     TextureView(context), java.io.Closeable {
     private var output: Surface? = null
     private val pictureBinding = CarPlayPicture.Binding(this)
@@ -19,7 +20,7 @@ internal class ClusterVideoTexture(context: Context, private val onSurface: (Sur
                 output = Surface(texture).also(onSurface)
             }
             override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
-            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) { onPresented() }
             override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
                 releaseOutput()
                 return true

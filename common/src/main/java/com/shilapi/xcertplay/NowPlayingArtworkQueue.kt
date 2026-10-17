@@ -25,6 +25,9 @@ internal class NowPlayingArtworkQueue<Image : Any>(
     private var workerScheduled = false
     private var deliveryScheduled = false
 
+    /** Runs bounded metadata recovery on the existing worker, away from the UI and PCM. */
+    fun execute(task: Runnable) = worker.execute(task)
+
     /** A fresh token also invalidates a decode already in progress. */
     fun newSession(): Any = synchronized(lock) {
         clearLocked()

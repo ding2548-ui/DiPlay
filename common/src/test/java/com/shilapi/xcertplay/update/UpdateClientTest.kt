@@ -5,6 +5,7 @@ import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -43,6 +44,23 @@ class UpdateClientTest {
             exchange.responseBody.use { it.write(bytes) }
         }
         assertEquals(body, UpdateClient.fetchText("$root/releases", "application/vnd.github+json", "DiPlay/test"))
+    }
+
+    @Test
+    fun fetchTextUsesTheSuppliedNetworkConnectionFactory() {
+        server.createContext("/selected-network") { exchange ->
+            val bytes = "[]".toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        val selected = AtomicBoolean()
+
+        UpdateClient.fetchText("$root/selected-network", null, "DiPlay/test") { url ->
+            selected.set(true)
+            url.openConnection()
+        }
+
+        assertTrue(selected.get())
     }
 
     @Test

@@ -22,7 +22,7 @@ data class CarPlayNowPlaying(
  * clears it.
  */
 class CarPlayPlaybackStatus {
-    var nowPlaying = CarPlayNowPlaying()
+    @Volatile var nowPlaying = CarPlayNowPlaying()
         private set
 
     val playing: Boolean get() = nowPlaying.playing

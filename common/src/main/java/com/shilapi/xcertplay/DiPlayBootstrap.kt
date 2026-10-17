@@ -120,4 +120,25 @@ internal object DiPlayPreferences {
     fun saveConnectOnPhoneBluetooth(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("connect_on_phone_bluetooth", value).apply()
     }
+
+    // PSA line: the auto-start triggers ported from the MiAuto reference implementation. Bluetooth
+    // wake trusts a set of paired devices rather than the one selected phone, Wi-Fi wake trusts one
+    // network name. Both only ever open DiPlay on the auto-connect path — see AutoStartReceivers.
+    fun autoStartBluetooth(context: Context) = prefs(context).getBoolean("auto_start_bluetooth", false)
+    fun saveAutoStartBluetooth(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean("auto_start_bluetooth", value).apply()
+    }
+    fun autoStartBluetoothMacs(context: Context): Set<String> =
+        prefs(context).getStringSet("auto_start_bluetooth_macs", emptySet()) ?: emptySet()
+    fun saveAutoStartBluetoothMacs(context: Context, macs: Set<String>) {
+        prefs(context).edit().putStringSet("auto_start_bluetooth_macs", macs).apply()
+    }
+    fun autoStartWifi(context: Context) = prefs(context).getBoolean("auto_start_wifi", false)
+    fun saveAutoStartWifi(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean("auto_start_wifi", value).apply()
+    }
+    fun autoStartWifiSsid(context: Context) = prefs(context).getString("auto_start_wifi_ssid", "") ?: ""
+    fun saveAutoStartWifiSsid(context: Context, ssid: String) {
+        prefs(context).edit().putString("auto_start_wifi_ssid", ssid).apply()
+    }
 }
