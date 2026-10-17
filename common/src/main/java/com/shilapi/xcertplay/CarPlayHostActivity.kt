@@ -1785,11 +1785,12 @@ class CarPlayHostActivity : ComponentActivity() {
             gravity = Gravity.CENTER
             visibility = View.GONE
         }
+        // Half the viewport, captured as a local var so the anonymous ScrollView can read it in onMeasure.
+        var stepsMaxHeight = -1
         val stepsScroll = object : ScrollView(this) {
-            var maxHeight = -1
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                val capped = if (maxHeight > 0) {
-                    View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST)
+                val capped = if (stepsMaxHeight > 0) {
+                    View.MeasureSpec.makeMeasureSpec(stepsMaxHeight, View.MeasureSpec.AT_MOST)
                 } else {
                     heightMeasureSpec
                 }
@@ -1891,7 +1892,7 @@ class CarPlayHostActivity : ComponentActivity() {
             connectionStepLineView?.textSize = size(14f, 16f)
             connectionStepsToggleView?.textSize = size(12.5f, 13.5f)
             connectionStepsListView?.textSize = size(14f, 16f)
-            connectionStepsScrollView?.maxHeight = (viewport.height / 2).coerceAtLeast(0)
+            stepsMaxHeight = (viewport.height / 2).coerceAtLeast(0)
             instructions.textSize = size(15f, 17f)
             instructions.setPadding(0, spacing(8f, 14f), 0, spacing(12f, 24f))
             for (button in listOf(back, recovery, retry)) {
