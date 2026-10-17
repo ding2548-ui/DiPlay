@@ -1106,4 +1106,9 @@
 <string name="connection_step_wd_23">Session started</string>
 <string name="connection_step_wd_24">Picture data received</string>
 <string name="connection_step_wd_25">Picture on screen</string>
+    <string name="music_buffer">Music buffer</string>
+    <string name="s_500_ms">500 ms</string>
+    <string name="settings_ambient_palette">OEM color numbers (multiple selections)</string>
+    <string name="settings_ambient_palette_summary">Colors · %1$d selected</string>
+    <string name="settings_ambient_select_all">Select all</string>
 </resources>

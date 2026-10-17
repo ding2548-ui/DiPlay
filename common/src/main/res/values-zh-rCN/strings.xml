@@ -1062,4 +1062,9 @@
 <string name="connection_step_wd_23">会话已启动</string>
 <string name="connection_step_wd_24">已收到画面</string>
 <string name="connection_step_wd_25">画面已显示</string>
+    <string name="music_buffer">音乐缓冲</string>
+    <string name="s_500_ms">500 毫秒</string>
+    <string name="settings_ambient_palette">原车颜色编号（多选）</string>
+    <string name="settings_ambient_palette_summary">颜色 · 已选%1$d种</string>
+    <string name="settings_ambient_select_all">全选</string>
 </resources>
