@@ -851,11 +851,7 @@
     <string name="settings_ambient_enable">啟用氛圍燈控制</string>
     <string name="settings_ambient_enable_description">開啟後由音樂驅動氛圍燈，關閉則交還原廠。BYD 車機沿用既有的 ADB 授權；零跑車機走廣播指令，無需設定。</string>
     <string name="settings_ambient_music">跟隨音樂</string>
-<<<<<<< ours
-    <string name="settings_ambient_music_description">開啟時燈光跟隨音樂，關閉則使用固定顏色。只要本功能為開啟狀態，燈光就由我們驅動；暫停時維持最低檔。儲存後生效。</string>
-=======
     <string name="settings_ambient_music_description">播放時跟隨音樂；關閉跟隨後使用固定顏色及亮度。    沒有音樂播放時的燈光表現在下方另外設定，儲存後生效。</string>
->>>>>>> upstream20
     <string name="settings_ambient_color_mode">顏色變化</string>
     <string name="settings_ambient_speed">亮度過渡速度</string>
     <string name="settings_ambient_behavior_title">運作方式</string>

@@ -790,11 +790,7 @@
     <string name="settings_ambient_enable">Управлять подсветкой</string>
     <string name="settings_ambient_enable_description">Включено — подсветкой управляет музыка, выключено — она возвращается машине. На BYD используется существующая авторизация ADB; на автомобиле Leapmotor команда отправляется широковещательно и не требует настройки.</string>
     <string name="settings_ambient_music">Следовать музыке</string>
-<<<<<<< ours
-    <string name="settings_ambient_music_description">Включено — свет следует музыке, выключено — показывается постоянный цвет. В обоих случаях подсветка управляется, пока функция включена, а на паузе остаётся минимальный уровень. Изменения применяются после сохранения.</string>
-=======
     <string name="settings_ambient_music_description">При воспроизведении следует музыке или использует постоянные цвета и яркость. Что делает подсветка, когда музыка не играет, настраивается ниже отдельно. Изменения применяются после сохранения.</string>
->>>>>>> upstream20
     <string name="settings_ambient_color_mode">Смена цвета</string>
     <string name="settings_ambient_speed">Скорость изменения яркости</string>
     <string name="settings_ambient_behavior_title">Что происходит</string>

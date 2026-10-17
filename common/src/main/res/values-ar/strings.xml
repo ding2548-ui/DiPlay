@@ -790,11 +790,7 @@
     <string name="settings_ambient_enable">تفعيل التحكم بالإضاءة المحيطية</string>
     <string name="settings_ambient_enable_description">عند التفعيل تقود الموسيقى الإضاءة، وعند الإيقاف تُعاد إلى السيارة. على BYD يُستخدم تفويض ADB الحالي؛ وعلى سيارة Leapmotor يكون الأمر بثًا لا يحتاج أي إعداد.</string>
     <string name="settings_ambient_music">متابعة الموسيقى</string>
-<<<<<<< ours
-    <string name="settings_ambient_music_description">عند التفعيل تتبع الإضاءة الموسيقى، وعند الإيقاف يُعرض لون ثابت. ما دامت الميزة مفعّلة تُدار الإضاءة دائمًا، ويبقى الإيقاف المؤقت عند أدنى مستوى. تُطبق التغييرات بعد الحفظ.</string>
-=======
     <string name="settings_ambient_music_description">أثناء التشغيل تتبع الموسيقى أو تستخدم ألوانًا وسطوعًا ثابتين. ما تفعله الإضاءة عند عدم تشغيل موسيقى يُضبط بشكل منفصل أدناه. تُطبق التغييرات بعد الحفظ.</string>
->>>>>>> upstream20
     <string name="settings_ambient_color_mode">تغييرات اللون</string>
     <string name="settings_ambient_speed">سرعة انتقال السطوع</string>
     <string name="settings_ambient_behavior_title">ماذا يحدث</string>

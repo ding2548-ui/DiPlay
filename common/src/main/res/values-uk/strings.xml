@@ -802,11 +802,7 @@
     <string name="settings_ambient_enable">Керувати підсвічуванням</string>
     <string name="settings_ambient_enable_description">Увімкнено — підсвічуванням керує музика, вимкнено — воно повертається авто. На BYD використовується наявна авторизація ADB; на авто Leapmotor команда надсилається широкомовно і не потребує налаштування.</string>
     <string name="settings_ambient_music">Слідувати музиці</string>
-<<<<<<< ours
-    <string name="settings_ambient_music_description">Увімкнено — світло слідує музиці, вимкнено — показується постійний колір. В обох випадках підсвічування керується, поки функцію ввімкнено, а на паузі тримається мінімальний рівень. Зміни застосовуються після збереження.</string>
-=======
     <string name="settings_ambient_music_description">Під час відтворення слідує музиці або використовує постійні кольори та яскравість. Що робить підсвічування, коли музика не грає, налаштовується нижче окремо. Зміни застосовуються після збереження.</string>
->>>>>>> upstream20
     <string name="settings_ambient_color_mode">Зміна кольору</string>
     <string name="settings_ambient_speed">Швидкість зміни яскравості</string>
     <string name="settings_ambient_behavior_title">Що відбувається</string>

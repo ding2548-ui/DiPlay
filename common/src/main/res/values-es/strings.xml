@@ -790,11 +790,7 @@
     <string name="settings_ambient_enable">Activar control de iluminación ambiental</string>
     <string name="settings_ambient_enable_description">Al activarlo, la música controla la luz; al desactivarlo, vuelve al coche. En BYD se usa la autorización ADB existente; en un coche Leapmotor la orden es una difusión que no necesita configuración.</string>
     <string name="settings_ambient_music">Seguir la música</string>
-<<<<<<< ours
-    <string name="settings_ambient_music_description">Activado, la luz sigue la música; desactivado, se muestra un color fijo. En ambos casos la luz se controla mientras la función esté activada, y la pausa mantiene el nivel mínimo. Los cambios se aplican al guardar.</string>
-=======
     <string name="settings_ambient_music_description">Durante la reproducción, sigue la música o usa colores y brillo fijos si se desactiva. Lo que hacen las luces cuando no suena música se ajusta por separado abajo. Los cambios se aplican al guardar.</string>
->>>>>>> upstream20
     <string name="settings_ambient_color_mode">Cambios de color</string>
     <string name="settings_ambient_speed">Velocidad de transición del brillo</string>
     <string name="settings_ambient_behavior_title">Qué ocurre</string>
