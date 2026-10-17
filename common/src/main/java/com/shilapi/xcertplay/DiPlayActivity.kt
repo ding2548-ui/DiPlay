@@ -840,7 +840,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // Reserve the action buttons first; only the title may shrink in a narrow header.
         addView(settingsTitle, LinearLayout.LayoutParams(
             if (settingsSearchExpanded) -2 else 0, controlHeight,
-            )f (settingsSearchExpanded) 0f else 1f,
+            if (settingsSearchExpanded) 0f else 1f,
         ))
         val searchGap = dp(if (compact) SETTINGS_HEADER_COMPACT_GAP_DP else SETTINGS_HEADER_GAP_DP)
         if (settingsSearchExpanded) {
