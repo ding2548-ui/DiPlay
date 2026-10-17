@@ -38,8 +38,11 @@ import android.os.Process
 import android.os.SystemClock
 import android.text.Editable
 import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.TextUtils
 import android.text.TextWatcher
+import android.text.style.StyleSpan
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -319,6 +322,16 @@ class CarPlayHostActivity : ComponentActivity() {
     private var statusView: TextView? = null
     private var statusScrollView: ScrollView? = null
     private var stageStatusView: TextView? = null
+    private var connectionStepLineView: TextView? = null
+    private var connectionStepsToggleView: TextView? = null
+    private var connectionStepsListView: TextView? = null
+    private val connectionProgressTick = object : Runnable {
+        override fun run() {
+            ConnectionProgress.markStalledIfExpired()
+            renderConnectionProgress()
+            mainHandler.postDelayed(this, 1_000)
+        }
+    }
     private var resolutionValueView: TextView? = null
     private var resolutionPreviewView: TextView? = null
     private var hotspotStatusView: TextView? = null
@@ -1695,6 +1708,8 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(applyDisplaySize)
         mainHandler.removeCallbacks(expireOldLogLines)
         mainHandler.removeCallbacks(pollConfiguration)
+        mainHandler.removeCallbacks(connectionProgressTick)
+        ConnectionProgress.stopped()
         videoSurfaceOwner.clear()
         currentSurfaceTexture = null
         fallbackVideoView = null
@@ -1750,6 +1765,29 @@ class CarPlayHostActivity : ComponentActivity() {
             gravity = Gravity.CENTER
         }
         panel.addView(stage)
+        val stepLine = TextView(this).apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        panel.addView(stepLine)
+        val stepsToggle = TextView(this).apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(0, dp(6), 0, dp(2))
+            setOnClickListener {
+                ConnectionProgress.toggleStepsExpanded()
+                renderConnectionProgress()
+            }
+        }
+        panel.addView(stepsToggle)
+        val stepsList = TextView(this).apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        panel.addView(stepsList)
+        connectionStepLineView = stepLine
+        connectionStepsToggleView = stepsToggle
+        connectionStepsListView = stepsList
         val instructions = TextView(this).apply {
             text = if (wirelessEnabled) getString(R.string.keep_your_iphone_nearby_with_bluetooth_and_wi_fi_on_allow)
                 else getString(R.string.use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an)
@@ -1793,6 +1831,9 @@ class CarPlayHostActivity : ComponentActivity() {
             viewport.setBackgroundColor(colors.background)
             title.setTextColor(colors.text)
             stage.setTextColor(colors.text)
+            connectionStepLineView?.setTextColor(colors.text)
+            connectionStepsToggleView?.setTextColor(colors.secondary)
+            connectionStepsListView?.setTextColor(colors.secondary)
             instructions.setTextColor(colors.secondary)
             gestureHint.setTextColor(colors.secondary)
             val buttonPalette = DiPlayPalette.of(darkMode)
@@ -1833,6 +1874,9 @@ class CarPlayHostActivity : ComponentActivity() {
             title.textSize = size(26f, 34f)
             title.setPadding(0, spacing(8f, 18f), 0, spacing(6f, 14f))
             stage.textSize = size(19f, 22f)
+            connectionStepLineView?.textSize = size(14f, 16f)
+            connectionStepsToggleView?.textSize = size(12.5f, 13.5f)
+            connectionStepsListView?.textSize = size(10.5f, 12f)
             instructions.textSize = size(15f, 17f)
             instructions.setPadding(0, spacing(8f, 14f), 0, spacing(12f, 24f))
             for (button in listOf(back, recovery, retry)) {
@@ -4846,6 +4890,8 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     activeAirPlaySession = session
+                    ConnectionProgress.connected(wirelessEnabled)
+                    renderConnectionProgress()
                     CarPlayBackgroundSession.active = true
                     callPopupSessionReady = true
                     updateCallPopupGuard()
@@ -4888,6 +4934,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
                     activeAirPlaySession = null
+                    ConnectionProgress.lost(wirelessEnabled)
+                    renderConnectionProgress()
                     CarPlayBackgroundSession.active = false
                     callPopupSessionReady = false
                     updateCallPopupGuard()
@@ -4905,10 +4953,12 @@ class CarPlayHostActivity : ComponentActivity() {
 
             override fun onTransportError(message: String) {
                 runOnUiThread {
-                    if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
-                    callPopupSessionReady = false
-                    updateCallPopupGuard()
-                    startupRetryBudget.disconnected()
+                if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
+                callPopupSessionReady = false
+                updateCallPopupGuard()
+                startupRetryBudget.disconnected()
+                ConnectionProgress.lost(wirelessEnabled)
+                renderConnectionProgress()
                     if (menuOpen) {
                         recoveryPendingAfterMenu = true
                         return@runOnUiThread
@@ -4947,6 +4997,13 @@ class CarPlayHostActivity : ComponentActivity() {
         controllerGeneration: Int,
     ): (CarPlayStatus) -> Unit = report@{ status ->
         if (controllerGeneration != restartGeneration) return@report
+        // FreeAuto-style step tracking: advance before any early return below.
+        if (status is CarPlayStatus.Failed) {
+            ConnectionProgress.failed(wirelessEnabled, status.message)
+        } else {
+            ConnectionProgress.status(wirelessEnabled, status)
+        }
+        renderConnectionProgress()
         if (status is CarPlayStatus.Failed || status is CarPlayStatus.ControlEnded) {
             callPopupSessionReady = false
             updateCallPopupGuard()
@@ -5058,6 +5115,10 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
+        ConnectionProgress.begin(wirelessEnabled, automatic = false)
+        mainHandler.removeCallbacks(connectionProgressTick)
+        mainHandler.post(connectionProgressTick)
+        renderConnectionProgress()
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val effectiveSize = if (isMultiWindowActive() && !AirPlayPersistence.loadAdaptPipResolution(this) &&
@@ -6005,6 +6066,78 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun setConnectionStage(stringId: Int) =
         setConnectionStage(getString(stringId), englishResources.getString(stringId))
+
+    /** FreeAuto-style step row: 「无线连接 · 第 N 步 / 共 40 步」+ the expandable full step list. */
+    private fun renderConnectionProgress() {
+        val line = connectionStepLineView ?: return
+        val progress = ConnectionProgress.state
+        if (progress.phase == ConnectionPhase.IDLE || progress.phase == ConnectionPhase.CONNECTED) {
+            line.visibility = View.GONE
+            connectionStepsToggleView?.visibility = View.GONE
+            connectionStepsListView?.visibility = View.GONE
+            return
+        }
+        val total = ConnectionSteps.count(progress.wireless)
+        line.text = when (progress.phase) {
+            ConnectionPhase.RECONNECTING -> getString(R.string.row_reconnecting, progress.step, total)
+            ConnectionPhase.STUCK -> getString(
+                if (progress.wireless) R.string.row_stuck_wl else R.string.row_stuck_wd,
+                progress.step,
+                total,
+            )
+            else -> getString(
+                if (progress.wireless) R.string.row_connecting_wl else R.string.row_connecting_wd,
+                progress.step,
+                total,
+            )
+        }
+        line.visibility = View.VISIBLE
+        val toggle = connectionStepsToggleView
+        if (toggle != null) {
+            toggle.text = getString(
+                if (progress.stepsExpanded) R.string.row_hide_steps else R.string.row_all_steps,
+            )
+            toggle.visibility = View.VISIBLE
+        }
+        val list = connectionStepsListView
+        if (list == null) return
+        if (progress.stepsExpanded) {
+            list.text = connectionStepsText(progress, total)
+            list.visibility = View.VISIBLE
+        } else {
+            list.visibility = View.GONE
+        }
+    }
+
+    // The whole step table with FreeAuto's markers: WAIT ○ / NOW ● / DONE ✓ / STUCK !.
+    private fun connectionStepsText(progress: ConnectionState, total: Int): CharSequence {
+        val steps = ConnectionSteps.of(progress.wireless)
+        val builder = SpannableStringBuilder()
+        val markCurrent = progress.phase == ConnectionPhase.CONNECTING ||
+            progress.phase == ConnectionPhase.RECONNECTING ||
+            progress.phase == ConnectionPhase.STUCK
+        for (index in 1..total) {
+            val marker = when {
+                progress.phase == ConnectionPhase.STUCK && index == progress.step -> "! "
+                index < progress.step -> "✓ "
+                index == progress.step -> "● "
+                else -> "○ "
+            }
+            val start = builder.length
+            builder.append(marker)
+            builder.append(getString(steps[index - 1].nameRes))
+            if (markCurrent && index == progress.step) {
+                builder.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    builder.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            if (index != total) builder.append("\n")
+        }
+        return builder
+    }
 
     /** [englishMessage] is [message] in English, which [friendlyStage] reads for its keywords. */
     private fun setConnectionStage(message: String, englishMessage: String = message) {
