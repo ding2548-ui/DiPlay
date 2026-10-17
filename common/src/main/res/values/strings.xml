@@ -916,6 +916,7 @@
     <!-- PSA line: the auto-start triggers and their setup entries. -->
     <string name="auto_car_hotspot_setup_description">Turns the saved car hotspot on by itself when connecting. DiPlay asks once for the “Modify system settings” permission it needs. The hotspot name and password are left as they are, and the hotspot is not turned off afterwards.</string>
     <string name="auto_car_hotspot_needs_permission">To turn the hotspot on automatically, allow “Modify system settings” for DiPlay in the next screen.</string>
+    <string name="auto_car_hotspot_usage_hint">First use: switch the hotspot on once in the car settings — only then do automatically started hotspots get a network. If you turn the hotspot off in the car settings later, switch it on there once more before automatic starts have a network again.</string>
     <string name="auto_start_bluetooth_title">Bluetooth auto-start</string>
     <string name="auto_start_bluetooth_description">When a selected paired iPhone connects over Bluetooth, opens DiPlay and starts the wireless connection.</string>
     <string name="auto_start_bluetooth_devices">Choose auto-start devices</string>

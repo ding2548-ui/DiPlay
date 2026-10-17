@@ -840,7 +840,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // Reserve the action buttons first; only the title may shrink in a narrow header.
         addView(settingsTitle, LinearLayout.LayoutParams(
             if (settingsSearchExpanded) -2 else 0, controlHeight,
-            if (settingsSearchExpanded) 0f else 1f,
+            )f (settingsSearchExpanded) 0f else 1f,
         ))
         val searchGap = dp(if (compact) SETTINGS_HEADER_COMPACT_GAP_DP else SETTINGS_HEADER_GAP_DP)
         if (settingsSearchExpanded) {
@@ -3325,6 +3325,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     startupHotspotCancelled = true
                 }
             }
+            parent.addView(label(getString(R.string.auto_car_hotspot_usage_hint), 14, MUTED).apply { setPadding(0, dp(8), 0, 0) })
             parent.addView(label(if (pendingCarHotspotSetup) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
             val join = hotspotJoinControls ?: HotspotJoinControls(this,
                 { CarPlayBackgroundSession.hasSession() }, beforeAction = { startupHotspotCancelled = true },

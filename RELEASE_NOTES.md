@@ -75,6 +75,10 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   Android 7.x 上走传统 SoftAP 开关（反射 `setWifiApEnabled`，用车机自己保存的热点配置，
   不动名称/密码/频段，**全程不需要 ADB**）；Android 8+ 走 `startTethering` 反射。
   连接结束后**不关热点**。需要「修改系统设置」权限，开关打开时引导到系统设置授权（无需 ADB）。
+  开关下方新增**使用方法提示**：首次使用前先在车机设置手动开一次热点（本 ROM 的热点 DHCP
+  由车机设置那次手动开启武装，反射开启本身不带；之后自动启用即正常；若又在车机设置里手动
+  关过热点，需再手动开一次恢复）。该行为与 FreeAuto 实测一致（其自身日志证明反射热点首把
+  同样无网络，手动开过一次后恢复）。
 - **修复：热点自动启用对齐 FreeAuto 方式** 🔧：此前 Android 7.x 上主路径是 `startTethering`
   反射 + ADB 兜底（BYD 遗产，本车无 adbd 时 ADB 路径永远秒失败）。现按 FreeAuto 的实现方式：
   **Android 7.x 直接用传统 `setWifiApEnabled` 开关**（仅需清单内 `CHANGE_WIFI_STATE` 普通权限 +
