@@ -676,6 +676,13 @@ object AirPlayPersistence {
             .getInt(KEY_FPS, 30),
     )
 
+    /** PSA line: one buffer setting covers both transports (the 283 UI passes no transport). */
+    fun loadMediaBufferMillis(context: Context): Int = loadMediaBufferMillis(context, wireless = false)
+
+    fun saveMediaBufferMillis(context: Context, millis: Int) {
+        saveMediaBufferMillis(context, wireless = false, millis = millis)
+    }
+
     /** Music buffer for the session's transport. Wireless and wired USB have separate settings. */
     fun loadMediaBufferMillis(context: Context, wireless: Boolean): Int {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
