@@ -42,6 +42,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextUtils
 import android.text.TextWatcher
+import android.text.method.ScrollingMovementMethod
 import android.text.style.StyleSpan
 import android.util.Log
 import android.view.Gravity
@@ -325,7 +326,6 @@ class CarPlayHostActivity : ComponentActivity() {
     private var connectionStepLineView: TextView? = null
     private var connectionStepsToggleView: TextView? = null
     private var connectionStepsListView: TextView? = null
-    private var connectionStepsScrollView: ScrollView? = null
     private val connectionProgressTick = object : Runnable {
         override fun run() {
             ConnectionProgress.markStalledIfExpired()
@@ -1784,25 +1784,15 @@ class CarPlayHostActivity : ComponentActivity() {
         val stepsList = TextView(this).apply {
             gravity = Gravity.CENTER
             visibility = View.GONE
+            // Scroll the truncated list by dragging; no ScrollView — the custom viewport's
+            // two-pass onMeasure measured the anonymous ScrollView to 0 height on the car unit.
+            movementMethod = ScrollingMovementMethod()
+            maxLines = STEP_LIST_VISIBLE_LINES
         }
-        // Half the viewport, captured as a local var so the anonymous ScrollView can read it in onMeasure.
-        var stepsMaxHeight = -1
-        val stepsScroll = object : ScrollView(this) {
-            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                val capped = if (stepsMaxHeight > 0) {
-                    View.MeasureSpec.makeMeasureSpec(stepsMaxHeight, View.MeasureSpec.AT_MOST)
-                } else {
-                    heightMeasureSpec
-                }
-                super.onMeasure(widthMeasureSpec, capped)
-            }
-        }
-        stepsScroll.addView(stepsList, FrameLayout.LayoutParams(-1, -2))
-        panel.addView(stepsScroll)
+        panel.addView(stepsList)
         connectionStepLineView = stepLine
         connectionStepsToggleView = stepsToggle
         connectionStepsListView = stepsList
-        connectionStepsScrollView = stepsScroll
         val instructions = TextView(this).apply {
             text = if (wirelessEnabled) getString(R.string.keep_your_iphone_nearby_with_bluetooth_and_wi_fi_on_allow)
                 else getString(R.string.use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an)
@@ -1892,7 +1882,6 @@ class CarPlayHostActivity : ComponentActivity() {
             connectionStepLineView?.textSize = size(14f, 16f)
             connectionStepsToggleView?.textSize = size(12.5f, 13.5f)
             connectionStepsListView?.textSize = size(14f, 16f)
-            stepsMaxHeight = (viewport.height / 2).coerceAtLeast(0)
             instructions.textSize = size(15f, 17f)
             instructions.setPadding(0, spacing(8f, 14f), 0, spacing(12f, 24f))
             for (button in listOf(back, recovery, retry)) {
@@ -6090,7 +6079,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (progress.phase == ConnectionPhase.IDLE || progress.phase == ConnectionPhase.CONNECTED) {
             line.visibility = View.GONE
             connectionStepsToggleView?.visibility = View.GONE
-            connectionStepsScrollView?.visibility = View.GONE
+            connectionStepsListView?.visibility = View.GONE
             return
         }
         val total = ConnectionSteps.count(progress.wireless)
@@ -6119,9 +6108,9 @@ class CarPlayHostActivity : ComponentActivity() {
         if (list == null) return
         if (progress.stepsExpanded) {
             list.text = connectionStepsText(progress, total)
-            connectionStepsScrollView?.visibility = View.VISIBLE
+            list.visibility = View.VISIBLE
         } else {
-            connectionStepsScrollView?.visibility = View.GONE
+            list.visibility = View.GONE
         }
     }
 
@@ -6307,6 +6296,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private companion object {
         const val CLUSTER_SMALL_WINDOW_ON = 1
+
+        /** Lines of the expanded connection-step list shown before dragging scrolls the rest. */
+        const val STEP_LIST_VISIBLE_LINES = 12
         const val CLUSTER_SMALL_WINDOW_AUTO = 2
         const val SIDE_PANEL_REFRESH_MILLIS = 5_000L
         /** CarPlay's share past which letting go of the panel edge closes the panel: halfway from two thirds to all. */
