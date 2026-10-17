@@ -325,6 +325,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var connectionStepLineView: TextView? = null
     private var connectionStepsToggleView: TextView? = null
     private var connectionStepsListView: TextView? = null
+    private var connectionStepsScrollView: ScrollView? = null
     private val connectionProgressTick = object : Runnable {
         override fun run() {
             ConnectionProgress.markStalledIfExpired()
@@ -1784,10 +1785,23 @@ class CarPlayHostActivity : ComponentActivity() {
             gravity = Gravity.CENTER
             visibility = View.GONE
         }
-        panel.addView(stepsList)
+        val stepsScroll = object : ScrollView(this) {
+            var maxHeight = -1
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val capped = if (maxHeight > 0) {
+                    View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST)
+                } else {
+                    heightMeasureSpec
+                }
+                super.onMeasure(widthMeasureSpec, capped)
+            }
+        }
+        stepsScroll.addView(stepsList, FrameLayout.LayoutParams(-1, -2))
+        panel.addView(stepsScroll)
         connectionStepLineView = stepLine
         connectionStepsToggleView = stepsToggle
         connectionStepsListView = stepsList
+        connectionStepsScrollView = stepsScroll
         val instructions = TextView(this).apply {
             text = if (wirelessEnabled) getString(R.string.keep_your_iphone_nearby_with_bluetooth_and_wi_fi_on_allow)
                 else getString(R.string.use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an)
@@ -1833,7 +1847,7 @@ class CarPlayHostActivity : ComponentActivity() {
             stage.setTextColor(colors.text)
             connectionStepLineView?.setTextColor(colors.text)
             connectionStepsToggleView?.setTextColor(colors.secondary)
-            connectionStepsListView?.setTextColor(colors.secondary)
+            connectionStepsListView?.setTextColor(colors.text)
             instructions.setTextColor(colors.secondary)
             gestureHint.setTextColor(colors.secondary)
             val buttonPalette = DiPlayPalette.of(darkMode)
@@ -1876,7 +1890,8 @@ class CarPlayHostActivity : ComponentActivity() {
             stage.textSize = size(19f, 22f)
             connectionStepLineView?.textSize = size(14f, 16f)
             connectionStepsToggleView?.textSize = size(12.5f, 13.5f)
-            connectionStepsListView?.textSize = size(10.5f, 12f)
+            connectionStepsListView?.textSize = size(14f, 16f)
+            connectionStepsScrollView?.maxHeight = (viewport.height / 2).coerceAtLeast(0)
             instructions.textSize = size(15f, 17f)
             instructions.setPadding(0, spacing(8f, 14f), 0, spacing(12f, 24f))
             for (button in listOf(back, recovery, retry)) {
@@ -6074,7 +6089,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (progress.phase == ConnectionPhase.IDLE || progress.phase == ConnectionPhase.CONNECTED) {
             line.visibility = View.GONE
             connectionStepsToggleView?.visibility = View.GONE
-            connectionStepsListView?.visibility = View.GONE
+            connectionStepsScrollView?.visibility = View.GONE
             return
         }
         val total = ConnectionSteps.count(progress.wireless)
@@ -6103,9 +6118,9 @@ class CarPlayHostActivity : ComponentActivity() {
         if (list == null) return
         if (progress.stepsExpanded) {
             list.text = connectionStepsText(progress, total)
-            list.visibility = View.VISIBLE
+            connectionStepsScrollView?.visibility = View.VISIBLE
         } else {
-            list.visibility = View.GONE
+            connectionStepsScrollView?.visibility = View.GONE
         }
     }
 
