@@ -21,7 +21,15 @@ internal enum class WiredConfigurationAction(val diagnostic: String) {
          * [found] is a configuration with USBMUX and NCM, and [carPlayMode] says that it also has
          * Apple Ethernet. A rejected request falls back to [found] (see [fallbackAfterRejection]).
          */
-        fun choose(found: Boolean, carPlayMode: Boolean, transitionsTried: Int, maximumTransitions: Int) = when {
+        fun choose(
+            found: Boolean,
+            carPlayMode: Boolean,
+            transitionsTried: Int,
+            maximumTransitions: Int,
+            sessionAlreadyStarted: Boolean = false,
+        ) = when {
+            // The mode a session DiPlay ended itself left behind takes no new session (#335; WiredSessionMemory).
+            found && carPlayMode && sessionAlreadyStarted && transitionsTried == 0 -> REQUEST_TRANSITION
             found && carPlayMode -> USE
             found && transitionsTried > 0 -> USE_WITHOUT_APPLE_ETHERNET
             transitionsTried < maximumTransitions -> REQUEST_TRANSITION
@@ -32,6 +40,7 @@ internal enum class WiredConfigurationAction(val diagnostic: String) {
          * An iPhone that rejects the mode request (iOS 12 and 15 do, #509, #455, and so does a
          * locked one, #100) is still tried on the configuration it offered, as before.
          */
-        fun fallbackAfterRejection(found: Boolean, carPlayMode: Boolean): Boolean = found && !carPlayMode
+        fun fallbackAfterRejection(found: Boolean, carPlayMode: Boolean, sessionAlreadyStarted: Boolean = false): Boolean =
+            found && (!carPlayMode || sessionAlreadyStarted)
     }
 }

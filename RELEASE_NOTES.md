@@ -79,6 +79,20 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   由车机设置那次手动开启武装，反射开启本身不带；之后自动启用即正常；若又在车机设置里手动
   关过热点，需再手动开一次恢复）。该行为与 FreeAuto 实测一致（其自身日志证明反射热点首把
   同样无网络，手动开过一次后恢复）。
+- **上游 0.2.20 全量同步** 🆕：并入上游 0.2.19 + 0.2.20（基线 0.2.18 之上）的主要更新：
+  音频时钟漂移速率补偿 / 音频线程优先级 / 无线与 USB 独立音乐缓冲；耳机→扬声器通话路由、
+  Siri 语音键一次按压一次唤醒、应用语音消息麦克风；有线启动提速（WiredStartWatchdog、
+  WiredSessionMemory、USB 转移拒绝回退）、iOS 26 先请求 CarPlay 模式、经已授权 ADB 的
+  USB 授权（IphoneUsbAdbGrant）、NCM 流量计数；仪表集群 13/17 固件与 Leopard 5 Ultra 识别、
+  无硬件 HEVC 解码器时回退 H.264（HevcSupport）、CarPlay 内设置菜单按目标分组；
+  诊断报告新增上次崩溃（CrashRecord）、方控/媒体键、车载蓝牙暂停、音乐重缓冲与 USB 设备清单；
+  iPhone 圆角遮罩（IphoneCornerMask）、黑角补偿（CarPlayBlackCornerOverlay）、
+  桌面气泡快捷方式（LauncherBubble）、连接失败引导（ConnectionFailureGuidance）、
+  意大利语与繁体中文补全、热点不可用时「连接」按钮直连。
+  **保留本线实现、未跟上游的部分**：热点自动启用（FreeAuto 反射 setWifiApEnabled，上游走
+  系统壳+ADB）、Wi-Fi Direct 建组管线（FreeAuto 信道对齐）、氛围灯（上游 0.2.20 重做为
+  BYD 向，本线保持零跑 lampDeg 通路）、Wi-Fi Direct 扫描暂停开关（上游新增，依赖本线未移植
+  的 WifiScanPauseMain）。诊断报告的文本组装改用上游 diagnosticReportText()。
 - **连接步骤实时显示（移植 FreeAuto）** 🆕：连接等待页在阶段文字下方新增一行
   「无线连接中 · 第 N / 40 步」（有线为 25 步），与 FreeAuto 相同的 40/25 步清单、
   相同的中英文文案（无线：蓝牙引导 1–31 步、Wi-Fi 32–40 步；出画面=40）。

@@ -39,4 +39,26 @@ class WiredConfigurationActionTest {
         assertEquals("request-transition", WiredConfigurationAction.REQUEST_TRANSITION.diagnostic)
         assertEquals("reject-missing-configuration", WiredConfigurationAction.REJECT.diagnostic)
     }
+
+    @Test fun theModeASessionDiPlayEndedLeftBehindIsRequestedAgainOnce() {
+        // #335: after Save and reconnect the iPhone stayed in CarPlay mode on the same device node and took no
+        // new session until it reset USB; a fresh mode request connected within seconds.
+        assertEquals(WiredConfigurationAction.REQUEST_TRANSITION,
+            WiredConfigurationAction.choose(true, true, 0, maximumTransitions = 2, sessionAlreadyStarted = true))
+        // The iPhone may stay in the mode after the request: then the mode is used, as before.
+        assertEquals(WiredConfigurationAction.USE,
+            WiredConfigurationAction.choose(true, true, 1, maximumTransitions = 2, sessionAlreadyStarted = true))
+        // A refused request also keeps the mode it offers.
+        assertTrue(WiredConfigurationAction.fallbackAfterRejection(found = true, carPlayMode = true, sessionAlreadyStarted = true))
+        assertFalse(WiredConfigurationAction.fallbackAfterRejection(found = true, carPlayMode = true))
+    }
+
+    @Test fun theMemoryMatchesOnlyTheSameEnumeration() {
+        WiredSessionMemory.clear()
+        assertFalse(WiredSessionMemory.startedOn("/dev/bus/usb/001/005"))
+        WiredSessionMemory.started("/dev/bus/usb/001/005")
+        assertTrue(WiredSessionMemory.startedOn("/dev/bus/usb/001/005"))
+        assertFalse(WiredSessionMemory.startedOn("/dev/bus/usb/001/006"))
+        WiredSessionMemory.clear()
+    }
 }

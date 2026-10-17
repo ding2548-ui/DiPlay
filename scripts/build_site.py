@@ -5,10 +5,10 @@ import json
 from html import escape as e
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / 'site'
-data = json.loads((SITE / 'content.json').read_text())
+data = json.loads((SITE / 'content.json').read_text(encoding='utf-8'))
 BASE = 'https://shihabal3amri.github.io/DiPlay/'
 REPO = 'https://github.com/shihabal3amri/DiPlay'
-VERSION = '0.2.18'
+VERSION = '0.2.20'
 RELEASE = REPO + f'/releases/tag/v{VERSION}'
 DOWNLOAD = REPO + f'/releases/download/v{VERSION}/DiPlay-{VERSION}.apk'
 for lang, d in data.items():
@@ -16,6 +16,9 @@ for lang, d in data.items():
     folder.mkdir(exist_ok=True)
     prefix = './' if lang == 'en' else '../'
     url = BASE + ('' if lang == 'en' else lang + '/')
+    install_guide = REPO + '/blob/main/' + d.get('installGuide', 'docs/INSTALL.md')
+    privacy_guide = REPO + '/blob/main/' + d.get('privacyGuide', 'docs/PRIVACY.md')
+    source_guide = REPO + '/blob/main/' + d['readme'] if 'readme' in d else REPO
     nav = ''.join(f'<a href="{prefix}{"" if code == "en" else code + "/"}" lang="{code}" hreflang="{code}" dir="auto"'+(' aria-current="page"' if code == lang else '')+f'>{e(v["name"])}</a>' for code,v in data.items())
     alternates = ''.join(f'<link rel="alternate" hreflang="{code}" href="{BASE}{"" if code == "en" else code + "/"}">' for code in data)
     pics = ''.join(f'<figure><a href="{prefix}assets/{pic}.png"><img src="{prefix}assets/{pic}.png" width="1920" height="1080" loading="lazy" alt="{e(cap)}"></a><figcaption>{e(cap)}</figcaption></figure>' for pic,cap in zip(['home','settings'],d['captions']))
@@ -28,11 +31,11 @@ for lang, d in data.items():
 <header><a class="brand" href="{prefix}"><img src="{prefix}assets/icon.png" width="56" height="56" alt=""><span><strong>DiPlay</strong><small>{e(d['tag'])}</small></span></a><nav class="languages" aria-label="Language">{nav}</nav></header>
 <section class="hero"><span class="badge">{e(d['badge'])} · <bdi>{VERSION}</bdi></span><h1>{e(d['title']).replace(chr(10),'<br>')}</h1><p class="intro">{e(d['intro'])}</p><div class="actions"><a class="button" href="{DOWNLOAD}">{e(d['download'])} <span aria-hidden="true">↓</span></a><a class="button secondary" href="#install">{e(d['install'])}</a></div><p class="promise">{e(d['promise'])}</p><p class="note">{e(d['requires'])}</p><p class="note support-scope"><strong>{e(d['supportScope'])}</strong></p></section>
 <section class="gallery"><h2>{e(d['gallery'])}</h2><div class="screens">{pics}</div></section>
-<div class="grid"><section class="card" id="install"><span class="eyebrow">01</span><h2>{e(d['setup'])}</h2><ol>{''.join('<li>'+e(x)+'</li>' for x in d['steps'])}</ol><p class="note">{e(d['bssid'])}</p><a href="{REPO}/blob/main/docs/INSTALL.md">{e(d['adb'])} ↗</a></section>
+<div class="grid"><section class="card" id="install"><span class="eyebrow">01</span><h2>{e(d['setup'])}</h2><ol>{''.join('<li>'+e(x)+'</li>' for x in d['steps'])}</ol><p class="note">{e(d['bssid'])}</p><a href="{install_guide}">{e(d['adb'])} ↗</a></section>
 <section class="card"><span class="eyebrow">02</span><h2>{e(d['whats'])}</h2><ul>{''.join('<li>'+e(x)+'</li>' for x in d['features'])}</ul><a href="{RELEASE}">{e(d['notes'])} ↗</a><h3>{e(d['compat'])}</h3><p>{e(d['compatText'])}</p></section></div>
 <section class="card updates"><div><h2>{e(d['follow'])}</h2><p>{e(d['followText'])}</p></div><a class="button secondary" href="https://t.me/byd_localized">{e(d['telegram'])} ↗</a></section>
 <section class="signing"><h2>{e(d['update'])}</h2><p>{e(d['updateText'])}</p></section>
 <section class="card"><h2>{e(d['diagnosticsTitle'])}</h2><p>{e(d['diagnosticsText'])}</p><a href="{REPO}/issues">{e(d['feedback'])} ↗</a> · <a href="{REPO}/issues/new/choose">{e(d['newIssue'])} ↗</a></section>
-<footer><nav><a href="{REPO}/blob/main/docs/PRIVACY.md">{e(d["privacy"])}</a><a href="{REPO}">{e(d['source'])}</a><a href="{RELEASE}">{e(d['notes'])}</a><a href="{REPO}/issues">{e(d['feedback'])}</a></nav><p>{e(d['footer'])}</p></footer>
-</main></body></html>''')
+<footer><nav><a href="{privacy_guide}">{e(d["privacy"])}</a><a href="{source_guide}">{e(d['source'])}</a><a href="{RELEASE}">{e(d['notes'])}</a><a href="{REPO}/issues">{e(d['feedback'])}</a></nav><p>{e(d['footer'])}</p></footer>
+</main></body></html>''', encoding='utf-8', newline='\n')
 print('Generated', len(data), 'language pages')

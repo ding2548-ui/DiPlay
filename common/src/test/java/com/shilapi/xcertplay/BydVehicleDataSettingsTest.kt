@@ -86,6 +86,17 @@ class BydVehicleDataSettingsTest {
         assertTrue(switches().any { it.contentDescription == activity.getString(R.string.video_while_parked) })
     }
 
+    @Test fun aTappedAdbCheckShowsItsResult() {
+        // #724: on a head unit without network ADB only the status line changed, so the button seemed dead.
+        openSettings()
+        texts().single { it.text == activity.getString(R.string.advanced_vehicle_data) }.performClick()
+        backend.checkResult = BydAdbAccess.Status(BydAdbAccess.State.ADB_OFF)
+        texts().single { it.text == activity.getString(R.string.check_adb_access) }.performClick()
+        backend.run("diplay-adb-state")
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(activity.getString(R.string.adb_off), org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+    }
+
     @Test fun successfulLiveProbeRevealsOnlySupportedSettings() {
         BydOutputSettings.setLegacyVehicleProbe(context, true)
         openSettings()

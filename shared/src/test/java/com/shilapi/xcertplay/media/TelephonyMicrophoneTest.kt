@@ -12,6 +12,8 @@ import com.shilapi.xcertplay.airplay.AudioStreamId
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import com.shilapi.xcertplay.hud.BydOutputSettings
+import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
@@ -108,6 +110,19 @@ class TelephonyMicrophoneTest {
         assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
         sink.onMicrophoneStopped(telephony)
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
+    }
+
+    @Test fun aCallInTheCarsPhoneStateRecordsFromVoiceRecognitionWithoutCallEffects() {
+        BydOutputSettings.setPhoneAudioRoute(context, true)
+        PhoneAudioRoute.attach(context)
+        try {
+            sink.onMicrophoneStarted(telephony, config("telephony"))
+            val record = awaitCapture()
+            assertEquals(MediaRecorder.AudioSource.VOICE_RECOGNITION, record.audioSource)
+            assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+        } finally {
+            BydOutputSettings.setPhoneAudioRoute(context, false)
+        }
     }
 
     @Test fun anUnverifiedPauseFlagDoesNotSwitchCallAudioRouting() {

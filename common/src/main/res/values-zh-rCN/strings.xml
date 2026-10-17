@@ -263,7 +263,6 @@
     <string name="mfi_authentication_ready">MFi 认证已就绪</string>
     <string name="mfi_certificate_signing_target">MFi 证书与签名目标</string>
     <string name="model">型号</string>
-    <string name="music_buffer">音乐缓冲</string>
     <string name="resolution_native">原生</string>
     <string name="navigation_on_hud_and_instrument_cluster">HUD和仪表盘导航</string>
     <string name="navigation_stream_type">导航音频流类型</string>
@@ -338,7 +337,9 @@
     <string name="s_30_fps_lighter_load">30 帧/秒 · 减轻负载</string>
     <string name="s_3_connect">3 · 连接</string>
     <string name="s_3_tap_check_and_enable_below_this_enables_the_cluster_ma">3. 点击下方“检查并启用”。这将启用仪表盘地图和自动主题跟随。正在进行的 CarPlay 会话会重新连接一次，之后即可断开电脑。</string>
-    <string name="s_500_ms">500 毫秒</string>
+    <string name="settings_music_buffer_ms">%1$d 毫秒</string>
+    <string name="settings_music_buffer_wireless">音乐缓冲（无线）</string>
+    <string name="settings_music_buffer_wired">音乐缓冲（USB 有线）</string>
     <string name="s_5_ghz">5 GHz</string>
     <string name="s_60_fps_smoother_motion">60 帧/秒 · 更流畅</string>
     <string name="s_60_lightest_load" formatted="false">60% · 最低负载</string>
@@ -385,6 +386,7 @@
     <string name="token_optional">令牌（可选）</string>
     <string name="transport_error_reconnecting">传输错误；正在重新连接</string>
     <string name="turn_on_bluetooth">打开蓝牙</string>
+    <string name="turn_on_bluetooth_in_the_head_unit_s_settings_to_connect">请在车机设置中打开蓝牙后再连接。</string>
     <string name="turn_on_wi_fi_in_the_head_unit_s_settings_to_connect">请在车机设置中打开 Wi-Fi 后再连接。</string>
     <string name="turn_the_car_s_wi_fi_switch_on_allow_location_nearby_devic">打开车机的 Wi-Fi 开关。如提示请允许位置/附近的设备权限，并在 Android 询问时启用位置。如果播放卡顿，请尝试使用 5 GHz 的内置车机热点。</string>
     <string name="usage_access_enabled">使用访问权限：已启用</string>
@@ -408,6 +410,7 @@
     <string name="wi_fi_session">Wi-Fi 会话</string>
     <string name="widest_width">较宽边</string>
     <string name="wireless_carplay">无线 CarPlay</string>
+    <string name="home_usb_carplay">USB 有线 CarPlay</string>
     <string name="wireless_carplay_2">无线 CarPlay</string>
     <string name="wireless_carplay_active">无线 CarPlay 已启用</string>
     <string name="wireless_carplay_control_running">无线 CarPlay 控制通道运行中</string>
@@ -608,6 +611,20 @@
     <string name="settings_gesture_fingers_hint">选择车机没有占用的手指数。比亚迪的三指下滑是空调面板，建议改用 2 指。</string>
     <string name="auto_car_hotspot_title">自动开启热点</string>
     <string name="auto_car_hotspot_description">DiPlay 启动时开启车机热点。打开开关会自动通过 ADB 申请所需权限，请允许车机上的授权提示。配合“车辆启动后打开”可随开机启动。保留热点名称和密码，不会自动关闭热点。</string>
+    <string name="settings_car_hotspot_config_title">导入车机热点详情（实验性）</string>
+    <string name="settings_car_hotspot_config_description">无需手动输入热点信息，尝试导入车机热点信息；车机没有热点信息时，在用户确认后由 DiPlay 写入自己的热点详情，使用此车载热点的设备可能需要重连。Android 11 及以上需要 ADB；Android 8 到 10 不支持。</string>
+    <string name="settings_car_hotspot_config_unsupported">此 Android 版本不支持导入车机热点详情。</string>
+    <string name="settings_car_hotspot_config_written">车机热点已使用 DiPlay 的密码。</string>
+    <string name="settings_car_hotspot_config_imported">已导入车机热点设置。</string>
+    <string name="settings_car_hotspot_config_dialog_title">覆盖车机热点设置？</string>
+    <string name="settings_car_hotspot_config_dialog_message">读取不到车机保存的热点配置。继续将以 DiPlay 的热点详情覆盖车机设置：热点名称可能改变，密码会被替换，其他已连接的设备需要重新输入密码。</string>
+    <string name="settings_car_hotspot_config_dialog_generate_message">读取不到车机热点配置，DiPlay 也还没有保存热点详情。继续将在车机上创建新的热点名称和密码；其他设备需要输入新密码。</string>
+    <string name="settings_car_hotspot_config_dialog_save_message">DiPlay 的热点密码将被写入车机热点设置，使用此热点的设备可能需要重新输入密码。</string>
+    <string name="settings_car_hotspot_config_dialog_confirm">覆盖并继续</string>
+    <string name="settings_car_hotspot_config_effect">将在下次热点打开时生效。</string>
+    <string name="settings_car_hotspot_config_failed">DiPlay 无法写入车机热点设置，名称和密码保持不变。</string>
+    <string name="settings_car_hotspot_config_wpa3">WPA3 热点保持不变。请将热点详情保存为 WPA2 后再写入车机。</string>
+    <string name="settings_car_hotspot_config_open">DiPlay 的开放热点不会改写车机的热点密码。</string>
     <string name="hotspot_control_missing">缺少热点控制权限。请通过 ADB 授权，或在车机设置中手动开启热点。</string>
     <string name="hotspot_permission_granted">授权成功。</string>
     <string name="hotspot_permission_failed">未获得所请求的权限。请检查车机设置后重试。</string>
@@ -666,6 +683,12 @@
     <string name="wheel_key_in_use">该按键已用于%1$s。请选择其他按键。</string>
     <string name="wheel_siri_key">方向盘 Siri 按键</string>
     <string name="wheel_siri_key_description">在 CarPlay 显示于屏幕时，用你选择的方向盘按键打开 Siri。车辆自身保留的按键只能配合方向盘按键服务使用，该服务在 CarPlay 处于后台时也可使用。未连接 CarPlay 或通话时，该按键保留车辆原有功能。</string>
+    <string name="wheel_siri_double_press">双击触发 Siri</string>
+    <string name="wheel_siri_double_press_description">单击保留车辆原有功能。在设定间隔内按两次，DiPlay 会在设定延时后打开 Siri。如果原车助手会接管屏幕，则必须启用方向盘按键服务。立即生效。</string>
+    <string name="wheel_siri_double_press_interval">双击间隔</string>
+    <string name="wheel_siri_trigger_delay">Siri 触发延时</string>
+    <string name="wheel_siri_long_press_only">仅长按打开 Siri</string>
+    <string name="wheel_siri_long_press_only_description">只有长按方向盘语音键才会打开 Siri，短按时 DiPlay 不执行任何操作。</string>
     <string name="wheel_key_role_back">返回</string>
     <string name="wheel_key_service_label">DiPlay 方向盘按键</string>
     <string name="wheel_key_service_description">可选方向盘按键过滤，用于导航播报音量、仪表地图缩放、CarPlay摇杆及通话控制。不读取屏幕内容。</string>
@@ -696,6 +719,7 @@
     <string name="split_screen_areas">分屏中的 CarPlay</string>
     <string name="split_screen_areas_description">车机以分屏显示 DiPlay 时，CarPlay 会按该窗口重新绘制，而不是缩小并留黑边；返回全屏也无需重新连接。首次使用时会记住窗口大小，下次连接起画面完全贴合。程序栏设为“自动”时，CarPlay 会把它放在底部。下次连接时生效。</string>
     <string name="carplay_rotation">随屏幕旋转 CarPlay，无需重新连接</string>
+<<<<<<< ours
     <string name="carplay_rotation_description">适用于屏幕可旋转的车机。CarPlay 会获得包含横屏和竖屏的方形画面，旋转屏幕时直接重新绘制，无需重新连接。更大的方形画面可能增加视频处理负担并降低流畅度，尤其是在大屏上选择“更清晰”时。如果很少旋转屏幕，关闭此选项可能有所帮助。自定义安全区域不适用于方形画面。下次连接时生效。</string>    <string name="carplay_rotation_picture">方形画面</string>
     <string name="carplay_rotation_smoother">更流畅（1920）</string>
     <string name="carplay_rotation_sharper">更清晰（屏幕尺寸）</string>
@@ -703,6 +727,16 @@
     <string name="a2dp_handoff">CarPlay 播放时断开手机蓝牙音频</string>
     <string name="a2dp_handoff_desc">CarPlay 在放音乐时，断开已连接手机的蓝牙音频档位，避免同一路声音又从车机蓝牙出声。只断 A2DP，不动免提通话。下次播放生效。</string>        <string name="carplay_call_controls_experimental">CarPlay 通话按键（实验性）</string>
     <string name="carplay_call_controls_experimental_description">启用尚未验证的 DiLink 3 通话、语音和播放/暂停按键。仍需实车测试。CarPlay 来电响铃时，下一曲接听、上一曲拒接。默认关闭；仪表通话卡片为独立设置。</string>    <string name="side_panel">CarPlay 旁的侧边面板（实验性）</string>
+=======
+    <string name="carplay_rotation_description">适用于屏幕可旋转的车机。CarPlay 会获得包含横屏和竖屏的方形画面，旋转屏幕时直接重新绘制，无需重新连接。更大的方形画面可能增加视频处理负担并降低流畅度，尤其是在大屏上选择“更清晰”时。如果很少旋转屏幕，关闭此选项可能有所帮助。自定义安全区域不适用于方形画面。在 iPhone 上截取的 CarPlay 截图会包含整个方形画面，包括这块屏幕上看不到的部分。下次连接时生效。</string>
+    <string name="carplay_rotation_picture">方形画面</string>
+    <string name="carplay_rotation_smoother">更流畅（1920）</string>
+    <string name="carplay_rotation_sharper">更清晰（屏幕尺寸）</string>
+    <string name="auto_grant_incomplete">未验证全部请求权限。请检查下方各项状态；开启网络 ADB 后重试，或使用手动设置。现有权限保持不变。</string>
+    <string name="carplay_call_controls_experimental">CarPlay 通话、Siri 与媒体按键（实验性）</string>
+    <string name="carplay_call_controls_experimental_description">电话键接听 CarPlay 来电，挂断键／模式键拒接或挂断。来电响铃时，也可用下一曲接听、上一曲拒接；通话接通后，上下曲不用于挂断。同时启用 DiLink 3 专用 Siri 和播放／暂停按键。默认关闭，车型与固件支持情况需实车确认；仪表通话显示单独设置。</string>
+    <string name="side_panel">CarPlay 旁的侧边面板（实验性）</string>
+>>>>>>> upstream20
     <string name="side_panel_description">CarPlay 可移到屏幕的三分之二，DiPlay 在其余部分显示自己的面板：横屏时在乘客一侧，竖屏时在底部（时钟，以及已读取时的电量）。可在会话菜单中显示或隐藏。下次连接时生效。</string>
     <string name="side_panel_show">侧边面板</string>
     <string name="side_panel_full_screen">⤢ 全屏</string>
@@ -754,12 +788,39 @@
     <string name="settings_ambient_enable">开启氛围灯控制</string>
     <string name="settings_ambient_enable_description">开启后由音乐驱动氛围灯，关闭则交还原车。BYD 车机沿用已有的 ADB 授权；零跑车机走广播指令，无需配置。</string>
     <string name="settings_ambient_music">音乐律动</string>
+<<<<<<< ours
     <string name="settings_ambient_music_description">开启时灯光随音乐变化，关闭则使用固定颜色。只要本功能处于开启状态，灯光就会由我们驱动；暂停时保持最低档。保存后生效。</string>
+=======
+    <string name="settings_ambient_music_description">播放时随音乐变化；关闭律动则使用固定颜色和亮度。没有音乐播放时的灯光效果在下方单独设置，保存后生效。</string>
+>>>>>>> upstream20
     <string name="settings_ambient_color_mode">颜色变化方式</string>
     <string name="settings_ambient_speed">亮度过渡速度</string>
-    <string name="settings_ambient_palette">原车颜色编号（多选）</string>
-    <string name="settings_ambient_palette_summary">颜色 · 已选%1$d种</string>
-    <string name="settings_ambient_select_all">全选</string>
+    <string name="settings_ambient_behavior_title">运作方式</string>
+    <string name="settings_ambient_behavior_off">控制已关闭。车辆保持自己的灯光颜色、亮度和区域。</string>
+    <string name="settings_ambient_behavior_follow">播放音乐时 · %1$s：灯光跟随音乐变化，最高到%2$d档。</string>
+    <string name="settings_ambient_behavior_fixed">播放音乐时 · %1$s：灯光保持单一固定颜色，亮度%2$d档。</string>
+    <string name="settings_ambient_behavior_idle">暂停、停止或断开连接时：所有区域降到最低亮度，灯光可能完全熄灭。</string>
+    <string name="settings_ambient_behavior_idle_steady">暂停、停止或断开连接 · %1$s：灯光保持所选颜色，亮度为%2$d档。</string>
+    <string name="settings_ambient_behavior_idle_car">15 秒没有音乐：灯光恢复为车辆自己的设置，音乐开始后 DiPlay 再次接管。</string>
+    <string name="settings_ambient_behavior_other_zone">播放音乐时，另一个区域不会改变。</string>
+    <string name="settings_ambient_behavior_lowest">0档：所有区域始终保持最低亮度，灯光可能完全熄灭。</string>
+    <string name="settings_ambient_idle">没有音乐播放时</string>
+    <string name="settings_ambient_idle_steady">保持常亮</string>
+    <string name="settings_ambient_idle_car">车辆自己的灯光</string>
+    <string name="settings_ambient_idle_off">最低亮度（可能熄灭）</string>
+    <string name="settings_ambient_behavior_restore">关闭控制即可把灯光还给车辆自己的设置。</string>
+    <string name="settings_ambient_mode_energy_desc">颜色随音乐的响度变化。</string>
+    <string name="settings_ambient_mode_beat_desc">颜色随每个节拍变化。</string>
+    <string name="settings_ambient_mode_tempo_desc">颜色按估算的速度（BPM）变化。</string>
+    <string name="settings_ambient_mode_bass_desc">颜色随低音鼓点变化。</string>
+    <string name="settings_ambient_mode_smart_desc">颜色随低音鼓点和强拍变化。</string>
+    <string name="settings_ambient_colors_title">颜色</string>
+    <string name="settings_ambient_colors_hint_follow">点按灯光可以使用的颜色。灯光会在你选的颜色之间变化。</string>
+    <string name="settings_ambient_colors_hint_fixed">点按要使用的颜色。固定模式只显示一种颜色。</string>
+    <string name="settings_ambient_colors_hint_album">颜色取自专辑封面。关闭“跟随专辑封面”即可自己选择颜色。</string>
+    <string name="settings_ambient_swatch">颜色%1$d</string>
+    <string name="settings_ambient_swatch_selected">颜色%1$d，已选</string>
+    <string name="settings_ambient_brightness_value">第%1$d档，共6档</string>
     <string name="settings_ambient_select_one">至少选择一种颜色</string>
     <string name="settings_ambient_flow_mode">流光模式</string>
     <string name="settings_ambient_flow_single">单色流光</string>
@@ -773,6 +834,9 @@
     <string name="settings_ambient_parked_notice">请在车辆停放时配置。支持零跑车机（广播）以及部分 BYD 氛围灯接口（ADB），不能保证所有车型和固件兼容。</string>
     <string name="settings_ambient_checking">正在检查…</string>
     <string name="settings_ambient_unavailable">只读检查失败：已有ADB授权或支持的氛围灯接口不可用，灯光设置未保存。请在停车时单独配置访问权限，本功能不会启用ADB或申请授权。</string>
+    <string name="settings_ambient_car_rhythm">车辆原厂音乐律动</string>
+    <string name="settings_ambient_car_rhythm_description">播放 CarPlay 音乐时，启用车辆原厂的氛围灯音乐律动，颜色和效果使用车辆氛围灯菜单中的设置（需在其中开启音乐律动）。期间 DiPlay 不直接控制灯光。开启时会检查。仅当车机不允许 DiPlay 自行启动律动时，才需要车机网络 ADB。</string>
+    <string name="settings_ambient_car_rhythm_unavailable">车辆音乐律动不可用：DiPlay 无法自行启动律动，并且没有网络 ADB 权限或车机音频服务不支持所需调用。未保存任何设置。</string>
     <string name="settings_interface_size">界面大小</string>
     <string name="settings_interface_size_auto">自动</string>
     <string name="settings_interface_size_hint">DiPlay 自身界面中文字和控件的大小。自动模式会在大尺寸低密度屏幕上放大它们。不影响 CarPlay。</string>
@@ -792,6 +856,8 @@
     <string name="backup_page_hint">用手机相机扫码，在浏览器中打开此页面。导出保存设置文件，导入载入设置文件。</string>
     <string name="backup_other_addresses">若扫码无法打开，请尝试将浏览器中的 IP 地址改为 %1$s。</string>
     <string name="backup_no_network">没有可用的 Wi-Fi 网络。请先开启车载热点，或让手机连接车机 Wi-Fi。</string>
+    <string name="backup_type_address">没有相机？在浏览器中打开 %1$s，然后输入验证码 %2$s。</string>
+    <string name="backup_code_entry_closed">验证码输错次数过多，已停用。请离开此页面后重新打开，以取得新的验证码。扫码仍可使用。</string>
     <string name="backup_summary">已导入 %1$d 项设置，跳过 %2$d 项。</string>
     <string name="backup_import_invalid">这不是 DiPlay 设置备份文件。</string>
     <string name="settings_background_update_checks">在后台检查更新</string>
@@ -860,6 +926,8 @@
     <string name="settings_speech_without_low_rates">USB 下更清晰的导航语音（实验性）</string>
     <string name="settings_speech_without_low_rates_description">USB 连接时，iPhone 可能以 8 kHz 电话音质发送导航播报和 Siri 的语音回答。开启后不再为这类声音提供 8 和 16 kHz，让 iPhone 选择更高的采样率。如果播报没有声音，请关闭。会重新连接 CarPlay。</string>
     <string name="bluetooth_connections_not_real">此车机的系统蓝牙回报“已连接”，但实际上没有连到 iPhone：连一个不存在的服务也回报成功。这里的蓝牙由厂商自己的模块处理，应用无法使用，所以此车机无法使用无线 CarPlay。请尝试 USB 连接。</string>
+    <string name="bluetooth_cannot_open_connections">此车机的系统蓝牙无法为应用建立连接：固件没有提供应用连接要用的那一部分。车机自己的蓝牙通话和音乐不受影响，但此车机无法使用无线 CarPlay。请尝试 USB 连接。</string>
+    <string name="bluetooth_will_not_stay_on_hint">如果蓝牙在那里打不开，或打开后又自己关闭，说明这台车机的蓝牙只供它自己的通话和音乐使用，应用无法使用。这种情况下无法使用无线 CarPlay，请改用 USB 线。</string>
     <string name="settings_fce_cluster_guidance">FCE 仪表导航（实验性）</string>
     <string name="settings_fce_cluster_guidance_description">在 FCE 平台车机上，通过车机的车辆服务把 CarPlay 转向箭头和到下一路口的距离显示在仪表的导航界面。仅在一辆车上测试过；如果仪表显示异常，请关闭。</string>
     <string name="settings_cluster_music">仪表音乐（实验性）</string>
@@ -871,6 +939,7 @@
     <string name="settings_cluster_music_vertical">音乐卡片 · 垂直位置</string>
     <string name="settings_cluster_music_size">音乐卡片 · 大小</string>
     <string name="settings_cluster_music_unknown">未知艺人</string>
+<<<<<<< ours
     <!-- PSA line: the auto-start triggers and their setup entries. -->
     <string name="auto_car_hotspot_setup_description">连接时自动打开已保存的车载热点。需要「修改系统设置」权限，DiPlay 会引导你在系统设置中授权。保留热点名称和密码，连接结束后不会关闭热点。</string>
     <string name="auto_car_hotspot_needs_permission">自动开启热点需要「修改系统设置」权限，接下来请在系统设置中允许。</string>
@@ -961,3 +1030,54 @@
     <string name="connection_step_wd_24">已收到画面</string>
     <string name="connection_step_wd_25">画面已显示</string>
 </resources>
+=======
+    <string name="connection_help_reset_wifi">旧的 Wi-Fi Direct 连接可能阻止新连接。点击下方的“重置 CarPlay Wi-Fi”，然后重新连接。</string>
+    <string name="connection_help_bluetooth_unusable">此车机的蓝牙无法向 iPhone 传输数据，因此无法使用无线 CarPlay。请使用支持数据传输的 USB 线。</string>
+    <string name="connection_help_wifi_direct_beside_hotspot">请关闭车载热点后点“重新连接”；或在“连接设置”中选择“车载热点”，并保存热点名称和密码。</string>
+    <string name="wifi_direct_refused_beside_hotspot">车载热点已开启，Wi-Fi Direct 无法同时启动</string>
+    <string name="connection_help_hotspot">请确认车机热点已开启，且名称和密码与 DiPlay 设置一致。若支持，使用 5 GHz 后重试。</string>
+    <string name="connection_help_iphone_wifi">保持 Wi-Fi 和蓝牙开启。在 iPhone 上连接车机热点并启用自动加入，然后重试。若仍失败，请保存诊断报告。</string>
+    <string name="connection_help_permissions">请在车机上允许 DiPlay 所需的 USB、附近设备或位置信息权限，然后重试。</string>
+    <string name="connection_help_usb">使用支持数据传输的 USB 接口和线缆。解锁 iPhone，允许信任和 CarPlay 提示，然后重试。</string>
+    <string name="connection_help_bluetooth">解锁 iPhone，开启蓝牙和 Wi-Fi，并与车机配对。保持 iPhone 在附近后重试。</string>
+    <string name="connection_help_general">请重试连接。如仍失败，请返回 DiPlay，在“设置 → 诊断”中保存报告。</string>
+    <string name="connection_help_wifi_direct">保持车机的 Wi-Fi 和蓝牙开启，iPhone 解锁并放在附近，然后重试。如果仍然失败，请在 iPhone 的“设置 → 通用 → CarPlay 车载”中忘记这辆车，再重新连接。</string>
+    <string name="connection_help_existing_wifi">请确认车机和 iPhone 连接的是同一个 Wi-Fi 网络，且网络名称和密码与 DiPlay 设置一致，然后重试。</string>
+    <string name="settings_report_on_phone">在手机上取得报告</string>
+    <string name="settings_report_on_phone_hint">用手机相机扫码，在浏览器中打开此页面，然后选择“下载报告”。下载完成前请保持此画面开启。</string>
+    <string name="settings_mfi_target_description">只有车机上插着 CH341 认证适配器时才选择 USB/CH341。没有适配器时请选择「本地离线」。下次连接时生效。</string>
+    <string name="settings_call_speakerphone">通话使用扬声器</string>
+    <string name="settings_call_speakerphone_description">适用于用作车机的 Android 手机或平板：CarPlay 通话从扬声器播放而不是听筒，并使用免提麦克风。车机上请保持关闭。从下一次通话开始生效。</string>
+    <string name="settings_navigation_attenuation">导航播报音量</string>
+    <string name="settings_navigation_attenuation_value">%1$d dB</string>
+    <string name="settings_navigation_attenuation_description">仅降低 CarPlay 导航播报音量，不影响音乐和通话。调整立即生效，车机自身的导航音量仍可使用。</string>
+    <string name="settings_car_hotspot_control">车辆热点</string>
+    <string name="settings_auto_car_hotspot_system_description">打开 DiPlay 时及无线连接前开启已保存的车辆热点。DiPlay 需要 Android 的“修改系统设置”权限；无需 ADB。若要在完全重启后也有热点，请同时开启“车辆启动后打开 DiPlay”。热点不会自动关闭。</string>
+    <string name="settings_write_settings_granted">“修改系统设置”权限：已允许</string>
+    <string name="settings_write_settings_missing">尚未允许“修改系统设置”权限。请允许，以便 DiPlay 开启热点。</string>
+    <string name="settings_write_settings_allow">允许权限</string>
+    <string name="settings_wifi_direct_scan_pause">CarPlay 期间暂停车机 Wi-Fi 搜索 · 需要 ADB</string>
+    <string name="settings_wifi_direct_scan_pause_description">Wi-Fi 直连时，车机每隔几秒搜索一次 Wi-Fi 网络，每次搜索都会让音乐和画面卡顿。开启后，CarPlay 运行期间 DiPlay 会暂停这个搜索。这段时间车机也不会自动连接已知网络（例如手机热点），可以在车机 Wi-Fi 设置里手动连接；CarPlay 结束后恢复。关闭后车机可以自动连接。下次连接时生效。</string>
+    <string name="temporary_system_bars">临时显示系统栏（5 秒）</string>
+    <string name="temporary_system_bars_description">开启后，使用与 DiPlay 设置手势相同数量的手指向上滑动，暂时显示车机状态栏和导航栏 5 秒；向下滑动仍打开 DiPlay 设置。如果与车机手势冲突，请关闭此功能。部分设备可能无法显示。</string>
+    <string name="wheel_media_play_pause">方向盘播放／暂停按钮</string>
+    <string name="wheel_media_play_pause_description">将空闲的方向盘或键盘按键映射为 CarPlay 音乐播放／暂停。CarPlay 连接时可用；后台运行需要启用方向盘按键服务。通话或断开连接时保留车辆原有功能。车机可能拦截部分按键。</string>
+    <string name="wheel_key_role_media_play_pause">播放／暂停</string>
+    <string name="wheel_media_navigation_reserved">遥控器的导航、主页、音量、语音助手及现有媒体按键保留原有功能。请选择其他空闲按键。</string>
+    <string name="black_corner_overlay">黑色圆角遮罩</string>
+    <string name="black_corner_overlay_description">将 CarPlay 画面四角遮成黑色。可选择关闭、手动圆角半径或 iPhone 遮罩（实验性）。iPhone 模式需要重新连接；若未收到有效遮罩，则使用 24 dp 近似值。手动调整可立即预览，保存后保留设置。</string>
+    <string name="black_corner_overlay_off">关闭</string>
+    <string name="black_corner_overlay_value">%1$d dp</string>
+    <string name="iphone_corner_mask_mode">iPhone 遮罩（实验性）</string>
+    <string name="settings_launcher_bubble">桌面悬浮球（实验性）</string>
+    <string name="settings_launcher_bubble_description">在车机桌面显示一个 DiPlay 悬浮球：点它直接回到 CarPlay，可拖动位置；打开 DiPlay 时自动隐藏，离开后重新出现。长按锁定位置，再次长按解锁。需要“显示在其他应用上层”权限。</string>
+    <string name="settings_launcher_bubble_size">悬浮球大小</string>
+    <string name="settings_launcher_bubble_locked">位置已锁定</string>
+    <string name="settings_launcher_bubble_unlocked">位置已解锁</string>
+    <string name="settings_launcher_bubble_hold_to_lock">长按 锁定</string>
+    <string name="settings_launcher_bubble_hold_to_unlock">长按 解锁</string>
+
+    <string name="settings_hotspot_interface">热点网络接口（可选）</string>
+    <string name="settings_hotspot_interface_description">仅用于把热点放在 Android 不认为是 Wi-Fi 热点的网络接口上的车机，例如部分吉利、领克及其它高通车机上的 eth0.3。留空则自动查找。</string>
+</resources>
+>>>>>>> upstream20

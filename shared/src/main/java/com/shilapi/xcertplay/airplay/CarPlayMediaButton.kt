@@ -44,6 +44,10 @@ object CarPlayMediaButton {
     fun opensSiriWhileCarPlay(keyCode: Int): Boolean =
         keyCode == KEYCODE_BYD_CARPLAY_VOICE || keyCode == KEYCODE_BYD_CARPLAY_VOICE_LONG
 
+    /** The two voice keys the wheel sends for a short press of its voice button. */
+    fun isShortVoiceKey(keyCode: Int): Boolean =
+        keyCode == KEYCODE_BYD_CARPLAY_VOICE || keyCode == KEYCODE_BYD_AUTO_MEDIA_VOICE
+
     /** The CarPlay press for [keyCode], or null when the key is not a media key CarPlay handles. */
     fun forKeyCode(keyCode: Int, experimentalDiLink3Keys: Boolean = false): Int? = when (keyCode) {
         KeyEvent.KEYCODE_MEDIA_NEXT -> NEXT

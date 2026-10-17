@@ -11,6 +11,8 @@ import java.math.BigInteger
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /** Identity of one CarPlay audio stream: the stream type plus its CarPlay audio type. */
 data class AudioStreamId(val type: Int, val audioType: String)
@@ -88,6 +90,13 @@ class CarPlayMediaEngine(
     private val pendingIapTunnels = ConcurrentHashMap<AirPlaySession, PendingIapTunnel>()
     private val videoSettingsChannels = ConcurrentHashMap<AirPlaySession, VideoSettingsChannel>()
     private val bufferedStreams = ConcurrentHashMap<AirPlaySession, BufferedStream>()
+    private val microphoneScheduler by lazy {
+        ScheduledThreadPoolExecutor(1) { task -> Thread(task, "carplay-mic-start").apply { isDaemon = true } }.apply {
+            removeOnCancelPolicy = true
+            setKeepAliveTime(MICROPHONE_SCHEDULER_IDLE_SECONDS, TimeUnit.SECONDS)
+            allowCoreThreadTimeOut(true)
+        }
+    }
 
     private class BufferedStream(val stream: BufferedAudioStream, val connectionId: Any?)
 
@@ -190,13 +199,16 @@ class CarPlayMediaEngine(
             session.logDebug(
                 "Audio: setup type=$type audioType=$audioType input=${stream["input"] ?: "none"} " +
                     "micPort=${if ((stream["dataPort"] as? Number)?.toInt()?.let { it > 0 } == true) "yes" else "no"} " +
-                    "microphone=${if (microphone != null) "on" else "off"} keys=${stream.keys.sorted().joinToString(",")}",
+                    "microphone=${if (microphone != null) "on" else "off"} keys=${stream.keys.sorted().joinToString(",")}" +
+                    // An app call (WeChat, #718) carried vocoderInfo; the report showed only its name.
+                    (stream["vocoderInfo"]?.let { " vocoderInfo=${it.toString().take(200)}" } ?: ""),
             )
         }
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[streamKey] = capture
         val clockProbe = RtpClockProbe()
+        val microphoneStart = microphone?.let { config -> MicrophoneStart { sink.onMicrophoneStarted(streamId, config) } }
         val audio = AudioStream(key, type, session::logDebug)
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
@@ -204,7 +216,7 @@ class CarPlayMediaEngine(
                     meta.firstSample = firstSample
                     meta.originNs = System.nanoTime()
                     sink.onAudioStarted(streamId, format, firstSample)
-                    microphone?.let { sink.onMicrophoneStarted(streamId, it) }
+                    microphoneStart?.onDownlink()
                 }
 
                 override fun onRtp(rtp: ByteArray, sample: Int) {
@@ -231,6 +243,22 @@ class CarPlayMediaEngine(
         )
         streams[streamKey] = audio
         audioMeta[streamKey] = meta
+        if (microphoneStart != null && MicrophoneStart.startsWithoutDownlink(audioType)) {
+            microphoneStart.scheduleSilentStart(microphoneScheduler, MicrophoneStart.SILENT_START_MILLIS) { startNow ->
+                // Atomic with TEARDOWN, which removes the pending entry before it stops the microphone.
+                var started = false
+                pendingMicrophone.computeIfPresent(streamKey) { _, pending ->
+                    if (pending === microphone) started = startNow()
+                    pending
+                }
+                if (started) {
+                    session.logDebug(
+                        "Audio: microphone started without downlink audio type=$type audioType=$audioType " +
+                            "afterMs=${MicrophoneStart.SILENT_START_MILLIS}",
+                    )
+                }
+            }
+        }
         return linkedMapOf(
             "type" to type,
             "dataPort" to dataPort,
@@ -650,6 +678,7 @@ class CarPlayMediaEngine(
         }
 
         private const val TAG = "xcertplay-usb"
+        private const val MICROPHONE_SCHEDULER_IDLE_SECONDS = 5L
         private const val STREAM_TYPE_MAIN_SCREEN = 110
         private const val STREAM_TYPE_ALT_SCREEN = 111
         private const val STREAM_TYPE_MAIN_AUDIO = 100

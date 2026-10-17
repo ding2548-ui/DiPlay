@@ -4,8 +4,13 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.widget.Button
+import android.widget.TextView
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.network.WirelessStartupException
 import com.shilapi.xcertplay.network.WirelessStartupFailure
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
+import com.shilapi.xcertplay.transport.BluetoothLinkCheck
+import com.shilapi.xcertplay.transport.BluetoothRadioCheck
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -83,6 +88,125 @@ class WirelessStartupRecoveryTest {
         assertEquals(0, budget().retries)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
         assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+    }
+
+    // Issue 709: every connect fails inside Android. The iPhone is not what is missing, and no retry helps.
+    @Test fun bluetoothThatCannotOpenConnectionsSaysSoAndDoesNotRetry() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        val failure = BluetoothLinkCheck.connectFailure(NullPointerException("Attempt to invoke interface method " +
+            "'android.os.ParcelFileDescriptor android.bluetooth.IBluetoothSocketManager.connectSocket(" +
+            "android.bluetooth.BluetoothDevice, int, android.os.ParcelUuid, int, int)' on a null object reference"),
+            "phone-address") as WirelessStartupException
+        report(status = CarPlayStatus.Failed(failure.message!!, startupFailure = failure.reason))
+        assertEquals(activity.getString(R.string.bluetooth_cannot_open_connections), stage.text.toString())
+        assertEquals(0, budget().retries)
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+    }
+
+    // A head unit whose Android has no Bluetooth adapter: nothing to turn on and nothing to wait for.
+    @Test fun aHeadUnitWithoutABluetoothAdapterSaysSoAndDoesNotRetry() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        val failure = BluetoothRadioCheck.failure(BluetoothRadioCheck.NO_ADAPTER) as WirelessStartupException
+        report(status = CarPlayStatus.Failed(failure.message!!, startupFailure = failure.reason))
+        assertEquals(activity.getString(R.string.bluetooth_cannot_open_connections), stage.text.toString())
+        assertEquals(0, budget().retries)
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+    }
+
+    // The driver refused Android's prompt to turn the car hotspot off: a retry would only show it again.
+    @Test fun wifiDirectRefusedBesideTheCarHotspotSaysSoAndDoesNotRetry() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        report(status = CarPlayStatus.Failed("Could not establish WIFI_P2P hotspot: " +
+            "Android was not allowed to turn the car hotspot off for Wi-Fi Direct",
+            startupFailure = WirelessStartupFailure.WIFI_DIRECT_BESIDE_HOTSPOT))
+        assertEquals(activity.getString(R.string.wifi_direct_refused_beside_hotspot), stage.text.toString())
+        assertEquals(0, budget().retries)
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+    }
+
+    // The driver can switch Bluetooth on, so the screen asks for it and the attempts go on.
+    @Test fun bluetoothThatIsOffAsksForItAndKeepsRetrying() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        report(status = CarPlayStatus.Failed(BluetoothRadioCheck.RADIO_OFF))
+        assertEquals(activity.getString(R.string.turn_on_bluetooth_in_the_head_unit_s_settings_to_connect), stage.text.toString())
+        assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.GONE, retry.visibility)
+    }
+
+    /** Fails every attempt with [status] until the retries stop, checking the screen names [cause] meanwhile. */
+    private fun assertNamedUntilRetriesStop(status: CarPlayStatus.Failed, cause: Int) {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        repeat(6) { generation ->
+            ReflectionHelpers.setField(activity, "restartGeneration", generation)
+            ReflectionHelpers.setField(activity, "reconnectScheduled", false)
+            report(generation, status)
+            if (generation < 5) assertEquals(activity.getString(cause), stage.text.toString())
+        }
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+        assertEquals(activity.getString(cause) + "\n" + activity.getString(R.string.wireless_startup_retries_exhausted),
+            stage.text.toString())
+    }
+
+    private val hotspotNotReady = CarPlayStatus.Failed("Could not establish MANUAL hotspot: Hotspot network is not ready",
+        startupFailure = WirelessStartupFailure.HOTSPOT_NOT_READY)
+
+    // #809: the screen said "Getting CarPlay ready…" while the car hotspot never came up, and after the retries stopped.
+    @Test fun aHotspotThatIsNotReadyIsNamedAndTheStopIsSaid() =
+        assertNamedUntilRetriesStop(hotspotNotReady, R.string.hotspot_network_not_ready)
+
+    @Test @Config(qualifiers = "zh-rCN") fun aHotspotThatIsNotReadyIsNamedInChinese() {
+        assertNotEquals("Hotspot network is not ready", activity.getString(R.string.hotspot_network_not_ready))
+        assertNamedUntilRetriesStop(hotspotNotReady, R.string.hotspot_network_not_ready)
+    }
+
+    @Test fun anIphoneThatDoesNotConnectInTimeIsNamedAndTheStopIsSaid() =
+        assertNamedUntilRetriesStop(failure, R.string.first_tcp_timeout)
+
+    // Nothing is retried for a car hotspot DiPlay cannot use, so the screen does not say "Retrying…".
+    @Test fun aHotspotDiPlayCannotUseSaysTheRetriesStopped() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        listOf("The car hotspot is off. Turn it on in the car settings and connect again.",
+            "Hotspot control permission is missing. Open the car hotspot settings and connect again.",
+            "Manual hotspot is not running on 5 GHz").forEachIndexed { generation, cause ->
+            ReflectionHelpers.setField(activity, "restartGeneration", generation)
+            ReflectionHelpers.setField(activity, "startupRetryStopped", false)
+            report(generation, CarPlayStatus.Failed(cause, startupFailure = WirelessStartupFailure.HOTSPOT_CONFIGURATION))
+            assertEquals(cause, activity.getString(R.string.hotspot_network_not_ready) + "\n" +
+                activity.getString(R.string.wireless_startup_retries_exhausted), stage.text.toString())
+            assertEquals(0, budget().retries)
+            assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        }
+    }
+
+    // The stopped attempt can still report its own failure again, or its cleanup's.
+    @Test fun aLaterFailureOfTheStoppedAttemptKeepsTheLineSayingTheRetriesStopped() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        val offline = CarPlayStatus.Failed("The car hotspot is off. Turn it on in the car settings and connect again.",
+            startupFailure = WirelessStartupFailure.HOTSPOT_CONFIGURATION)
+        report(status = offline)
+        val stopped = activity.getString(R.string.hotspot_network_not_ready) + "\n" +
+            activity.getString(R.string.wireless_startup_retries_exhausted)
+        assertEquals(stopped, stage.text.toString())
+        report(status = offline)
+        report(status = CarPlayStatus.Failed("Bluetooth socket closed"))
+        assertEquals(stopped, stage.text.toString())
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
         assertEquals(View.VISIBLE, retry.visibility)
     }
 

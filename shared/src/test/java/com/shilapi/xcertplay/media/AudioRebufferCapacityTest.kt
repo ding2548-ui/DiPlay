@@ -16,7 +16,7 @@ import org.robolectric.annotation.Implements
 @Config(sdk = [25, 28, 33], manifest = Config.NONE, shadows = [AudioRebufferCapacityTest.CapacityTrack::class])
 class AudioRebufferCapacityTest {
     @Test fun residualAudioCountsTowardRestartBeforeAPausedTrackFills() {
-        for (millis in listOf(500, 1000)) {
+        for (millis in MediaAudioBuffer.presets) {
             val plan = MediaAudioBuffer.plan(true, 48_000, 2, 4096, millis)
             val threshold = MediaAudioBuffer.startBytesFor(plan.startBytes, plan.trackBufferBytes, 4096)
             CapacityTrack.capacity = plan.trackBufferBytes

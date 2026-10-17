@@ -48,6 +48,13 @@ class Ch341UsbHost(
     fun discover(): List<UsbDevice> =
         usbManager.deviceList.values.filter { matcher.matches(it.vendorId, it.productId) }
 
+    /**
+     * Every USB device Android lists, as `vid:pid node`, sorted. When no configured CH341 is listed, this shows
+     * whether the adapter left the bus or came back under another identity (#792).
+     */
+    fun listedDevices(): List<String> =
+        usbManager.deviceList.values.map(::describe).sorted()
+
     @Throws(I2cTransportException::class)
     fun requestPermission(device: UsbDevice): PermissionRequest {
         requireConfiguredDevice(device)
@@ -159,6 +166,12 @@ class Ch341UsbHost(
         val input: UsbEndpoint,
         val output: UsbEndpoint,
     )
+
+    companion object {
+        /** `1a86:5512 /dev/bus/usb/001/004`: the USB identity and device node only, no serial number. */
+        fun describe(device: UsbDevice): String =
+            "%04x:%04x %s".format(device.vendorId, device.productId, device.deviceName)
+    }
 }
 
 /** Claimed CH341 USB resources. All transfer methods are blocking and must run off the main thread. */

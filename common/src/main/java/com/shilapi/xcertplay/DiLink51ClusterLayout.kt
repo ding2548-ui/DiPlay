@@ -8,6 +8,10 @@ import com.shilapi.xcertplay.airplay.CarPlayClusterDisplay
 /** Geometry measured against the stock full-map and right-hand side-card layers on this firmware. */
 internal object DiLink51ClusterLayout {
     const val FINGERPRINT = "BYD-AUTO/IVI/IVI:13/TP1A.220624.014/eng.build20260722.221155:user/release-keys"
+    // Leopard 5 Ultra 2025, system 34.1.23.2604176.1: the same three 1920x720 fission layers, and its own
+    // navigation switches between a full and a side map on the cluster (#301).
+    const val LEOPARD5_FINGERPRINT = "BYD-AUTO/IVI/IVI:13/TP1A.220624.014/eng.build20260705.021352:user/release-keys"
+    private val FINGERPRINTS = setOf(FINGERPRINT, LEOPARD5_FINGERPRINT)
     const val BASE = "fission_bg_XDJAScreenProjection"
     const val FULL = "shared_${BASE}_0"
     const val SIDE = "shared_${BASE}_1"
@@ -33,7 +37,7 @@ internal object DiLink51ClusterLayout {
         STREAM_WIDTH, STREAM_HEIGHT, scalePercent = 100,
     ).copy(safeArea = null)
 
-    fun supported(fingerprint: String = Build.FINGERPRINT): Boolean = fingerprint == FINGERPRINT
+    fun supported(fingerprint: String = Build.FINGERPRINT): Boolean = fingerprint in FINGERPRINTS
     fun theme(context: Context): Theme = Theme.entries.firstOrNull {
         it.name == context.getSharedPreferences(PREFS, 0).getString("theme", null)
     } ?: Theme.SCENARIO

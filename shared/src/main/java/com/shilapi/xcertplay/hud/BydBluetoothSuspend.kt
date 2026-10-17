@@ -47,27 +47,39 @@ object BydBluetoothSuspend {
      * [stillActive] is checked under the same lock as [resume]: an owner that closes, or a session
      * that ends, before the pause begins never leaves a lease that nothing will release.
      */
-    fun suspend(context: Context, owner: Any, delayMillis: Long = 10_000L, stillActive: () -> Boolean = { true }) {
+    fun suspend(
+        context: Context,
+        owner: Any,
+        delayMillis: Long = 10_000L,
+        log: (String) -> Unit = {},
+        stillActive: () -> Boolean = { true },
+    ) {
         synchronized(gate) {
             if (!stillActive()) return
             val state = lease(context)
             val ticket = state.begin(owner) ?: return
             pending?.cancel(false)
+            val delay = delayMillis.coerceAtLeast(0)
+            log("car Bluetooth pause in ${TimeUnit.MILLISECONDS.toSeconds(delay)} s")
             pending = worker.schedule({
-                if (state.suspend(ticket)) Log.i(TAG, "car Bluetooth pause verified")
-                else Log.w(TAG, "car Bluetooth pause cancelled or unavailable; recovery retained if needed")
-            }, delayMillis.coerceAtLeast(0), TimeUnit.MILLISECONDS)
+                val radioBefore = state.radioEnabled()
+                val paused = state.suspend(ticket)
+                val outcome = BluetoothPauseOutcome.describe(paused, radioBefore, paused || state.isCurrent(ticket),
+                    shell.lastAccess?.name)
+                if (paused) Log.i(TAG, outcome) else Log.w(TAG, "$outcome; recovery retained if needed")
+                log(outcome)
+            }, delay, TimeUnit.MILLISECONDS)
         }
     }
 
     /** Retire only this controller's work; a late old-controller close cannot release a new one. */
-    fun resume(context: Context, owner: Any) {
+    fun resume(context: Context, owner: Any, log: (String) -> Unit = {}) {
         synchronized(gate) {
             val state = lease(context)
             val ticket = state.end(owner) ?: state.recoveryOnAppOpen() ?: return
             pending?.cancel(false)
             pending = null
-            worker.execute { restore(state, ticket) }
+            worker.execute { restore(state, ticket, log) }
         }
     }
 
@@ -101,12 +113,19 @@ object BydBluetoothSuspend {
             .getBoolean(KEY_RESTORE_ENABLED, false) && radioEnabled(app) == false
     }
 
-    private fun restore(state: BluetoothSuspendLease, ticket: Long) {
-        if (!state.restore(ticket)) Log.w(TAG, "Bluetooth recovery incomplete or superseded")
+    private fun restore(state: BluetoothSuspendLease, ticket: Long, log: (String) -> Unit = {}) {
+        val wasPaused = state.isSuspended()
+        if (!state.restore(ticket)) {
+            Log.w(TAG, "Bluetooth recovery incomplete or superseded")
+            if (wasPaused) log("car Bluetooth recovery incomplete; DiPlay retries when it opens again")
+        } else if (wasPaused) {
+            log("car Bluetooth back on")
+        }
     }
 
     private fun radioEnabled(context: Context): Boolean? = runCatching {
-        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return@runCatching null
+        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+            ?: BluetoothAdapter.getDefaultAdapter() ?: return@runCatching null
         when (adapter.state) {
             BluetoothAdapter.STATE_ON -> true
             BluetoothAdapter.STATE_OFF -> false

@@ -107,6 +107,8 @@ On the Tang the console's volume control sends exactly the same codes, scan code
 
 BYD's settings have no accessibility page. The "Turn on the wheel key service · ADB" button adds DiPlay's service to `enabled_accessibility_services` through the head unit's own adbd (the car asks once to allow DiPlay's key) and keeps services already listed. The service only receives key events; it declares no window-content access.
 
+The diagnostic report shows what the service was given. After the `Wheel key service:` line, `Wheel keys since DiPlay started:` counts the presses, how many DiPlay kept and how many it left to the head unit, and up to 40 `Wheel keys:` lines follow with the time, `key <code>/<scan code>`, the input device number and the outcome. A volume key that navigation volume left alone carries the reason. `presses=0` with the service bound means the head unit handles its wheel keys before Android sees them, so DiPlay cannot use them. The lines are kept in memory and start again when DiPlay's process does. A key that writes text is counted (`textKeysNotListed`) and never listed.
+
 ### CarPlay joystick on the steering wheel (optional)
 
 DiPlay already declares a rotary knob for CarPlay's main screen (HID `xcertplay Knob`). Checked with Apple Maps and lists on a Tang: only the knob's turn moves CarPlay's focus (the first turn opens the Maps side panel with search, pinned places and recents), select activates the focused item and back closes the screen; the knob's x/y nudges only pan a focused map, so the joystick does not use them.
@@ -131,14 +133,18 @@ BYD's own CarPlay app (`com.byd.carplay.ui`) answers CarPlay calls from the whee
 - the CarPlay voice keys (327 short, 328 long) reach the wheel key service before BYD's window manager keeps them.
 
 DiPlay follows the iPhone's calls from iAP2 CallStateUpdate (0x4155, already subscribed). The separate
-**CarPlay call keys (experimental)** setting is disabled by default and requires explicit opt-in.
-With that setting enabled, during a CarPlay call:
+**CarPlay call, Siri and media keys (experimental)** setting is disabled by default and requires explicit opt-in.
 
-- the call key answers a ringing call with CarPlay's telephony HID Hook Switch, and is kept during a connected call. It works through the wheel key service and on the CarPlay screen; since BYD has already opened its phone screen by then, DiPlay brings CarPlay back to the front;
-- the hang-up and menu keys end or decline the call (telephony HID Drop), through BYD's broadcast; no setting or service is needed;
-- with a CarPlay session, the CarPlay voice keys open Siri through the wheel key service. DiLink 3's play/pause key (331) toggles CarPlay playback.
+With that setting enabled and a CarPlay session active:
 
-With the experimental controls disabled, all new call/voice/play-pause key behavior passes through.
+- the phone key (313) answers a ringing call with CarPlay's telephony HID Hook Switch, and is consumed without hanging up during a connected call. It reaches DiPlay through the focused CarPlay screen or the wheel key service; outside the CarPlay screen, the service is needed. Since BYD has already opened its phone screen by the key's release, DiPlay brings CarPlay back to the front;
+- the hang-up key (314) and multifunction mode/menu key (309) end or decline the call (telephony HID Drop), through BYD's broadcast. This path requires the call-key setting to be enabled, but does not depend on the wheel key service;
+- next track answers and previous track declines only while a call rings. Neither track key ends a connected call;
+- with a CarPlay session, the CarPlay voice keys open Siri through the wheel key service. **Siri on long press only** (Settings, wheel keys) makes a short press of the voice button do nothing in DiPlay; only the long press (328, or 312 on the CarPlay screen) opens Siri. It is off by default. DiLink 3's play/pause key (331) toggles CarPlay playback. One press of the wheel's voice key also sends the generic voice key (304 short, 312 long) about half a second later, which the CarPlay screen would turn into a second Siri request that ends the first; only the first key within 1.5 s opens Siri. Without the wheel key service, BYD's window manager treats CarPlay as not connected (DiPlay does not set `sys.carplay.connected`) and opens its Bluetooth page on the long press (328).
+
+The Siri and media support above applies specifically to DiLink 3 keys 327/328 and 331. This setting
+does not control ordinary media-key mappings or the separate configurable wheel-key settings.
+With this setting disabled, these experimental call-key and dedicated Siri/play-pause mappings are not applied.
 Outside a CarPlay call every call key keeps BYD's action. The exported hang-up receiver requires
 the sender's `android.permission.DUMP`; BYD's system-server window manager can send it, while an
 ordinary third-party app cannot. Actual sender/key behavior still requires vehicle acceptance.
@@ -182,14 +188,17 @@ process-death cleanup. The reported live key codes alone do not prove these beha
 Two more settings under **Settings → Advanced → Video and audio**, off by default, let the car's own call processing handle the echo instead of DiPlay's canceller. On a GCC Han (DiLink 3, Android 10) the car's audio layer has a phone state that BYD's Telecom enters for any call (`AudioManager.setCallState(CALL_CLIENT_BT, MODE_IN_CALL)` in the Telecom log). Measured with a test app, not yet with a real CarPlay call:
 
 - Outside that state the `VOICE_COMMUNICATION` microphone has an always-on automatic gain of about +14 to +27 dB and clips, so the echo comes back loud and no software canceller can model it (SpeexDSP removed 0.7 dB).
-- Inside it the same microphone returned digital silence for the far end's echo (100% of 609 frames with the cabin quiet) and still passed a voice, but clipped it harder (about 13% of samples in a 14 s count, against under 1% outside it). The plain `MIC` source is muted in the state.
+- Inside it the same microphone returned digital silence for the far end's echo (100% of 609 frames with the cabin quiet) and still passed a voice, but clipped it hard (13 to 23% of samples in 8 to 14 s counts at about -4.5 dBFS, against under 1% outside it). The plain `MIC` source is muted in the state.
+- The other call-capable sources do not have that problem in the state. On the same Han, with the voice counted aloud, `VOICE_RECOGNITION`, `UNPROCESSED`, `CAMCORDER` and `VOICE_PERFORMANCE` gave about -16 to -20 dBFS with no clipping, passed the voice while the far end was playing (double talk), and left only a brief low-level burst of the far end's echo (about -44 dBFS over 8 s with the voice silent) where `VOICE_COMMUNICATION` leaked a loud, clipping burst. The second capture channel is muted in the state (it carries a separate microphone outside it).
 
 Any app may register a self-managed Telecom call with the normal permission `MANAGE_OWN_CALLS`, so DiPlay holds one while a call needs the state:
 
 - **Car phone audio for CarPlay calls** holds the call from the iPhone's first call frame until the call ends, plus two seconds so back-to-back calls do not leave the state. While it is on, DiPlay's own echo canceller and the platform effects stay out of the CarPlay call microphone. If Telecom refuses the call, DiPlay's canceller is used again for five minutes (`Telecom refused the call that selects the car's phone audio state` in the log). Applies at the next call.
 - **Car phone audio for VoIP calls in other apps** does the same while another app both records from `VOICE_COMMUNICATION` and plays with the matching usage, which is how WhatsApp, Telegram, Teams, Zoom and similar apps hold a call. A recording alone is not enough: while the state lasts BYD's own audio layer keeps `VOICE_RECOGNITION` and `VOICE_COMMUNICATION` recorders open, so they never end on their own. Voice notes, video, assistants and any other recording use other sources and are never routed, because the car mutes the plain microphone in the state. It needs DiPlay running outside a CarPlay session as well, so turning it on also enables the wheel-key accessibility service, and it only watches while that service, the app or a CarPlay session keeps DiPlay alive.
 
-Log tag `DiPlay-PhoneAudio` shows when the state is entered and left. If the car's hands-free link is connected, Telecom already holds a managed call for the iPhone and may refuse a second one; pausing the car's Bluetooth radio during CarPlay avoids that. The louder, clipped voice is the main open question and needs a listening test on the far end.
+Log tag `DiPlay-PhoneAudio` shows when the state is entered and left. If the car's hands-free link is connected, Telecom already holds a managed call for the iPhone and may refuse a second one; pausing the car's Bluetooth radio during CarPlay avoids that.
+
+While the CarPlay call holds the state, DiPlay records the call from `VOICE_RECOGNITION` instead of `VOICE_COMMUNICATION`, which clipped. The stock CarPlay service opens its microphone stream without an input preset, which AAudio treats as `VOICE_RECOGNITION`. Geely/Lynk head units, where that source records silence, keep `VOICE_COMMUNICATION`. One Han owner described the call voice with `VOICE_COMMUNICATION` as very bassy with far too much gain; after listening to recordings of each source on a PC, they preferred `VOICE_RECOGNITION`, which they described as clear and natural.
 
 ## ADB vehicle-data settings and firmware scope
 

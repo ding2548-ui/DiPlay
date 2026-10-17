@@ -8,9 +8,12 @@ import com.shilapi.xcertplay.airplay.SafeAreaRect
 internal object DiLink4ClusterDisplay {
     const val NAME = "fission_bg_xdjaVirtualSurface"
 
-    // Exact name and geometry only. Do not select arbitrary virtual or passenger displays.
+    // Controller 13 and 17 firmware list the same 1920x720 cluster surface under other names (#552).
+    private val FULL_PANEL_NAMES = setOf(NAME, "fission_magicsentry", "sission_magicsentry")
+
+    // Exact names and geometry only. Do not select arbitrary virtual or passenger displays.
     fun matches(name: String, width: Int, height: Int): Boolean =
-        name == NAME && width == 1920 && height == 720
+        name in FULL_PANEL_NAMES && width == 1920 && height == 720
 
     /**
      * Also recognize the 1280x480 projection surface reported by a DiLink 3 car. This
@@ -18,7 +21,7 @@ internal object DiLink4ClusterDisplay {
      * limited to observed geometries: an aspect ratio alone does not identify a cluster.
      */
     fun accepts(name: String, width: Int, height: Int): Boolean =
-        name == NAME && ((width == 1920 && height == 720) || (width == 1280 && height == 480))
+        matches(name, width, height) || (name == NAME && width == 1280 && height == 480)
 
     const val STREAM_WIDTH = 1920
     const val STREAM_HEIGHT = 720

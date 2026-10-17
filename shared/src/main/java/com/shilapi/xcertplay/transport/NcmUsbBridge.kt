@@ -54,6 +54,7 @@ class NcmUsbBridge internal constructor(
     private var readQueued = false
     private val readQueuePolicy = UsbReadQueuePolicy()
     private val readRequests = UsbRequestQueue(connection, "ncm-read-reaper")
+    private val traffic = NcmTrafficCounter()
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
     private val statusThread = statusEndpoint?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
@@ -86,11 +87,15 @@ class NcmUsbBridge internal constructor(
                 "NCM write transferred $transferred of ${block.size} bytes",
             )
         }
+        traffic.sent()
         if (loggedWriteTimeout) {
             loggedWriteTimeout = false
             Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out became ready")
         }
     }
+
+    /** Frames to and from the iPhone so far, for a report line; see [NcmTrafficCounter]. */
+    fun trafficSummary(airPlayPort: Int?): String = traffic.summary(airPlayPort)
 
     /**
      * Returns the next complete Ethernet frame, or null when [timeoutMillis] elapses without one.
@@ -239,6 +244,7 @@ class NcmUsbBridge internal constructor(
     private fun pollFrame(): ByteArray {
         val frame = frames.removeFirst()
         queuedBytes -= frame.size
+        traffic.received(frame)
         return frame
     }
 

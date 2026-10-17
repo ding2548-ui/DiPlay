@@ -4,7 +4,7 @@ This public preview is an independent receiver, not an Apple-certified CarPlay a
 
 | Area | Current scope |
 | --- | --- |
-| Head unit | Android 7.1+ (API 25+) APK; Android 7.1–8.1 support is not yet confirmed on a vehicle, and Android 7.x has no local-only hotspot (use the car hotspot, Wi-Fi Direct or Existing Wi-Fi); Android 7.0 and older are unsupported; Wi-Fi Direct has a firmware-dependent legacy Android 7.1–9 path with unverified requested frequency, and modern verified frequency on Android 10+ |
+| Head unit | Android 7.0+ (API 24+) APK; Android 7.0–8.1 support is not yet confirmed on a vehicle, and Android 7.x has no local-only hotspot (use the car hotspot, Wi-Fi Direct or Existing Wi-Fi) and refuses an app's request to turn the car hotspot on, so on head units that are not BYD the driver turns it on in the car settings; Android 6.0 and older are unsupported; Wi-Fi Direct has a firmware-dependent legacy Android 7.0–9 path with unverified requested frequency, and modern verified frequency on Android 10+ |
 | Phone | Standard, non-jailbroken iPhone with CarPlay enabled; device/iOS compatibility varies |
 | Physical evidence | Previous private builds: wired and wireless picture, touch and audio confirmed on the development car with iPhone XS / iOS 18.7.10 |
 | Other cars | Mixed community reports across DiLink generations; not a certified model support list |
@@ -54,6 +54,9 @@ The specifically observed 1280×480 DiLink 3 projection surface is now recognize
 - Some iOS/head-unit combinations do not visibly apply icon and text size. Reconnection is implemented; that does not guarantee the iPhone chooses the requested layout.
 - A radio that supports joining a 5 GHz network may still reject a 5 GHz Wi-Fi Direct group. The capability flag is diagnostic, not proof of group-owner support.
 - Automatic startup depends on the car's firmware and startup permissions.
+- Wireless CarPlay cannot start on a head unit that keeps calls and music on the maker's own Bluetooth module, because Android's Bluetooth there accepts connections that reach no phone. A common sign: the iPhone is paired in the maker's own Bluetooth or Phone app, not in Android's Bluetooth settings. Since 0.2.18 DiPlay tests for this and stops with the cause instead of retrying ([#590](https://github.com/shihabal3amri/DiPlay/pull/590)). Confirmed on one Allwinner T8 with TopWay firmware; [#330](https://github.com/shihabal3amri/DiPlay/issues/330) and [#354](https://github.com/shihabal3amri/DiPlay/issues/354) show the same symptom. USB is the only route left to try on such a unit.
+- Wireless CarPlay also cannot start on a head unit whose Bluetooth service gives apps no socket manager: every RFCOMM connect fails inside Android within a few milliseconds, while the car's own calls and music keep working. Seen on a Changan CS35 Plus with an Allwinner T7 on Android 9 ([#709](https://github.com/shihabal3amri/DiPlay/issues/709)). DiPlay stops with that cause instead of retrying. Use USB on such a unit.
+- A head unit whose Android has no Bluetooth adapter at all is told so, when the driver chooses an iPhone and when a connection is tried, instead of being asked to turn Bluetooth on. Where the adapter exists but its switch will not stay on, as on the GAC unit in [#581](https://github.com/shihabal3amri/DiPlay/issues/581), the request to turn Bluetooth on adds that this means wireless CarPlay cannot work there once the driver has been to Bluetooth settings and come back with it still off.
 - USB requires a data port and correct host/device-role behavior.
 - Calls, Siri, background reconnection, long journeys and future iOS releases need broader testing.
 

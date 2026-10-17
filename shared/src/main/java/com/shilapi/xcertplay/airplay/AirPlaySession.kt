@@ -29,6 +29,8 @@ interface AirPlaySessionListener {
     fun onSessionActive(session: AirPlaySession) {}
     fun onSessionEnded(session: AirPlaySession) {}
     fun onVideoFrameRendered(session: AirPlaySession) {}
+    /** Validated downstream; immutable copy of iPhone's top-left grayscale coverage PNG. */
+    fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
     fun onHostUiRequested(session: AirPlaySession) {}
@@ -535,6 +537,15 @@ class AirPlaySession(
     private fun handle(request: RtspMessage.Request): RtspMessage.Response {
         when (request.method) {
             "SETUP" -> return handleSetup(request)
+            "SET_PARAMETER" -> {
+                // iOS can replace the mask when the display changes; never decode PNG on RTSP.
+                if (config.main.useIphoneCornerMask && request.body.size <=
+                    IPhoneCornerMaskWireLimit.MAX_PNG_BYTES + 64 * 1024) {
+                    val value = runCatching { BplistCodec.decode(request.body) }.getOrNull()
+                    findIphoneCornerMask(value)?.let(::notifyCornerMask)
+                }
+                return RtspMessage.Response(status = 200)
+            }
             "RECORD" -> {
                 listener.onSessionActive(this)
                 return RtspMessage.Response(status = 200)
@@ -696,6 +707,9 @@ class AirPlaySession(
                     val port = media.onScreen(this, type, stream)
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
+                        if (type == STREAM_TYPE_MAIN_SCREEN && config.main.useIphoneCornerMask) {
+                            findIphoneCornerMask(stream)?.let(::notifyCornerMask)
+                        }
                         activeStreams.add(type)
                         // lwIP mode: hand the new data port to the relay so the phone can reach it.
                         portNotifier?.invoke(port)
@@ -801,6 +815,10 @@ class AirPlaySession(
      */
     private fun listenerBindAddress(): InetAddress =
         if (loopbackBind) InetAddress.getLoopbackAddress() else InetAddress.getByName("::")
+    private fun notifyCornerMask(png: ByteArray) {
+        if (png.size !in 45..IPhoneCornerMaskWireLimit.MAX_PNG_BYTES) return
+        listener.onCornerMask(this, png.copyOf(), config.main.widthPixels)
+    }
 
     private fun openTiming(peerPort: Int): Int {
         val port = ntp.listen(listenerBindAddress())
@@ -990,12 +1008,31 @@ class AirPlaySession(
 /** The session feature the iPhone proposes for main buffered audio. */
 internal const val MAIN_BUFFERED_FEATURE = "mainBuffered"
 
+internal object IPhoneCornerMaskWireLimit {
+    const val MAX_PNG_BYTES = 512 * 1024
+}
+
+/** The mask may arrive inside the screen stream SETUP entry or in a runtime parameter plist. */
+internal fun findIphoneCornerMask(value: Any?, depth: Int = 0): ByteArray? {
+    if (depth > 6) return null
+    return when (value) {
+        is Map<*, *> -> {
+            val candidate = value["topLeftCornerMask"] as? ByteArray
+            if (candidate != null) candidate
+            else value.values.firstNotNullOfOrNull { findIphoneCornerMask(it, depth + 1) }
+        }
+        is List<*> -> value.firstNotNullOfOrNull { findIphoneCornerMask(it, depth + 1) }
+        else -> null
+    }
+}
+
 internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): List<String> {
     val features = mutableListOf<String>()
     if (config.hevc) features.add("hevc")
     features.add("iAPChannel")
     features.add("viewAreas")
     if (config.cluster != null) features.add("altScreen")
+    if (config.main.useIphoneCornerMask && proposed.orEmpty().contains("cornerMasks")) features.add("cornerMasks")
     if (config.videoInCar && proposed.orEmpty().contains(VideoInCar.FEATURE)) features.add(VideoInCar.FEATURE)
     if (config.bufferedAudioOutputEnabled && proposed.orEmpty().contains(MAIN_BUFFERED_FEATURE)) features.add(MAIN_BUFFERED_FEATURE)
     return features

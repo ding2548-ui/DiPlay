@@ -8,6 +8,8 @@
     <string name="settings_navigation">Navegación</string>
     <string name="settings_vehicle">Vehículo</string>
     <string name="settings_advanced">Avanzado</string>
+    <string name="settings_more">Más</string>
+    <string name="settings_swipe_advanced">Avanzado (experimental)</string>
     <string name="settings_advanced_subtitle">Controles experimentales y específicos del vehículo para usuarios con experiencia</string>
     <string name="settings_advanced_caution_title">Cambia con cuidado</string>
     <string name="settings_advanced_caution_description">Estas funciones pueden depender del firmware del vehículo, del acceso ADB o de un comportamiento experimental de CarPlay. Los ajustes habituales están en las categorías anteriores.</string>

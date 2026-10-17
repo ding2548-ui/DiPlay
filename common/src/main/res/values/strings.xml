@@ -263,7 +263,6 @@
     <string name="mfi_authentication_ready">MFi authentication ready</string>
     <string name="mfi_certificate_signing_target">MFI certificate &amp; signing target</string>
     <string name="model">Model</string>
-    <string name="music_buffer">Music buffer</string>
     <string name="resolution_native">Native</string>
     <string name="navigation_on_hud_and_instrument_cluster">Navigation on HUD and dashboard</string>
     <string name="navigation_stream_type">Navigation stream type</string>
@@ -338,7 +337,9 @@
     <string name="s_30_fps_lighter_load">30 fps · lighter load</string>
     <string name="s_3_connect">3 · Connect</string>
     <string name="s_3_tap_check_and_enable_below_this_enables_the_cluster_ma">3. Tap Check and enable below. This enables the cluster map and automatic theme following. An active CarPlay session reconnects once. You can then disconnect the computer.</string>
-    <string name="s_500_ms">500 ms</string>
+    <string name="settings_music_buffer_ms">%1$d ms</string>
+    <string name="settings_music_buffer_wireless">Music buffer (wireless CarPlay)</string>
+    <string name="settings_music_buffer_wired">Music buffer (USB cable)</string>
     <string name="s_5_ghz">5 GHz</string>
     <string name="s_60_fps_smoother_motion">60 fps · smoother motion</string>
     <string name="s_60_lightest_load" formatted="false">60% · lightest load</string>
@@ -370,6 +371,8 @@
     <string name="settings_navigation">Navigation</string>
     <string name="settings_vehicle">Vehicle</string>
     <string name="settings_advanced">Advanced</string>
+    <string name="settings_more">More</string>
+    <string name="settings_swipe_advanced">Advanced (experimental)</string>
     <string name="settings_advanced_subtitle">Experimental and vehicle-specific controls for experienced users</string>
     <string name="settings_advanced_caution_title">Change with care</string>
     <string name="settings_advanced_caution_description">These features can depend on vehicle firmware, ADB access, or experimental CarPlay behavior. Everyday settings are organized in the categories above.</string>
@@ -422,6 +425,7 @@
     <string name="token_optional">Token (optional)</string>
     <string name="transport_error_reconnecting">Transport error; reconnecting</string>
     <string name="turn_on_bluetooth">Turn on Bluetooth</string>
+    <string name="turn_on_bluetooth_in_the_head_unit_s_settings_to_connect">Turn on Bluetooth in the head unit’s settings to connect.</string>
     <string name="turn_on_wi_fi_in_the_head_unit_s_settings_to_connect">Turn on Wi-Fi in the head unit’s settings to connect.</string>
     <string name="turn_the_car_s_wi_fi_switch_on_allow_location_nearby_devic">Turn the car’s Wi-Fi switch on. Allow Location / Nearby devices if requested and enable Location when Android asks. If playback stutters, try the built-in car hotspot at 5 GHz.</string>
     <string name="usage_access_enabled">Usage Access: enabled</string>
@@ -445,6 +449,7 @@
     <string name="wi_fi_session">Wi-Fi session</string>
     <string name="widest_width">Widest width</string>
     <string name="wireless_carplay">WIRELESS CARPLAY</string>
+    <string name="home_usb_carplay">CARPLAY OVER USB</string>
     <string name="wireless_carplay_2">Wireless CarPlay</string>
     <string name="wireless_carplay_active">Wireless CarPlay active</string>
     <string name="wireless_carplay_control_running">Wireless CarPlay control running</string>
@@ -646,6 +651,20 @@
     <string name="settings_gesture_fingers_hint">Pick a finger count your head unit does not already use. BYD takes three-finger swipe-down for its air-conditioning panel.</string>
     <string name="auto_car_hotspot_title">Automatically turn on the car hotspot</string>
     <string name="auto_car_hotspot_description">Starts the saved car hotspot when DiPlay opens. Turning this on automatically requests the required permissions through ADB; allow the prompt on the car screen. Enable “Open after the car starts” for boot startup. Keeps the hotspot name and password and never turns it off.</string>
+    <string name="settings_car_hotspot_config_title">Import the car hotspot details (experimental)</string>
+    <string name="settings_car_hotspot_config_description">Nothing to type: the car hotspot settings are imported; when the car has none, DiPlay writes its own details there after your confirmation, and devices using this hotspot may have to reconnect. Needs ADB on Android 11 and newer; not available on Android 8 to 10.</string>
+    <string name="settings_car_hotspot_config_unsupported">Importing the car hotspot details is not supported on this Android version.</string>
+    <string name="settings_car_hotspot_config_written">The car hotspot now uses the DiPlay password.</string>
+    <string name="settings_car_hotspot_config_imported">Imported the car hotspot settings.</string>
+    <string name="settings_car_hotspot_config_dialog_title">Overwrite the car hotspot settings?</string>
+    <string name="settings_car_hotspot_config_dialog_message">The car\'s saved hotspot configuration could not be read. Continuing overwrites it with the DiPlay hotspot details: the hotspot name may change, the password is replaced, and other connected devices have to re-enter the password.</string>
+    <string name="settings_car_hotspot_config_dialog_generate_message">Nothing could be read from the car and DiPlay has no hotspot details yet. Continuing creates a new hotspot name and password in the car; other devices have to enter the new password.</string>
+    <string name="settings_car_hotspot_config_dialog_save_message">DiPlay\'s hotspot password is written to the car\'s hotspot settings. Devices using this hotspot may have to re-enter the password.</string>
+    <string name="settings_car_hotspot_config_dialog_confirm">Overwrite and continue</string>
+    <string name="settings_car_hotspot_config_effect">Applied the next time the car hotspot starts</string>
+    <string name="settings_car_hotspot_config_failed">DiPlay could not write the car hotspot settings. The name and password stay unchanged.</string>
+    <string name="settings_car_hotspot_config_wpa3">A WPA3 hotspot is kept unchanged. Save the hotspot details with WPA2 to write them to the car.</string>
+    <string name="settings_car_hotspot_config_open">An open hotspot in DiPlay does not overwrite the car\'s password.</string>
     <string name="hotspot_control_missing">Hotspot control permission is missing. Set it up through ADB or open the hotspot in car settings.</string>
     <string name="hotspot_permission_granted">Permission granted.</string>
     <string name="hotspot_permission_failed">The requested permission was not granted. Check the car settings and try again.</string>
@@ -704,6 +723,12 @@
     <string name="wheel_key_in_use">That key is already the %1$s key. Choose another key.</string>
     <string name="wheel_siri_key">Siri key on the wheel</string>
     <string name="wheel_siri_key_description">Opens Siri with a wheel key you choose while CarPlay is on the screen. A key that the car keeps for itself works only with the wheel key service, which also works when CarPlay is in the background. Without CarPlay, or during a call, the key keeps the car\'s own action.</string>
+    <string name="wheel_siri_double_press">Double press for Siri</string>
+    <string name="wheel_siri_double_press_description">A single press keeps the car\'s action. Press twice within the selected interval; DiPlay opens Siri after the selected delay. The wheel key service is required if the car\'s assistant takes over the screen. Applies immediately.</string>
+    <string name="wheel_siri_double_press_interval">Double-press interval</string>
+    <string name="wheel_siri_trigger_delay">Siri trigger delay</string>
+    <string name="wheel_siri_long_press_only">Siri on long press only</string>
+    <string name="wheel_siri_long_press_only_description">Only a long press of the wheel\'s voice button opens Siri. A short press does nothing in DiPlay.</string>
     <string name="wheel_key_role_back">back</string>
     <string name="wheel_key_service_label">DiPlay wheel keys</string>
     <string name="wheel_key_service_description">Optional wheel key filtering for navigation volume during spoken guidance, dashboard map zoom, CarPlay joystick and call controls. No screen content is read.</string>
@@ -734,6 +759,7 @@
     <string name="split_screen_areas">CarPlay in the head unit\'s split screen</string>
     <string name="split_screen_areas_description">When the head unit shows DiPlay in split screen, CarPlay redraws for that window instead of shrinking with black bars, and back to full screen without reconnecting. The window\'s size is learned the first time, so the picture fits exactly from the next connection. With the dock on Automatic, CarPlay then puts it at the bottom. Applies at the next connection.</string>
     <string name="carplay_rotation">Turn CarPlay with the screen without reconnecting</string>
+<<<<<<< ours
     <string name="carplay_rotation_description">For head units whose screen turns. CarPlay gets a square picture holding a landscape and a portrait screen, so turning the screen redraws CarPlay instead of reconnecting. A larger square can increase video work and reduce smoothness, especially with Sharper on a large screen. If you rarely turn the screen, leaving this off may help. The custom safe area does not apply to a square picture. Applies at the next connection.</string>    <string name="carplay_rotation_picture">Square picture</string>
     <string name="carplay_rotation_smoother">Smoother (1920)</string>
     <string name="carplay_rotation_sharper">Sharper (the screen\'s size)</string>
@@ -741,6 +767,16 @@
     <string name="a2dp_handoff">Drop the phone\'s Bluetooth audio while CarPlay plays</string>
     <string name="a2dp_handoff_desc">While CarPlay carries music, the car\'s Bluetooth audio profiles of the connected phone are disconnected, so the same audio cannot also come out of the car\'s Bluetooth sink. Only A2DP is dropped; hands-free is left alone. Takes effect on the next playback.</string>        <string name="carplay_call_controls_experimental">CarPlay call keys (experimental)</string>
     <string name="carplay_call_controls_experimental_description">Opt in to unverified DiLink 3 call, voice and play/pause keys. Vehicle testing is still required. While a CarPlay call rings, next track answers and previous track declines. Disabled by default; dashboard call cards are a separate setting.</string>    <string name="side_panel">Side panel next to CarPlay (experimental)</string>
+=======
+    <string name="carplay_rotation_description">For head units whose screen turns. CarPlay gets a square picture holding a landscape and a portrait screen, so turning the screen redraws CarPlay instead of reconnecting. A larger square can increase video work and reduce smoothness, especially with Sharper on a large screen. If you rarely turn the screen, leaving this off may help. The custom safe area does not apply to a square picture. A CarPlay screenshot taken on the iPhone shows the whole square, including the part this screen does not show. Applies at the next connection.</string>
+    <string name="carplay_rotation_picture">Square picture</string>
+    <string name="carplay_rotation_smoother">Smoother (1920)</string>
+    <string name="carplay_rotation_sharper">Sharper (the screen\'s size)</string>
+    <string name="auto_grant_incomplete">Setup did not verify every requested permission. Check each status below; enable network ADB and retry, or use the manual setup. Existing permissions are kept.</string>
+    <string name="carplay_call_controls_experimental">CarPlay call, Siri and media keys (experimental)</string>
+    <string name="carplay_call_controls_experimental_description">The phone key answers incoming CarPlay calls; hang-up/mode keys decline or end calls. While a call rings, next track also answers and previous track declines; neither ends a connected call. Also enables DiLink 3-specific Siri and play/pause keys. Disabled by default; support must be checked on your vehicle and firmware. Dashboard call cards are a separate setting.</string>
+    <string name="side_panel">Side panel next to CarPlay (experimental)</string>
+>>>>>>> upstream20
     <string name="side_panel_description">CarPlay can move to two thirds of the screen while DiPlay shows a panel in the rest: on the passenger\'s side of a landscape screen, at the bottom of a portrait one (clock and, where it is read, the battery). Show and hide it from the in-session menu. Applies at the next connection.</string>
     <string name="side_panel_show">Side panel</string>
     <string name="side_panel_full_screen">⤢ Full screen</string>
@@ -796,12 +832,39 @@
     <string name="settings_ambient_enable">Enable ambient light control</string>
     <string name="settings_ambient_enable_description">When on, music drives the lamps; turning it off hands them back to the car. On BYD an existing ADB authorization is used; on a Leapmotor car the command is a broadcast that needs no setup.</string>
     <string name="settings_ambient_music">Follow music</string>
+<<<<<<< ours
     <string name="settings_ambient_music_description">When on, the light follows the music; when off, a fixed colour is shown. Either way the lamp is driven whenever this feature is enabled, and pauses keep the lowest level. Changes apply after saving.</string>
+=======
+    <string name="settings_ambient_music_description">When playing, follow the music or use fixed colors and brightness if disabled. What the lamps do when no music is playing is set separately below. Changes apply after saving.</string>
+>>>>>>> upstream20
     <string name="settings_ambient_color_mode">Color changes</string>
     <string name="settings_ambient_speed">Brightness transition speed</string>
-    <string name="settings_ambient_palette">OEM color numbers (multiple selections)</string>
-    <string name="settings_ambient_palette_summary">Colors · %1$d selected</string>
-    <string name="settings_ambient_select_all">Select all</string>
+    <string name="settings_ambient_behavior_title">What happens</string>
+    <string name="settings_ambient_behavior_off">Control is off. The car keeps its own lamp colors, brightness and area.</string>
+    <string name="settings_ambient_behavior_follow">Music playing · %1$s: the lamps follow the music, up to level %2$d.</string>
+    <string name="settings_ambient_behavior_fixed">Music playing · %1$s: the lamps stay on one fixed color at level %2$d.</string>
+    <string name="settings_ambient_behavior_idle">Paused, stopped or disconnected: every zone drops to the lowest level, which can switch the lamps off.</string>
+    <string name="settings_ambient_behavior_idle_steady">Paused, stopped or disconnected · %1$s: the lamps stay on the chosen color at level %2$d.</string>
+    <string name="settings_ambient_behavior_idle_car">No music for 15 seconds: the lamps go back to the car’s own settings, and DiPlay takes over again when music starts.</string>
+    <string name="settings_ambient_behavior_other_zone">The other zone is not changed while music plays.</string>
+    <string name="settings_ambient_behavior_lowest">Level 0: every zone stays at the lowest level, which can switch the lamps off.</string>
+    <string name="settings_ambient_idle">When no music is playing</string>
+    <string name="settings_ambient_idle_steady">Steady glow</string>
+    <string name="settings_ambient_idle_car">Car’s own lighting</string>
+    <string name="settings_ambient_idle_off">Lowest level (can be dark)</string>
+    <string name="settings_ambient_behavior_restore">Turn control off to hand the lamps back to the car’s own settings.</string>
+    <string name="settings_ambient_mode_energy_desc">Colors change with how loud the music is.</string>
+    <string name="settings_ambient_mode_beat_desc">Colors change on each beat.</string>
+    <string name="settings_ambient_mode_tempo_desc">Colors change at the estimated tempo (BPM).</string>
+    <string name="settings_ambient_mode_bass_desc">Colors change on bass hits.</string>
+    <string name="settings_ambient_mode_smart_desc">Colors change on bass hits and strong beats.</string>
+    <string name="settings_ambient_colors_title">Colors</string>
+    <string name="settings_ambient_colors_hint_follow">Tap the colors the lamps may use. They change between your selection.</string>
+    <string name="settings_ambient_colors_hint_fixed">Tap the color to use. Fixed mode shows one color.</string>
+    <string name="settings_ambient_colors_hint_album">Colors come from the album cover. Turn off Follow album cover to pick colors yourself.</string>
+    <string name="settings_ambient_swatch">Color %1$d</string>
+    <string name="settings_ambient_swatch_selected">Color %1$d, selected</string>
+    <string name="settings_ambient_brightness_value">Level %1$d of 6</string>
     <string name="settings_ambient_select_one">Select at least one color</string>
     <string name="settings_ambient_flow_mode">Flow light mode</string>
     <string name="settings_ambient_flow_single">Single color</string>
@@ -815,6 +878,9 @@
     <string name="settings_ambient_parked_notice">Configure while parked. Supported: a Leapmotor car (by broadcast) or selected BYD lamp interfaces (over ADB). Compatibility is not guaranteed for every model or firmware.</string>
     <string name="settings_ambient_checking">Checking…</string>
     <string name="settings_ambient_unavailable">Read-only check failed: existing ADB authorization or a supported lamp interface is unavailable. No light settings were saved. Configure access separately while parked; this feature does not enable ADB or request authorization.</string>
+    <string name="settings_ambient_car_rhythm">Car\'s own music rhythm</string>
+    <string name="settings_ambient_car_rhythm_description">While CarPlay music plays, the car\'s own ambient-light music rhythm runs, with the colours and effects set in the car\'s ambient-light menu, where its music rhythm must be on. DiPlay does not set the lamps itself meanwhile. Checked when switched on. Needs the car\'s network ADB only where the head unit does not let DiPlay start the rhythm itself.</string>
+    <string name="settings_ambient_car_rhythm_unavailable">The car\'s music rhythm is not available: DiPlay cannot start it itself, and DiPlay\'s network ADB access or the head unit\'s audio service call is missing. Nothing was saved.</string>
     <string name="settings_interface_size">Interface size</string>
     <string name="settings_interface_size_auto">Automatic</string>
     <string name="settings_interface_size_hint">Size of text and controls on DiPlay\'s own screens. Automatic enlarges them on large screens with a low density. CarPlay is not affected.</string>
@@ -834,6 +900,8 @@
     <string name="backup_page_hint">Scan the code with the phone camera to open this page in its browser. Export saves a settings file, import loads one.</string>
     <string name="backup_other_addresses">If the code does not open, try changing the IP address in your browser to %1$s.</string>
     <string name="backup_no_network">No usable Wi-Fi network. Turn on the car hotspot or connect the phone to the car Wi-Fi first.</string>
+    <string name="backup_type_address">No camera? Open %1$s in a browser and enter the code %2$s.</string>
+    <string name="backup_code_entry_closed">Too many wrong codes were entered, so the code no longer works. Leave this page and open it again for a new one. The QR code still works.</string>
     <string name="backup_summary">Imported %1$d settings, skipped %2$d.</string>
     <string name="backup_import_invalid">This file is not a DiPlay settings backup.</string>
     <string name="settings_background_update_checks">Check for updates in the background</string>
@@ -902,6 +970,8 @@
     <string name="settings_speech_without_low_rates">Clearer navigation voice over USB (experimental)</string>
     <string name="settings_speech_without_low_rates_description">Over USB the iPhone can send navigation prompts and Siri’s spoken replies as 8 kHz phone-quality audio. This stops offering 8 and 16 kHz for that audio so the iPhone picks a higher rate. If prompts go silent, turn it off. Reconnects CarPlay.</string>
     <string name="bluetooth_connections_not_real">This head unit’s Android Bluetooth reports a connection, but nothing reaches the iPhone: even a connection to a service that does not exist succeeds. Bluetooth here is handled by the maker’s own module, which apps cannot use, so wireless CarPlay cannot work on this head unit. Try a USB connection.</string>
+    <string name="bluetooth_cannot_open_connections">This head unit’s Android Bluetooth cannot open connections for apps: its firmware leaves out the part that apps connect through. Calls and music over the car’s own Bluetooth are not affected, but wireless CarPlay cannot work on this head unit. Try a USB connection.</string>
+    <string name="bluetooth_will_not_stay_on_hint">If Bluetooth will not stay on there, this head unit keeps Bluetooth for its own calls and music, and apps cannot use it. Wireless CarPlay cannot work in that case: use a USB cable.</string>
     <string name="settings_fce_cluster_guidance">Guidance in the FCE cluster (experimental)</string>
     <string name="settings_fce_cluster_guidance_description">Shows CarPlay arrows and the next-turn distance in the instrument cluster’s navigation view on FCE head units, by writing to the head unit’s vehicle service. Tested on one car only; turn it off if the cluster behaves unexpectedly.</string>
     <string name="settings_cluster_music">Music on cluster (experimental)</string>
@@ -913,6 +983,7 @@
     <string name="settings_cluster_music_vertical">Music card · vertical position</string>
     <string name="settings_cluster_music_size">Music card · size</string>
     <string name="settings_cluster_music_unknown">Unknown artist</string>
+<<<<<<< ours
     <!-- PSA line: the auto-start triggers and their setup entries. -->
     <string name="auto_car_hotspot_setup_description">Turns the saved car hotspot on by itself when connecting. DiPlay asks once for the “Modify system settings” permission it needs. The hotspot name and password are left as they are, and the hotspot is not turned off afterwards.</string>
     <string name="auto_car_hotspot_needs_permission">To turn the hotspot on automatically, allow “Modify system settings” for DiPlay in the next screen.</string>
@@ -1003,3 +1074,54 @@
     <string name="connection_step_wd_24">Picture data received</string>
     <string name="connection_step_wd_25">Picture on screen</string>
 </resources>
+=======
+    <string name="connection_help_reset_wifi">An old Wi-Fi Direct group may block this connection. Select Reset CarPlay Wi-Fi below, then connect again.</string>
+    <string name="connection_help_bluetooth_unusable">This head unit cannot send Bluetooth data to the iPhone. Wireless CarPlay cannot work here. Use a USB data cable.</string>
+    <string name="connection_help_wifi_direct_beside_hotspot">Turn the car hotspot off and retry, or choose Built-in car hotspot in Connection setup and save its name and password.</string>
+    <string name="wifi_direct_refused_beside_hotspot">The car hotspot is on, and Wi-Fi Direct cannot start beside it</string>
+    <string name="connection_help_hotspot">Check that the car hotspot is on and its name and password match DiPlay settings. If available, use 5 GHz, then retry.</string>
+    <string name="connection_help_iphone_wifi">Keep Wi-Fi and Bluetooth on. On the iPhone, join the car hotspot and enable Auto-Join, then retry. Save a diagnostic report if it still fails.</string>
+    <string name="connection_help_permissions">Allow the requested USB, Nearby devices or Location permissions for DiPlay on the head unit, then retry.</string>
+    <string name="connection_help_usb">Use a USB data port and a data-capable cable. Unlock the iPhone, approve Trust and CarPlay, then retry.</string>
+    <string name="connection_help_bluetooth">Unlock the iPhone, enable Bluetooth and Wi-Fi, and pair it with the head unit. Keep it nearby, then retry.</string>
+    <string name="connection_help_general">Retry the connection. If it fails again, return to DiPlay and save a report under Settings → Diagnostics.</string>
+    <string name="connection_help_wifi_direct">Keep the head unit\'s Wi-Fi and Bluetooth on and the iPhone unlocked nearby, then retry. If it keeps failing, forget the car on the iPhone under Settings → General → CarPlay and connect again.</string>
+    <string name="connection_help_existing_wifi">Make sure the head unit and the iPhone are on the same Wi-Fi network and its name and password match DiPlay settings, then retry.</string>
+    <string name="settings_report_on_phone">Get the report on a phone</string>
+    <string name="settings_report_on_phone_hint">Scan the code with the phone camera to open this page in its browser, then choose Download report. Keep this screen open until the download has finished.</string>
+    <string name="settings_mfi_target_description">Choose USB/CH341 only while a CH341 authentication adapter is connected to the head unit. Without one, choose Local offline. Applies at the next connection.</string>
+    <string name="settings_call_speakerphone">Calls on the loudspeaker</string>
+    <string name="settings_call_speakerphone_description">For an Android phone or tablet used as the head unit: plays CarPlay calls on its loudspeaker instead of the earpiece and uses its hands-free microphone. Leave off on a car head unit. Applies from the next call.</string>
+    <string name="settings_navigation_attenuation">Navigation guidance volume</string>
+    <string name="settings_navigation_attenuation_value">%1$d dB</string>
+    <string name="settings_navigation_attenuation_description">Reduce CarPlay navigation guidance without changing music or call volume. Applies immediately; your head unit’s navigation volume still works.</string>
+    <string name="settings_car_hotspot_control">Car hotspot</string>
+    <string name="settings_auto_car_hotspot_system_description">Turns on the saved car hotspot when DiPlay opens and before a wireless connection. DiPlay needs Android\'s “Modify system settings” access; ADB is not required. To have the hotspot after a full restart, also turn on opening DiPlay after the car starts. The hotspot is not turned off automatically.</string>
+    <string name="settings_write_settings_granted">“Modify system settings” access: allowed</string>
+    <string name="settings_write_settings_missing">“Modify system settings” access is not allowed yet. Allow it so DiPlay can turn on the hotspot.</string>
+    <string name="settings_write_settings_allow">Allow access</string>
+    <string name="settings_wifi_direct_scan_pause">Pause the car\'s Wi-Fi search during CarPlay · needs ADB</string>
+    <string name="settings_wifi_direct_scan_pause_description">Over Wi-Fi Direct the car searches for Wi-Fi networks every few seconds, and each search makes music and video stutter. With this on, DiPlay pauses the search while CarPlay runs. The car then also does not join a known network, such as your phone\'s hotspot, by itself until CarPlay ends; you can still join one in the car\'s Wi-Fi settings. Turn it off to let the car join automatically. Applies at the next connection.</string>
+    <string name="temporary_system_bars">Temporary system bars (5 seconds)</string>
+    <string name="temporary_system_bars_description">Optional: swipe up with the configured settings gesture fingers to show hidden car status/navigation bars for five seconds; swipe down still opens DiPlay settings. Disable on head units with conflicting gestures. Some firmware may ignore the request.</string>
+    <string name="wheel_media_play_pause">Play/pause key on the wheel</string>
+    <string name="wheel_media_play_pause_description">Assign any available steering-wheel or keyboard key to toggle CarPlay music playback. Works while CarPlay runs, including in the background if the wheel-key service is enabled. During calls or when disconnected, the vehicle keeps the key. A key reserved by firmware may not reach DiPlay.</string>
+    <string name="wheel_key_role_media_play_pause">Play/pause</string>
+    <string name="wheel_media_navigation_reserved">TV remote navigation, Home, volume, voice-assistant and media buttons keep their original functions. Choose a spare key.</string>
+    <string name="black_corner_overlay">Black rounded corners</string>
+    <string name="black_corner_overlay_description">Cover CarPlay picture corners in black. Choose Off, a manual radius, or the iPhone mask (experimental). The iPhone mode needs a new connection and falls back to 24 dp if no valid mask arrives. Manual changes preview immediately; Save preserves the selection.</string>
+    <string name="black_corner_overlay_off">Off</string>
+    <string name="black_corner_overlay_value">%1$d dp</string>
+    <string name="iphone_corner_mask_mode">iPhone mask (experimental)</string>
+    <string name="settings_launcher_bubble">Home-screen bubble (experimental)</string>
+    <string name="settings_launcher_bubble_description">Shows the DiPlay icon as a bubble over the head unit\'s home screen: tap it to come back to CarPlay and drag it anywhere. It hides as soon as a DiPlay screen is open and comes back when you leave. Hold it to lock its place, hold it again to unlock. Needs \"display over other apps\".</string>
+    <string name="settings_launcher_bubble_size">Bubble size</string>
+    <string name="settings_launcher_bubble_locked">Place locked</string>
+    <string name="settings_launcher_bubble_unlocked">Place unlocked</string>
+    <string name="settings_launcher_bubble_hold_to_lock">Hold to lock</string>
+    <string name="settings_launcher_bubble_hold_to_unlock">Hold to unlock</string>
+
+    <string name="settings_hotspot_interface">Hotspot interface (optional)</string>
+    <string name="settings_hotspot_interface_description">Only for head units that run their hotspot on a network interface Android does not report as a Wi-Fi hotspot, for example eth0.3 on some Geely, Lynk &amp; Co and other Qualcomm units. Leave empty to find it automatically.</string>
+</resources>
+>>>>>>> upstream20

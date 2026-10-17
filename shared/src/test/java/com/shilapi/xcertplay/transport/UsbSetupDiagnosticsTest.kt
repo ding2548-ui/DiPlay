@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class UsbSetupDiagnosticsTest {
@@ -41,15 +42,18 @@ class UsbSetupDiagnosticsTest {
     @Test
     fun configurationSwitchDetachesDriversOnlyAfterAndroidRefusesIt() {
         val detached = mutableListOf<Int>()
-        assertNull(UsbConfigurationSelection.select(6, listOf(0, 1), { true }, { 6 }) { detached += it; true })
+        assertNull(UsbConfigurationSelection.select(6, listOf(0, 1), { true }, { 6 }, { detached += it; true }) { fail("no reopen") })
         assertTrue(detached.isEmpty())
 
-        // The 8227L kernel's snd-usb-audio held interface 0 of configuration 2 (#518).
+        // The 8227L kernel's snd-usb-audio held interface 0 of configuration 2 (#518). The switch
+        // runs only after the reopen that drops the detaching claims.
         var active = 2
         var attempts = 0
+        var reopened = false
         val outcome = UsbConfigurationSelection.select(6, listOf(2, 0, 1, 0, 3), {
-            (++attempts == 2).also { if (it) active = 6 }
-        }, { active }) { detached += it; it != 3 }
+            (++attempts == 2 && reopened).also { if (it) active = 6 }
+        }, { active }, { assertFalse(reopened); detached += it; it != 3 }) { reopened = true }
+        assertTrue(reopened)
         assertEquals(listOf(0, 1, 2, 3), detached)
         assertEquals(
             "USB configuration select target=6 ok=true before=2 detached=0,1,2 after=6",
@@ -60,18 +64,20 @@ class UsbSetupDiagnosticsTest {
 
     @Test
     fun configurationSwitchReportsADriverItCouldNotMove() {
-        val stuck = UsbConfigurationSelection.select(6, listOf(0), { false }, { 2 }) { false }
+        var reopens = 0
+        val stuck = UsbConfigurationSelection.select(6, listOf(0), { false }, { 2 }, { false }) { reopens++ }
         assertTrue(stuck!!.wrongConfiguration)
+        assertEquals("nothing detached, nothing to drop", 0, reopens)
         assertEquals("USB configuration select target=6 ok=false before=2 detached=none after=2", stuck.diagnostic())
 
         // Already in configuration 6: the forced claims later detach cdc_ncm; nothing to switch here.
         val detached = mutableListOf<Int>()
-        val current = UsbConfigurationSelection.select(6, listOf(0, 3), { false }, { 6 }) { detached += it; true }
+        val current = UsbConfigurationSelection.select(6, listOf(0, 3), { false }, { 6 }, { detached += it; true }) { fail("no reopen") }
         assertFalse(current!!.wrongConfiguration)
         assertTrue(detached.isEmpty())
 
         // An unreadable configuration keeps the earlier claim-anyway behavior.
-        assertFalse(UsbConfigurationSelection.select(6, listOf(0), { false }, { null }) { true }!!.wrongConfiguration)
+        assertFalse(UsbConfigurationSelection.select(6, listOf(0), { false }, { null }, { true }) {}!!.wrongConfiguration)
     }
 
     @Test

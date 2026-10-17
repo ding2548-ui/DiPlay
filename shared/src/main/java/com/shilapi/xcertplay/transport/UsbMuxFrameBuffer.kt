@@ -56,6 +56,10 @@ internal class UsbMuxFrameBuffer(private val diagnostic: (String) -> Unit = {}) 
                     if (bytes.size < PADDING_BYTES + followingLength) return null
                     isCapturedDiagnosticPayload(bytes, PADDING_BYTES + HEADER_BYTES, followingLength - HEADER_BYTES)
                 }
+                // Issue #100 (0.2.19): a 24-byte transfer carried a VERSION reply and its own trailer
+                // after the previous reply's trailer. Its whole header is fixed, so validate it exactly.
+                previous != null && readU32(bytes, 0) != PROTOCOL_TCP && followingProtocol == PROTOCOL_VERSION &&
+                    followingLength == VERSION_BYTES && readU32(bytes, PADDING_BYTES + 8) == VERSION_REPLY_WORD -> true
                 else -> false
             }
             if (previous != null && validTarget) {
@@ -86,7 +90,7 @@ internal class UsbMuxFrameBuffer(private val diagnostic: (String) -> Unit = {}) 
     }
 
     private fun canHaveOptionalReplyPadding(frame: UsbMuxFrame): Boolean {
-        if (frame.protocol == PROTOCOL_VERSION && frame.length == VERSION_BYTES && frame.word8 == 2) return true
+        if (frame.protocol == PROTOCOL_VERSION && frame.length == VERSION_BYTES && frame.word8 == VERSION_REPLY_WORD) return true
         if (frame.protocol == PROTOCOL_DIAGNOSTIC && frame.word8 == CAPTURED_REPLY_MAGIC) {
             return isCapturedDiagnosticPayload(frame.payload, 0, frame.payload.size)
         }
@@ -118,6 +122,7 @@ internal class UsbMuxFrameBuffer(private val diagnostic: (String) -> Unit = {}) 
         const val TCP_HEADER_BYTES = 20
         const val MAX_FRAME_BYTES = 65_536
         const val VERSION_BYTES = 20
+        const val VERSION_REPLY_WORD = 2
         const val PADDING_BYTES = 4
         const val MAX_PADDING_REPORTS = 4
         const val PROTOCOL_VERSION = 0

@@ -1,5 +1,9 @@
 package com.shilapi.xcertplay.transport
 
+import com.shilapi.xcertplay.network.WirelessStartupException
+import com.shilapi.xcertplay.network.WirelessStartupFailure
+import java.io.IOException
+
 /**
  * Tells a real RFCOMM link from one a head unit only claims.
  *
@@ -35,4 +39,34 @@ object BluetoothLinkCheck {
 
     /** The words of the failure that reports it; the host screen matches on them. */
     const val UNREAL_MARK = "connections that are not real"
+
+    /**
+     * True when Android's Bluetooth service handed BluetoothSocket no socket manager, so no app on
+     * the head unit can open an RFCOMM link, whatever the phone does. An Allwinner T7 on Android 9
+     * failed every connect this way within 3 ms while the car's own calls and music kept working
+     * (#709). Android 9 to 11 call through the missing manager and throw a NullPointerException
+     * that names it; Android 13 checks first and throws "bt get socket manager failed".
+     */
+    fun socketServiceMissing(failure: Throwable): Boolean =
+        generateSequence(failure) { it.cause }.take(4).any {
+            val message = it.message.orEmpty()
+            (it is NullPointerException && "IBluetoothSocketManager" in message) ||
+                (it is IOException && "get socket manager failed" in message)
+        }
+
+    /**
+     * What a failed RFCOMM connect is reported as. A missing socket manager cannot be retried
+     * away, so it stops the attempts with its cause; anything else stays the IOException it was.
+     */
+    fun connectFailure(failure: Throwable, address: String): IOException = when {
+        socketServiceMissing(failure) -> WirelessStartupException(
+            WirelessStartupFailure.BLUETOOTH_UNUSABLE,
+            "Android Bluetooth on this head unit $NO_SOCKETS_MARK: its Bluetooth service has no socket manager",
+        ).apply { initCause(failure) }
+        failure is IOException -> failure
+        else -> IOException("Could not connect RFCOMM to $address", failure)
+    }
+
+    /** The words of that failure; the host screen matches on them. */
+    const val NO_SOCKETS_MARK = "cannot open connections for apps"
 }

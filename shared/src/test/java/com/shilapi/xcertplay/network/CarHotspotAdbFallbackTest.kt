@@ -57,6 +57,24 @@ class CarHotspotAdbFallbackTest {
         assertTrue(commands.all { it.endsWith("help") })
     }
 
+    @Test fun theReportSaysWhyTheAdbPathStopped() {
+        // #616: an Android 10 DiLink 3.0 failed within 90 ms and the report did not say which step stopped.
+        val logs = mutableListOf<String>()
+        CarHotspotAdbFallback.start(deadline(), { false }, { null }, { _, _ -> null }, { logs += it })
+        assertEquals(listOf("car hotspot: ADB cannot read the AP state; not starting it"), logs)
+
+        logs.clear()
+        CarHotspotAdbFallback.start(deadline(), { false }, { false }, { _, _ -> "Connectivity service commands:\n  help" }, { logs += it })
+        assertEquals(listOf("car hotspot: firmware lists no hotspot start command in cmd connectivity/tethering help"), logs)
+
+        logs.clear()
+        CarHotspotAdbFallback.start(deadline(), { false }, { false }, { command, _ ->
+            if (command.endsWith("help")) "  start-tethering wifi" else "\nSecurityException: no tether permission\nDIPLAY_HOTSPOT_EXIT:0"
+        }, { logs += it })
+        assertEquals(listOf("car hotspot: firmware rejected 'cmd connectivity start-tethering wifi': " +
+            "SecurityException: no tether permission"), logs)
+    }
+
     @Test fun unknownAppStatusCanBeConfirmedThroughCurrentTetheredApDump() {
         var on = false
         assertTrue(CarHotspotAdbFallback.start(deadline(), { false }, { null }, { command, _ ->
@@ -121,5 +139,43 @@ class CarHotspotAdbFallbackTest {
         })
         cancellation.join(1_000)
         assertTrue(aborted.get())
+    }
+
+    @Test fun withoutAFirmwareCommandTheShellStartsTheSavedHotspot() {
+        // #616: Android 10 trinket and Android 12 DiLink 5.0 head units listed no command, and the app-side call failed.
+        var on = false
+        val commands = mutableListOf<String>()
+        val logs = mutableListOf<String>()
+        val helper = CarHotspotStartMain.command("/data/app/diplay/base.apk")
+        assertTrue(CarHotspotAdbFallback.start(deadline(), { false }, { on }, { command, _ ->
+            commands += command
+            when {
+                command.endsWith("help") -> "Connectivity service commands:\n  help"
+                command == helper -> { on = true; "WARNING: linker noise\n${CarHotspotStartMain.HEADER}|result 0" }
+                else -> null
+            }
+        }, { logs += it }, helper))
+        assertEquals(helper, commands.last())
+        assertTrue(helper.contains("app_process /system/bin ${CarHotspotStartMain::class.java.name}"))
+        assertEquals(listOf(
+            "car hotspot: firmware lists no hotspot start command in cmd connectivity/tethering help",
+            "car hotspot: shell tethering request result 0; waiting for AP enabled state",
+            "car hotspot: AP enabled state confirmed after local ADB request",
+        ), logs)
+    }
+
+    @Test fun aRefusedShellRequestIsReportedAndNothingElseIsTried() {
+        val logs = mutableListOf<String>()
+        val commands = mutableListOf<String>()
+        assertFalse(CarHotspotAdbFallback.start(deadline(), { false }, { false }, { command, _ ->
+            commands += command
+            if (command.endsWith("help")) "  help" else "${CarHotspotStartMain.HEADER}|error SecurityException: no tether permission"
+        }, { logs += it }, "helper"))
+        assertEquals(listOf("cmd connectivity help", "cmd tethering help", "helper"), commands)
+        assertEquals("car hotspot: shell tethering request failed: error SecurityException: no tether permission", logs.last())
+
+        assertFalse(CarHotspotStartMain.accepted(CarHotspotStartMain.parse("Exception in thread main")))
+        assertFalse(CarHotspotStartMain.accepted("result 12"))
+        assertTrue(CarHotspotStartMain.accepted("requested"))
     }
 }
