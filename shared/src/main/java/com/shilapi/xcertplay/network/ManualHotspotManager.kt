@@ -14,7 +14,6 @@ import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.NetworkInterface
-import java.util.Collections
 
 /**
  * Attaches to a hotspot that is already running on this device.
@@ -72,19 +71,13 @@ class ManualHotspotManager(
         }
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
 
-        val readConfiguration = readApConfiguration()
-        val companion = readConfiguration != null &&
-            isFiveGhzCompanion(apSsid = readConfiguration.ssid, expectedSsid = expectedSsid)
-        if (readConfiguration != null && readConfiguration.ssid != expectedSsid && !companion) {
+        val apConfiguration = readApConfiguration()
+        if (apConfiguration != null && apConfiguration.ssid != expectedSsid) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot SSID does not match the active local AP configuration: " +
-                    "'${readConfiguration.ssid}'",
+                    "'${apConfiguration.ssid}'",
             )
         }
-        // The Android configuration describes the 2.4 GHz network, so its channel, band and
-        // frequency say nothing about the companion; only its security carries over.
-        val apConfiguration = if (companion) null else readConfiguration
-        if (companion) onDiagnostic("Manual hotspot uses the car's 5 GHz companion network of the configured hotspot")
         validateApConfiguration(apConfiguration)
 
         // 只在候选证据变化时记录，避免每 250ms 重复输出。
@@ -110,8 +103,8 @@ class ManualHotspotManager(
             runCatching { network?.hardwareAddress?.toMacAddressString() }.getOrNull()
                 ?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
                 ?: HotspotInterfaceBssid.read(selected.name))
-        val connectionFrequency = if (companion) null else frequencyFromConnectionInfo()
-        val scanFrequency = if (companion) null else frequencyFromScanResult(localInterface)
+        val connectionFrequency = frequencyFromConnectionInfo()
+        val scanFrequency = frequencyFromScanResult(localInterface)
         val channel = observedManualHotspotChannel(
             apChannel = apConfiguration?.channel ?: 0,
             connectionFrequencyMHz = connectionFrequency,
@@ -124,18 +117,21 @@ class ManualHotspotManager(
             scanFrequency != null -> scanFrequency
             else -> null
         }
-        val security = readConfiguration?.security ?: expectedSecurity
-        // Keep the existing IPv4-first endpoint selection and also publish the selected AP's
-        // scoped IPv6 address, using the same dual-stack policy as existing Wi-Fi connections.
-        val hostAddresses = network?.let {
-            existingWifiHostAddresses(Collections.list(it.inetAddresses), selected.index)
-        }?.takeIf { it.isNotEmpty() } ?: listOfNotNull(localInterface.hostAddress)
-        onDiagnostic("Manual hotspot configReadable=${readConfiguration != null} " +
+        val security = apConfiguration?.security ?: expectedSecurity
+        onDiagnostic("Manual hotspot configReadable=${apConfiguration != null} " +
             "security=$security channelKnown=${channel > 0} " +
             "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
-            "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"} " +
-            "mdnsFamilies=${hostAddresses.joinToString("+") { address -> if (address is Inet6Address) "IPv6" else "IPv4" }}")
-        if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
+            "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
+        // Android never verifies the saved password, so a stale one can only ever surface as an
+        // iPhone that receives the credentials and then never joins. This class already treats
+        // getWifiApConfiguration() as authoritative for the SSID and the security type, so the
+        // password it exposes is authoritative too — prefer it, and report whether the saved one
+        // agreed so a stale entry is visible in a diagnostic report.
+        val livePassphrase = apConfiguration?.passphrase
+        val savedPassphraseMatches = livePassphrase?.let { it == passphrase }
+        onDiagnostic("Manual hotspot pskMatches=${savedPassphraseMatches ?: "unknown"}")
+        val effectivePassphrase = livePassphrase ?: passphrase
+        if (security != Iap2WirelessSecurity.NONE && effectivePassphrase.isEmpty()) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot is secured but no passphrase was provided")
         }
 
@@ -150,18 +146,17 @@ class ManualHotspotManager(
         val observedBandLabel = wifiBandLabel(apConfiguration?.band)
         return WirelessHotspotInfo(
             ssid = expectedSsid,
-            passphrase = passphrase,
+            passphrase = effectivePassphrase,
             security = security,
             channel = channel,
             frequencyMHz = frequencyMHz,
             bssid = localInterface.hardwareAddress,
             interfaceName = localInterface.name,
             hostAddress = localInterface.hostAddress,
-            hostAddresses = hostAddresses,
             bandLabel = when (expectedBand) {
                 ManualHotspotBand.GHZ_2_4 -> "2.4 GHz"
                 ManualHotspotBand.GHZ_5 -> "5 GHz"
-                ManualHotspotBand.AUTO -> if (companion) "5 GHz" else
+                ManualHotspotBand.AUTO ->
                     frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto"
             },
             backend = WirelessHotspotBackend.MANUAL_HOTSPOT,
@@ -318,10 +313,24 @@ class ManualHotspotManager(
                 channel = channel,
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapWifiConfigurationSecurity(configuration),
+                passphrase = readableApPassphrase(configuration),
             )
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /**
+     * The AP's own password, as the platform reports it.
+     *
+     * Some vendors hide it behind a mask instead of the secret, so an implausible value must never
+     * be treated as authoritative — the saved password stays in charge when this returns null.
+     */
+    private fun readableApPassphrase(configuration: WifiConfiguration): String? {
+        val value = unquote(configuration.preSharedKey) ?: return null
+        if (value.length !in 8..63) return null
+        if (value.all { it == '*' || it == '.' || it == '\u2022' }) return null
+        return value
     }
 
     private fun mapSoftApSecurity(securityType: Int): Iap2WirelessSecurity = when (securityType) {
@@ -374,6 +383,8 @@ class ManualHotspotManager(
         val channel: Int,
         val frequencyMHz: Int?,
         val security: Iap2WirelessSecurity,
+        /** The AP's own password when the platform exposes it; null when hidden or masked. */
+        val passphrase: String? = null,
     )
 
     private class LocalHotspotInterface(
@@ -382,17 +393,9 @@ class ManualHotspotManager(
         val hardwareAddress: String?,
     )
 
-    internal companion object {
-        private const val TAG = "xcertplay-usb"
-        private val FIVE_GHZ_SUFFIXES = listOf("_5G", "-5G")
+    private companion object {
+        const val TAG = "xcertplay-usb"
 
-        /**
-         * Some head units configure one hotspot name in Android and also broadcast a 5 GHz network
-         * named after it with "_5G" and the same password (#617). Android only knows the first, so
-         * choosing the second failed as a name mismatch.
-         */
-        fun isFiveGhzCompanion(apSsid: String, expectedSsid: String): Boolean =
-            apSsid.isNotEmpty() && FIVE_GHZ_SUFFIXES.any { expectedSsid.equals(apSsid + it, ignoreCase = true) }
     }
 }
 

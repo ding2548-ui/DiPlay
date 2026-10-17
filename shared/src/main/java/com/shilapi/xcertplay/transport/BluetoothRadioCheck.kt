@@ -41,7 +41,7 @@ object BluetoothRadioCheck {
         else IOException(blocker)
 
     /** Ends in the words the host screen matches on for Bluetooth that apps cannot use. */
-    const val NO_ADAPTER = "Bluetooth adapter is unavailable: Android on this head unit ${BluetoothLinkCheck.NO_SOCKETS_MARK}"
+    val NO_ADAPTER = "Bluetooth adapter is unavailable: Android on this head unit ${BluetoothLinkCheck.NO_SOCKETS_MARK}"
 
     /** The words that ask the driver to act; the host screen matches on them. */
     const val RADIO_OFF_MARK = "Turn on Bluetooth"
