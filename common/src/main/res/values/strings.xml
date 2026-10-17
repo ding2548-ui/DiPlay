@@ -973,8 +973,8 @@
     <string name="row_connecting_wl">Connecting wirelessly · step %1$d of %2$d</string>
     <string name="row_connecting_wd">Connecting by cable · step %1$d of %2$d</string>
     <string name="row_reconnecting">CarPlay dropped, reconnecting by itself · step %1$d of %2$d</string>
-    <string name="row_stuck_wl">Wireless didn&apos;t connect · stuck at step %1$d of %2$d</string>
-    <string name="row_stuck_wd">Wired didn&apos;t connect · stuck at step %1$d of %2$d</string>
+    <string name="row_stuck_wl">Wireless didn’t connect · stuck at step %1$d of %2$d</string>
+    <string name="row_stuck_wd">Wired didn’t connect · stuck at step %1$d of %2$d</string>
     <string name="row_all_steps">All steps</string>
     <string name="row_hide_steps">Hide the steps</string>
     <string name="connection_step_wd_1">USB port ready</string>
