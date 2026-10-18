@@ -2106,7 +2106,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             toggle(card, getString(R.string.a2dp_handoff), getString(R.string.a2dp_handoff_desc),
                 DiPlayPreferences.a2dpHandoff(this)) { DiPlayPreferences.saveA2dpHandoff(this, it) }
             val bufferPresets = com.shilapi.xcertplay.media.MediaAudioBuffer.presets
-            choice(card, getString(R.string.music_buffer), listOf(getString(R.string.s_300_ms_default), getString(R.string.s_500_ms), getString(R.string.s_1000_ms_most_stable)),
+            // Presets grew in 0.2.20 (separate wired/wireless tuning): build one label per preset,
+            // mirroring upstream, so the index can never walk past the options.
+            choice(card, getString(R.string.music_buffer), bufferPresets.map { millis ->
+                when (millis) {
+                    com.shilapi.xcertplay.media.MediaAudioBuffer.DEFAULT_MILLIS -> getString(R.string.s_300_ms_default)
+                    com.shilapi.xcertplay.media.MediaAudioBuffer.MOST_STABLE_MILLIS -> getString(R.string.s_1000_ms_most_stable)
+                    else -> getString(R.string.settings_music_buffer_ms, millis)
+                }
+            },
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
                 AirPlayPersistence.saveMediaBufferMillis(this, bufferPresets[it])
             }
