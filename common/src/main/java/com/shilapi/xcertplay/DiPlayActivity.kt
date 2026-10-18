@@ -65,6 +65,7 @@ import com.shilapi.xcertplay.hud.BydVehicleField
 import com.shilapi.xcertplay.hud.BydVehicleFieldStore
 import com.shilapi.xcertplay.hud.BydVehicleProbeOutcome
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.media.AmbientAlbumPalette
 import com.shilapi.xcertplay.media.AmbientColorMode
 import com.shilapi.xcertplay.media.AmbientColorSpeed
 import com.shilapi.xcertplay.media.AmbientFlowMode
@@ -5902,16 +5903,43 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val paletteButton = button(getString(R.string.settings_ambient_palette_summary, draft.selectedColors.size), false) {}
         paletteButton.setOnClickListener {
             val checked = BooleanArray(31) { it + 1 in draft.selectedColors }
+            // The bare stock numbers say nothing about the colour, so each row carries the OEM
+            // preview swatch plus its hex value — a hex value needs no translation, and it is the
+            // only way to tell "17" from "18" without ticking both and looking at the car.
+            val labels = (1..31).map { index ->
+                val rgb = AmbientAlbumPalette.previewRgb(index) and 0xffffff
+                android.text.SpannableString("██  $index  " + String.format(Locale.US, "#%06X", rgb))
+                    .apply {
+                        setSpan(android.text.style.ForegroundColorSpan((0xff shl 24) or rgb), 0, 2,
+                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+            }.toTypedArray()
+            // AlertDialog has a single neutral slot and "select all" already owns it, so the bulk
+            // button flips to "clear all" as soon as every row is ticked: it always offers the
+            // action that is still useful, instead of forcing 31 taps to undo a select-all.
+            var refreshBulk = {}
             val paletteDialog = AlertDialog.Builder(this).setTitle(getString(R.string.settings_ambient_palette))
-                .setMultiChoiceItems((1..31).map { it.toString() }.toTypedArray(), checked) { _, index, selected -> checked[index] = selected }
+                .setMultiChoiceItems(labels, checked) { _, index, selected ->
+                    checked[index] = selected
+                    refreshBulk()
+                }
                 .setNeutralButton(getString(R.string.settings_ambient_select_all), null)
                 .setPositiveButton(getString(R.string.save), null)
                 .setNegativeButton(getString(R.string.cancel), null).create()
             paletteDialog.setOnShowListener {
-                paletteDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                    checked.fill(true)
-                    for (index in checked.indices) paletteDialog.listView.setItemChecked(index, true)
+                val bulk = paletteDialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                refreshBulk = {
+                    bulk.text = getString(
+                        if (checked.all { it }) R.string.settings_ambient_deselect_all
+                        else R.string.settings_ambient_select_all)
                 }
+                bulk.setOnClickListener {
+                    val select = !checked.all { it }
+                    checked.fill(select)
+                    for (index in checked.indices) paletteDialog.listView.setItemChecked(index, select)
+                    refreshBulk()
+                }
+                refreshBulk()
                 paletteDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                     val selected = checked.indices.filter { checked[it] }.map { it + 1 }
                     if (selected.isEmpty()) toast(getString(R.string.settings_ambient_select_one))
