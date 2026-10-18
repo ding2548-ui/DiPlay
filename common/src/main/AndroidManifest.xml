@@ -178,6 +178,9 @@
         </receiver>
 
         <!-- The live dashboard map for launchers that embed it (docs/LAUNCHER_INTEGRATION.md). -->
+        <service android:name="com.shilapi.xcertplay.MapSurfaceService" android:exported="true">
+            <intent-filter><action android:name="com.shihab.diplay.action.MAP_SURFACE" /></intent-filter>
+        </service>
         <service
             android:name="com.shilapi.xcertplay.MapEmbedService"
             android:exported="true"
