@@ -5207,6 +5207,10 @@ class CarPlayHostActivity : ComponentActivity() {
         // CarPlayMediaKeys now reports through its own log tag only (upstream 0.2.13+), so it no
         // longer has the onDiagnostic hook this line used to set.
         UsbAutoConfirmService.onDiagnostic = { message -> appendLog(message) }
+        // Ambient light ("氛围灯") lines used to go out on a `DiPlay-Ambient` logcat tag only, which
+        // never reaches the exported report. One hook now covers every transport, so the tester can
+        // grep the report for the ambient lines the release notes point at.
+        AmbientDiagnostics.onDiagnostic = { message -> appendLog(message) }
         BluetoothAudioHandoff.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)

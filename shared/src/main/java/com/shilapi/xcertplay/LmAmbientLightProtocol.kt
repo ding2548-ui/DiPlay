@@ -38,9 +38,6 @@ internal object LmAmbientLightProtocol {
     const val DEFAULT_G = 0xff
     const val DEFAULT_B = 0x14
 
-    /** Above this many sends per second the head unit's CAN queue starts dropping frames. */
-    const val MAX_SENDS_PER_SECOND = 20
-
     data class Params(val sw: Int, val auto: Int, val deg: Int, val r: Int, val g: Int, val b: Int)
 
     fun valid(params: Params): Boolean =
@@ -72,27 +69,34 @@ internal object LmAmbientLightProtocol {
     }
 
     /**
-     * The OEM multi-colour flow rule (`VehicleControlService$6`): each band drives one channel
-     * (`lampR=|f0|*2`, `lampG=|f1|*2`, `lampB=|f2|*2`) and the low band also drives the angle
-     * (`lampDeg=|f0|*10/0x80`).
+     * The OEM **multi-colour** flow rule (`VehicleControlService$6`, the `musicColorMode == 2`
+     * branch): each band drives one colour channel (`lampR=|f0|*2`, `lampG=|f1|*2`, `lampB=|f2|*2`)
+     * while the angle keeps the user's stored `fendeng`:
      *
-     * The OEM's `f0/f1/f2` are raw band magnitudes in `0..127`, which is why the same block divides
-     * by 128 and doubles for the colour channels. [bass]/[mid]/[high] here are the same bands
-     * normalised to `0..1`, so the formulas become `f = v*127`, `lampX = f*2`, `lampDeg = f*10/128`
-     * — i.e. colour `v*254` and angle `v*10`, both already inside the protocol's ranges. Scaling by
-     * 255 would saturate every channel as soon as the band passed half scale.
+     * ```
+     * SendAtmosPhere2Can(ctx, sw, auto, atmosphere.GetDeg(), |f0|*2, |f1|*2, |f2|*2)
+     * ```
+     *
+     * The OEM's `f0/f1/f2` are raw band magnitudes in `0..127`, which is why the same block doubles
+     * for the colour channels. [bass]/[mid]/[high] here are the same bands normalised to `0..1`, so
+     * the colour formula becomes `v*127*2` — i.e. `v*254`, already inside the protocol's range.
+     * Scaling by 255 would saturate every channel as soon as the band passed half scale.
+     *
+     * [deg] is the user's own `lampDeg` (0..10) and is **constant** here: the OEM multi-colour
+     * branch never derives the angle from the spectrum. Only the single-colour branch does
+     * (`|f0|*10/128`, falling back to `GetDeg()` when that rounds to 0) — see
+     * `LmAmbientMusicFlow.singleColour`.
      *
      * [mode] supplies SW/Auto only, exactly as the OEM engine overrides them from the stored
      * `atmosphere` value; OFF is never produced here because the flow light only runs while on.
      */
-    fun flowParams(mode: LmAmbientMode, bass: Double, mid: Double, high: Double): Params {
+    fun flowParams(mode: LmAmbientMode, bass: Double, mid: Double, high: Double, deg: Int): Params {
         fun band(value: Double) = (value.coerceIn(0.0, 1.0) * 127.0 * 2.0).toInt().coerceIn(0, 255)
-        fun angle(value: Double) = (value.coerceIn(0.0, 1.0) * 127.0 * 10.0 / 128.0).toInt()
-            .coerceIn(DEG_MIN, DEG_MAX)
+        val level = deg.coerceIn(DEG_MIN, DEG_MAX)
         val active = if (mode == LmAmbientMode.AUTO) LmAmbientMode.AUTO else LmAmbientMode.ON
         return when (active) {
-            LmAmbientMode.AUTO -> Params(SW_AUTO, AUTO_ON, angle(bass), band(bass), band(mid), band(high))
-            else -> Params(SW_ON, AUTO_OFF, angle(bass), band(bass), band(mid), band(high))
+            LmAmbientMode.AUTO -> Params(SW_AUTO, AUTO_ON, level, band(bass), band(mid), band(high))
+            else -> Params(SW_ON, AUTO_OFF, level, band(bass), band(mid), band(high))
         }
     }
 }
@@ -109,7 +113,7 @@ internal class LmAmbientLightClient(private val context: Context) {
         app.sendBroadcast(LmAmbientLightProtocol.intent(params))
         true
     } catch (error: Throwable) {
-        android.util.Log.w("DiPlay-Ambient", "leapmotor ambient send failed: ${error.javaClass.simpleName}")
+        AmbientDiagnostics.warn("leapmotor ambient send failed: ${error.javaClass.simpleName}", error)
         false
     }
 }

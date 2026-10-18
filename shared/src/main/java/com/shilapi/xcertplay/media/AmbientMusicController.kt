@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import android.content.Context
-import android.util.Log
+import com.shilapi.xcertplay.AmbientDiagnostics
 import com.shilapi.xcertplay.LmAmbientLightProtocol
 import com.shilapi.xcertplay.LmAmbientMode
 import com.shilapi.xcertplay.LmCarProbe
@@ -60,7 +60,7 @@ object AmbientMusicController {
             ticking = null
         } else if (ticking == null) {
             ticking = executor.scheduleWithFixedDelay({ runCatching { tick() }.onFailure {
-                Log.w("DiPlay-Ambient", "lamp update failed", it)
+                AmbientDiagnostics.warn("lamp update failed", it)
                 sink?.recover()
             } }, 50, 50, TimeUnit.MILLISECONDS)
         }
@@ -72,7 +72,7 @@ object AmbientMusicController {
             val now = android.os.SystemClock.uptimeMillis()
             if (now - lastLogMillis >= 5_000) {
                 lastLogMillis = now
-                Log.i("DiPlay-Ambient", "applied=$appliedCount area=${desired.first} color=${desired.second} brightness=${desired.third} colorMode=${settings.colorMode} estimatedBpm=${colors.estimatedBpm?.toInt() ?: 0}")
+                AmbientDiagnostics.log("applied=$appliedCount area=${desired.first} color=${desired.second} brightness=${desired.third} colorMode=${settings.colorMode} estimatedBpm=${colors.estimatedBpm?.toInt() ?: 0}")
             }
         }.also { sink = it }
     }
@@ -260,27 +260,33 @@ object AmbientMusicController {
     /**
      * The Leapmotor light follows the spectrum (`VehicleControlService$6`). While the music follows,
      * the flow mode decides the colour: [AmbientFlowMode.MULTI] maps one band per channel, while
-     * [AmbientFlowMode.SINGLE] holds the user's colour and lets only the angle move. Otherwise the
-     * selected colour is held at the user's angle. The switch state stays AUTO so the car keeps
-     * re-applying it after a sleep or a gear change.
+     * [AmbientFlowMode.SINGLE] holds the user's colour and lets only the brightness move. Otherwise
+     * the selected colour is held at the user's brightness.
+     *
+     * The switch state is [LmAmbientMode.ON] on every frame. The OEM music engine echoes whatever
+     * switch state the driver had stored (`GetSW()`/`GetAuto()`), which this app cannot read: the
+     * OEM keeps it in its own private `ACache`, not on the CAN bus. `ON` is the only choice that
+     * guarantees the strip is lit while the feature runs — `AUTO` leaves the decision to the car's
+     * ambient-light sensor, so a daytime drive would show nothing. Handing control back is
+     * [AmbientLampSink.restore]'s job, which sends `AUTO`.
      */
     private fun leapmotorFrame(target: AmbientMusicTarget, values: AmbientMusicSettings.Values,
         energy: AmbientMusicEnvelope.Energy, nowMillis: Long, colorIndex: Int): LeapmotorLamp {
-        val mode = if (values.enabled) LmAmbientMode.AUTO else LmAmbientMode.OFF
         val selectedRgb = AmbientAlbumPalette.previewRgb(colorIndex.coerceIn(1, 31))
+        val deg = values.flowBrightness
+            .coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
         return if (target == AmbientMusicTarget.FOLLOW_PLAYBACK && values.music) {
-            val params = flow.params(energy, nowMillis, selectedRgb, values.flowMode, values.flowBrightness)
-            LeapmotorLamp(mode, params.deg, (params.r shl 16) or (params.g shl 8) or params.b)
+            val params = flow.params(energy, nowMillis, selectedRgb, values.flowMode, deg)
+            LeapmotorLamp(LmAmbientMode.ON, params.deg, (params.r shl 16) or (params.g shl 8) or params.b)
         } else {
-            // A fixed colour honours the user's angle instead of the protocol default, so the row the
-            // BYD path calls "maximum brightness" is meaningful on a Leapmotor car too.
-            val deg = values.flowBrightness
-                .coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
-            LeapmotorLamp(mode, deg, selectedRgb)
+            // A fixed colour honours the user's brightness instead of the protocol default, so the
+            // row the BYD path calls "maximum brightness" is meaningful on a Leapmotor car too.
+            LeapmotorLamp(LmAmbientMode.ON, deg, selectedRgb)
         }
     }
 
     private fun restoreOriginal() {
-        sink?.restore()
+        sink?.restore(settings.flowBrightness
+            .coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX))
     }
 }

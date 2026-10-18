@@ -14,7 +14,7 @@ import kotlin.math.sqrt
  * then eased. Without that the lamp jumps between near-black and saturated on every frame, because
  * raw PCM RMS sits around 0.05..0.3 while the OEM's `|f|*2` scale expects a 0..127 band value.
  */
-internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAmbientMode.AUTO }) {
+internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAmbientMode.ON }) {
     private var bassPeak = 0.05
     private var midPeak = 0.05
     private var highPeak = 0.05
@@ -31,9 +31,11 @@ internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAm
     /**
      * @param energy played window from [AmbientMusicEnvelope]; zero energy yields the idle look.
      * @param idleColor the RGB held while nothing is playing, taken from the user's colour choice.
-     * @param flowMode [AmbientFlowMode.MULTI] drives one band per channel (the OEM rule);
-     *   [AmbientFlowMode.SINGLE] holds [idleColor] and only lets the music drive the angle.
-     * @param flowBrightness user ceiling for the angle, on the OEM `lampDeg` 0..10 scale.
+     * @param flowMode [AmbientFlowMode.MULTI] drives one band per colour channel and keeps the
+     *   brightness fixed (the OEM multi-colour rule); [AmbientFlowMode.SINGLE] holds [idleColor]
+     *   and lets only the brightness move (the OEM single-colour rule).
+     * @param flowBrightness the user's `lampDeg` 0..10: the constant level in MULTI, the floor of the
+     *   sweep in SINGLE.
      */
     fun params(energy: AmbientMusicEnvelope.Energy, nowMillis: Long, idleColor: Int,
         flowMode: AmbientFlowMode = AmbientFlowMode.MULTI,
@@ -44,40 +46,69 @@ internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAm
         bassPeak = maxOf(0.05, energy.bassRms, bassPeak * decay)
         midPeak = maxOf(0.05, energy.midRms, midPeak * decay)
         highPeak = maxOf(0.05, energy.highRms, highPeak * decay)
-        if (energy.rms < SILENCE_RMS) return idle(idleColor, flowMode, flowBrightness)
+        if (energy.rms < SILENCE_RMS) {
+            val resting = idle(idleColor, flowBrightness)
+            // Seed the easing state with what the lamp actually shows now, otherwise the first
+            // audible frame after a quiet passage fades in from a stale pre-silence colour.
+            smoothed = resting
+            return resting
+        }
         val bass = normalize(energy.bassRms, bassPeak)
         val mid = normalize(energy.midRms, midPeak)
         val high = normalize(energy.highRms, highPeak)
-        val resolved = if (mode() == LmAmbientMode.OFF) LmAmbientMode.AUTO else mode()
-        val target = if (flowMode == AmbientFlowMode.SINGLE) singleColour(resolved, bass, flowBrightness)
-            else LmAmbientLightProtocol.flowParams(resolved, bass, mid, high)
+        val resolved = active()
+        val target = if (flowMode == AmbientFlowMode.SINGLE)
+            singleColour(resolved, bass, idleColor, flowBrightness)
+        else LmAmbientLightProtocol.flowParams(resolved, bass, mid, high, flowBrightness)
         return ease(target, elapsed)
     }
 
     /**
-     * One colour, music-driven angle: the RGB stays exactly what the user picked and the low band
-     * sweeps the angle, so a quiet passage rests at the user's floor instead of going dark. This is
-     * the Leapmotor counterpart of the BYD "fixed colour" path.
+     * The switch state every frame of this flow carries.
+     *
+     * It must be the same on a silent frame and on an audible one: the sink de-duplicates on the full
+     * parameter set, so a silent frame that resolved to `AUTO` while an audible frame resolved to
+     * `ON` would re-send the broadcast 20 times a second, toggling the car's switch with it.
+     *
+     * `OFF` is never sent from here — handing the lamps back is [AmbientLampSink.restore]. Anything
+     * that is not an explicit `AUTO` becomes `ON`, because that is the state that guarantees the
+     * strip is actually lit: in `AUTO` the car decides by ambient light, so a daytime drive would
+     * show nothing and read as "the music light does not work".
+     */
+    private fun active(): LmAmbientMode =
+        if (mode() == LmAmbientMode.AUTO) LmAmbientMode.AUTO else LmAmbientMode.ON
+
+    /**
+     * One colour, music-driven brightness — the OEM **single-colour** rule
+     * (`musicColorMode == 1`: `lampDeg = |f0|*10/128`, falling back to `GetDeg()` when that rounds
+     * to 0). The RGB stays exactly what the user picked and the low band sweeps the brightness level
+     * from the user's floor up to full, so a quiet passage rests at that floor instead of going
+     * dark. This is the Leapmotor counterpart of the BYD "fixed colour" path.
+     *
+     * `lampDeg` is the 0..10 **brightness** level, not an angle (the angle is the separate
+     * `angledeng` headlight-levelling channel, which this protocol does not carry).
      */
     fun singleColour(mode: LmAmbientMode, bass: Double, idleColor: Int,
         flowBrightness: Int = LmAmbientLightProtocol.DEG_DEFAULT): LmAmbientLightProtocol.Params {
         val floor = flowBrightness.coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
-        val angle = (bass.coerceIn(0.0, 1.0) * (LmAmbientLightProtocol.DEG_MAX - floor) + floor).toInt()
+        val level = (bass.coerceIn(0.0, 1.0) * (LmAmbientLightProtocol.DEG_MAX - floor) + floor).toInt()
             .coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
-        return LmAmbientLightProtocol.switchParams(mode, angle, idleColor)
-    }
-
-    /** The resting state: the user's colour at their chosen angle, only ever sent while enabled. */
-    fun idle(idleColor: Int, flowMode: AmbientFlowMode = AmbientFlowMode.MULTI,
-        flowBrightness: Int = LmAmbientLightProtocol.DEG_DEFAULT): LmAmbientLightProtocol.Params {
-        val resolved = if (mode() == LmAmbientMode.OFF) LmAmbientMode.AUTO else mode()
-        val deg = flowBrightness.coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
-        return LmAmbientLightProtocol.switchParams(resolved, deg, idleColor)
+        return LmAmbientLightProtocol.switchParams(mode, level, idleColor)
     }
 
     /**
-     * Perceptual easing on each channel. The angle follows immediately: it is the OEM engine's
-     * audio-driven term and a lag there is visible as the light strip sweeping late.
+     * The resting state: the user's colour at their chosen brightness, only ever sent while enabled.
+     * Both flow modes rest the same way — the mode only decides what happens to an audible frame.
+     */
+    fun idle(idleColor: Int,
+        flowBrightness: Int = LmAmbientLightProtocol.DEG_DEFAULT): LmAmbientLightProtocol.Params {
+        val deg = flowBrightness.coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
+        return LmAmbientLightProtocol.switchParams(active(), deg, idleColor)
+    }
+
+    /**
+     * Perceptual easing on each colour channel. The brightness level follows immediately: it is the
+     * OEM engine's audio-driven term and a lag there is visible as the light strip sweeping late.
      */
     private fun ease(target: LmAmbientLightProtocol.Params, elapsed: Long): LmAmbientLightProtocol.Params {
         val previous = smoothed

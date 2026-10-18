@@ -1,7 +1,6 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
-import android.util.Log
 
 /**
  * Tells a Leapmotor head unit apart from any other car at runtime, so one APK can drive both lamp
@@ -106,7 +105,7 @@ internal object LmCarProbe {
     private fun probe(): Boolean {
         val found = runCatching { java.io.File(CAR_TYPE_FILE).isFile }.getOrDefault(false)
         val model = if (found) runCatching { modelCode() }.getOrNull() else null
-        Log.i("DiPlay-Ambient", "leapmotor probe file=$found model=${model ?: 0} path=$CAR_TYPE_FILE")
+        AmbientDiagnostics.log("leapmotor probe file=$found model=${model ?: 0} path=$CAR_TYPE_FILE")
         return found
     }
 

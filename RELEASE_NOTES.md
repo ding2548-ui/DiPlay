@@ -56,7 +56,19 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   速度、灯光档位、分区。**同一份 APK 自动识别车型**：检测到零跑车机（`/data/leapmotor/CarType`）
   就走车机自己的 `leapmotor.carapp.CARCANCONTROL` 广播（`appCAN=Atmos_ctrl`，与 `VehicleSetting.apk`
   同协议）；其它车机（含 BYD）仍走原有的 ADB 通路，BYD 行为不受影响。
-  **不再以「亮度」判断是否驱动**：只看开关（与「随音乐」），零跑协议本身没有亮度参数。
+  **零跑协议里的 `lampDeg` 是 0–10 档「亮度」，不是角度**（角度是另一套 `angledeng` 大灯高度，
+  本协议不带）；设置里的「灯光档位」就是它，随音乐时按 OEM 规则用：多色＝颜色跳、亮度恒定，
+  单色＝颜色不变、亮度跳。
+- **修复：氛围灯日志不进诊断报告** 🔧：氛围灯的行此前只打 `DiPlay-Ambient` 这个 logcat tag，
+  而导出的报告是从 `appendLog` 组装的、**不是 logcat dump**，所以测试员在报告里永远看不到它们
+  （复测判据却要求 grep 这些行）。现统一走 `AmbientDiagnostics`：logcat 用 `xcertplay-usb`，
+  同时接进报告。BYD 通路的 worker 失败行也一并接入。
+- **修复：氛围灯三处语义错误** 🔧：① 多色随音乐时亮度被频谱驱动（OEM 多色分支亮度恒为
+  `GetDeg()`，只有颜色跳），现改为恒定用户档位；② 关闭功能时强制下发 `lampDeg=5`，会把车上
+  自己的 `fendeng` 静默重置，现改为沿用用户档位；③ 静音帧发 `sw=0`、有声帧发 `sw=1`，
+  20 Hz 来回切换车机开关，现统一为 `sw=1`（关闭功能时交回 `sw=0` 自动档）。
+- **修复：单色随音乐下发近黑色** 🔧：`singleColour` 调用时把亮度值当成 RGB 传了进去，
+  实际发的是 `r=g=0 b=5`。现单色通路颜色恒为用户所选，只有亮度随低频跳。
 - **整车 CAN 信号读取** 🆕：零跑车机通过 `leapmotor.cantoapp.update` 广播一次性回传**全部**车辆信号，
   本版把它接成一条总线（`LeapmotorVehicleSignals`，1 Hz 轮询）。只认零跑车机
   （`/data/leapmotor/CarType` 存在才启动轮询），不再走 ADB（**零跑车机没有 adbd**）。
@@ -204,16 +216,22 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 1. 设置 →「氛围灯」→ 打开「启用」并「保存」：零跑车机应**直接通过**（零跑通路不做 ADB 支持性探测）；
    BYD 车机沿用原有的 ADB 只读探测。
-2. 报告里应出现 `DiPlay-Ambient: leapmotor probe file=true model=<n> path=/data/leapmotor/CarType`
+2. 报告里应出现 `leapmotor probe file=true model=<n> path=/data/leapmotor/CarType`
    —— 这行判定车型（`file=false` 即走 BYD 通路）。
-3. 随后应出现 `DiPlay-Ambient: leapmotor applied=<n> sw=0 auto=1 deg=<d> r=<r> g=<g> b=<b>`
-   （`sw=0/auto=1` 即自动档；随音乐时 `deg/r/g/b` 随频谱变化）。
-4. 关掉「启用」后应出现 `leapmotor restored to auto`，车机回到自身自动氛围灯。
+3. 随后应出现 `leapmotor applied=<n> sw=1 auto=0 deg=<d> r=<r> g=<g> b=<b>`
+   —— `sw=1` 即「开」档（本版固定用开档，车机会按环境光自己关灯的话会看不到流光）。
+   多色：`deg` 恒等于设置的「灯光档位」，只有 `r/g/b` 随频谱跳；
+   单色：`r/g/b` 恒为用户所选颜色，只有 `deg` 随低频跳。
+   若发现 `sw` 在 `0`/`1` 之间反复横跳、或 `deg` 在静音时归零，属回归，请回报。
+4. 关掉「启用」后应出现 `leapmotor restored to auto deg=<d> sent=true`，
+   车机回到自身自动氛围灯、亮度保持用户档位（**不再被重置成 5**）。
+5. 若广播发送被系统拒绝会打 `leapmotor ambient send failed: <异常类名>`；BYD 通路为
+   `ambient worker failed: <原因>`。
 
 整车 CAN 信号（需车辆通电）：
 
 1. 起会话后报告里应出现 `DiPlay-Vehicle: vehicle signals listening on leapmotor.cantoapp.update`
-   —— 这行说明接收器注册成功（车型判定走 `DiPlay-Ambient: leapmotor probe file=true`）。
+   —— 这行说明接收器注册成功（车型判定走 `leapmotor probe file=true`）。
 2. 挂挡应逐次出现 `DiPlay-Vehicle: gear raw=<a> -> <b> (<R/N/D/P>)`；
    挂 **R** 时同时 `reverse: pause CarPlay sent=true`，退出 R 时 `reverse ended: resume CarPlay sent=true`。
 3. 车动起来后应出现 `DiPlay-LM-Speed: first CAN speed <nn.n> km/h`。
@@ -223,7 +241,7 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 CarPlay 来电卡片（零跑，需车辆通电）：
 
 1. 打开设置 →「CarPlay 来电显示到仪表盘」：报告里应出现
-   `DiPlay-Lm-Call: call output listening`（`DiPlay-Ambient: leapmotor probe file=true` 是前提）。
+   `DiPlay-Lm-Call: call output listening`（`leapmotor probe file=true` 是前提）。
 2. 手机上模拟来电：应出现 `DiPlay-Lm-Call: CarPlay call RINGING`，仪表盘出现来电卡片。
 3. 来电状态变化依次打 `… CarPlay call ACTIVE` / `CarPlay call ended`；挂断后卡片应消失。
 4. 车机自身的蓝牙来电会打 `DiPlay-Lm-Call: car phone state=<0|1|2>`（`1` 振铃 `2` 通话中 `0` 空闲）。

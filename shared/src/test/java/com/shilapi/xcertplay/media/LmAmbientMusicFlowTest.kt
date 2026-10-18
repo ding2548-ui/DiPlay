@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LmAmbientMusicFlowTest {
-    @Test fun silenceKeepsTheSelectedColourAtTheDefaultAngle() {
+    @Test fun silenceKeepsTheSelectedColourAtTheConfiguredBrightness() {
         val flow = LmAmbientMusicFlow { LmAmbientMode.AUTO }
         val idle = flow.params(AmbientMusicEnvelope.Energy(0.0, 0.0), 0L, 0xa84cc1)
         assertEquals(LmAmbientLightProtocol.SW_AUTO, idle.sw)
@@ -18,10 +18,14 @@ class LmAmbientMusicFlowTest {
 
     @Test fun bandsDriveTheThreeChannelsIndependently() {
         val flow = LmAmbientMusicFlow { LmAmbientMode.ON }
-        val params = flow.params(AmbientMusicEnvelope.Energy(0.4, 0.4, 0.02, 0.02), 100L, 0xffffff)
+        // Every band normalises against its own decaying peak, so a single frame would map all three
+        // channels to full scale. Prime the peaks with one loud frame, then send a frame where the
+        // bands differ by a known ratio.
+        flow.params(AmbientMusicEnvelope.Energy(1.0, 1.0, 1.0, 1.0), 0L, 0xffffff)
+        val params = flow.params(AmbientMusicEnvelope.Energy(0.5, 0.5, 0.25, 0.01), 200L, 0xffffff)
         // The low band is the loudest, so red dominates and blue trails well behind.
-        assertTrue(params.r > params.g)
-        assertTrue(params.g > params.b)
+        assertTrue("r=${params.r} g=${params.g} b=${params.b}", params.r > params.g)
+        assertTrue("r=${params.r} g=${params.g} b=${params.b}", params.g > params.b)
         assertEquals(LmAmbientLightProtocol.SW_ON, params.sw)
         assertEquals(LmAmbientLightProtocol.AUTO_OFF, params.auto)
     }
@@ -40,12 +44,44 @@ class LmAmbientMusicFlowTest {
         }
     }
 
-    @Test fun angleFollowsTheLowBandAndStaysInRange() {
-        val flow = LmAmbientMusicFlow { LmAmbientMode.AUTO }
-        val quiet = flow.params(AmbientMusicEnvelope.Energy(0.02, 0.02, 0.0, 0.0), 0L, 0x14ff14)
-        val loud = flow.params(AmbientMusicEnvelope.Energy(1.0, 1.0, 1.0, 1.0), 200L, 0x14ff14)
-        assertTrue(loud.deg >= quiet.deg)
+    @Test fun multiColourHoldsTheUserBrightness() {
+        // The OEM multi-colour branch (`VehicleControlService$6`, `musicColorMode == 2`) keeps
+        // `GetDeg()` and only the colour moves. Deriving `lampDeg` from the spectrum there made the
+        // strip dim on quiet passages, which the OEM never does.
+        val flow = LmAmbientMusicFlow { LmAmbientMode.ON }
+        val quiet = flow.params(AmbientMusicEnvelope.Energy(0.02, 0.02, 0.0, 0.0), 0L, 0x14ff14,
+            AmbientFlowMode.MULTI, 7)
+        val loud = flow.params(AmbientMusicEnvelope.Energy(1.0, 1.0, 1.0, 1.0), 200L, 0x14ff14,
+            AmbientFlowMode.MULTI, 7)
+        assertEquals(7, quiet.deg)
+        assertEquals(7, loud.deg)
+    }
+
+    @Test fun singleColourSweepsTheBrightnessAndKeepsTheUserColour() {
+        // The OEM single-colour branch (`musicColorMode == 1`) drives `lampDeg` from the low band and
+        // leaves the RGB alone. The colour must be the user's pick, not the brightness level.
+        val flow = LmAmbientMusicFlow { LmAmbientMode.ON }
+        val quiet = flow.params(AmbientMusicEnvelope.Energy(0.02, 0.02, 0.0, 0.0), 0L, 0xa84cc1,
+            AmbientFlowMode.SINGLE, 2)
+        val loud = flow.params(AmbientMusicEnvelope.Energy(1.0, 1.0, 1.0, 1.0), 200L, 0xa84cc1,
+            AmbientFlowMode.SINGLE, 2)
+        assertTrue("quiet=${quiet.deg} loud=${loud.deg}", loud.deg >= quiet.deg)
+        assertTrue(quiet.deg in 2..LmAmbientLightProtocol.DEG_MAX)
         assertTrue(loud.deg in LmAmbientLightProtocol.DEG_MIN..LmAmbientLightProtocol.DEG_MAX)
+        assertEquals(0xa8, loud.r); assertEquals(0x4c, loud.g); assertEquals(0xc1, loud.b)
+        assertEquals(0xa8, quiet.r); assertEquals(0x4c, quiet.g); assertEquals(0xc1, quiet.b)
+    }
+
+    @Test fun theSwitchStateIsTheSameOnSilentAndAudibleFrames() {
+        // The sink de-duplicates on the whole parameter set: a silent frame that resolved to a
+        // different switch state would re-send the broadcast 20 times a second and toggle the car's
+        // lamp switch with it.
+        val flow = LmAmbientMusicFlow { LmAmbientMode.ON }
+        val silent = flow.params(AmbientMusicEnvelope.Energy(0.0, 0.0), 0L, 0x14ff14)
+        val audible = flow.params(AmbientMusicEnvelope.Energy(0.6, 0.6, 0.3, 0.1), 200L, 0x14ff14)
+        assertEquals(silent.sw, audible.sw)
+        assertEquals(silent.auto, audible.auto)
+        assertEquals(LmAmbientLightProtocol.SW_ON, audible.sw)
     }
 
     @Test fun offModeNeverLeavesTheLampOff() {
