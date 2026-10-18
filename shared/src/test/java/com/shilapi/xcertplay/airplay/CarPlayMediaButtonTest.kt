@@ -33,6 +33,15 @@ class CarPlayMediaButtonTest {
     }
 
     @Test
+    fun theWheelsShortVoiceKeysAreTheCarPlayAndGenericShortCodes() {
+        assertTrue(CarPlayMediaButton.isShortVoiceKey(327))
+        assertTrue(CarPlayMediaButton.isShortVoiceKey(304))
+        assertFalse(CarPlayMediaButton.isShortVoiceKey(328))
+        assertFalse(CarPlayMediaButton.isShortVoiceKey(312))
+        assertFalse(CarPlayMediaButton.isShortVoiceKey(KeyEvent.KEYCODE_VOICE_ASSIST))
+    }
+
+    @Test
     fun theVoiceKeyOpensSiri() {
         // Recorded on DiLink 5.0: short press 304 (scan 290), long press 312 (scan 312).
         assertTrue(CarPlayMediaButton.opensSiri(304))

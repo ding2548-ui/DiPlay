@@ -62,6 +62,15 @@ class DiLink51ClusterLayoutTest {
         }
     }
 
+    @Test fun theLeopard5FirmwareUsesTheSharedLayers() {
+        // #301: the plain layer that unverified firmware gets is one this cluster never shows.
+        val leopard = DiLink51ClusterLayout.LEOPARD5_FINGERPRINT
+        assertTrue(DiLink51ClusterLayout.supported(leopard))
+        assertEquals(DiLink51ClusterLayout.FULL, DiLink51ClusterLayout.displayName(names, leopard, Theme.MAP))
+        assertEquals(DiLink51ClusterLayout.SIDE, DiLink51ClusterLayout.displayName(names, leopard, Theme.SCENARIO))
+        assertFalse(DiLink51ClusterLayout.supported(leopard.replace("20260705", "20260706")))
+    }
+
     @Test fun unmeasuredPanelSizesAreNotGivenTheWrongReadoutMask() {
         assertNull(DiLink51ClusterLayout.plan(1280, 480, Theme.MAP))
     }

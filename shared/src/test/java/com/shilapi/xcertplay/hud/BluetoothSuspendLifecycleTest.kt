@@ -125,6 +125,46 @@ class BluetoothSuspendLifecycleTest {
         assertEquals(true, enabled)
     }
 
+    @Test fun thePauseAndTheRestoreEachLeaveALineForTheReport() {
+        // #18: the pause only wrote to logcat, so a report could not show whether it ran.
+        val journal = Journal(); var enabled: Boolean? = true
+        leaseField.set(null, BluetoothSuspendLease(journal, { enabled }, { enabled = it }, { enabled == it }))
+        val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val owner = Any()
+        BydBluetoothSuspend.suspend(app, owner, 0, log = { lines += it })
+        worker.submit {}.get(2, TimeUnit.SECONDS)
+        BydBluetoothSuspend.resume(app, owner) { lines += it }
+        worker.submit {}.get(2, TimeUnit.SECONDS)
+        assertEquals(listOf("car Bluetooth pause in 0 s",
+            "car Bluetooth paused: Android Bluetooth is off until CarPlay ends", "car Bluetooth back on"), lines)
+        assertEquals(true, enabled)
+    }
+
+    @Test fun aPauseThatFindsBluetoothOffSaysSo() {
+        val journal = Journal(); var enabled: Boolean? = false
+        leaseField.set(null, BluetoothSuspendLease(journal, { enabled }, { enabled = it }, { enabled == it }))
+        val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val owner = Any()
+        BydBluetoothSuspend.suspend(app, owner, 0, log = { lines += it })
+        worker.submit {}.get(2, TimeUnit.SECONDS)
+        BydBluetoothSuspend.resume(app, owner)
+        worker.submit {}.get(2, TimeUnit.SECONDS)
+        assertEquals("car Bluetooth pause skipped: Android Bluetooth was already off", lines.last())
+    }
+
+    @Test fun radioEnabledFallsBackToDefaultAdapterWhenBluetoothManagerIsNull() {
+        val wrappedContext = object : ContextWrapper(app) {
+            override fun getSystemService(name: String): Any? {
+                if (Context.BLUETOOTH_SERVICE == name) return null
+                return super.getSystemService(name)
+            }
+        }
+        val defaultAdapter = BluetoothAdapter.getDefaultAdapter()
+        assertNotNull(defaultAdapter)
+        shadowOf(defaultAdapter).setState(BluetoothAdapter.STATE_ON)
+        assertFalse(BydBluetoothSuspend.isSuspendedByUs(wrappedContext))
+    }
+
     @Test fun oldControllerCloseCannotCancelNewControllerDelay() {
         val journal = Journal(); var enabled: Boolean? = true
         val lease = BluetoothSuspendLease(journal, { enabled }, { enabled = it }, { enabled == it })

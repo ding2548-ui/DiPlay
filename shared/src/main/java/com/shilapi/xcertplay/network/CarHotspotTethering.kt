@@ -17,6 +17,12 @@ import java.util.concurrent.locks.ReentrantLock
 
 /** Uses the car's saved hotspot configuration. This never stops or reconfigures the hotspot. */
 object CarHotspotTethering {
+    internal fun describe(error: Throwable): String {
+        val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+        val reason = cause.javaClass.simpleName + (cause.message?.let { ": ${it.take(100)}" } ?: "")
+        return if (cause === error) reason else "${error.javaClass.simpleName} caused by $reason"
+    }
+
     private val startupLock = ReentrantLock()
     enum class Result(val diagnostic: String) {
         READY("Car hotspot is on"),

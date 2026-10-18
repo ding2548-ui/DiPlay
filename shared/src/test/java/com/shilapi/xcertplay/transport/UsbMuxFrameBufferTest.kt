@@ -384,6 +384,34 @@ class UsbMuxFrameBufferTest {
         assertTrue(reports.none { it.contains("detected") || it.contains("Expected") || it.contains("received") })
     }
 
+    @Test fun aVersionReplyAfterATrailerWorksAcrossEveryTransferSplit() {
+        assertEverySplitPreservesFrames(version, zeroPadding, version)
+        assertEverySplitPreservesFrames(synAck, capturedPadding, version)
+    }
+
+    @Test fun theReportedVersionTransferAfterALeftoverTrailerIsRead() {
+        // #100 (0.2.19): declaredLength=0 bufferedBytes=28 lastUsbReadBytes=24 optionalReplyPadding=true.
+        val buffer = after(version)
+        buffer.append(zeroPadding)
+        assertNull(buffer.takeFrame())
+        buffer.append(version + zeroPadding)
+        assertEquals(28, buffer.bufferedBytes)
+        val second = buffer.takeFrame()!!
+        assertEquals(0, second.protocol)
+        assertEquals(20, second.length)
+        assertNull(buffer.takeFrame())
+        assertEquals(4, buffer.bufferedBytes)
+        buffer.append(tcp(data = data))
+        assertArrayEquals(data, buffer.takeFrame()!!.payload.copyOfRange(20, 20 + data.size))
+        assertEquals(0, buffer.bufferedBytes)
+    }
+
+    @Test fun onlyAnExactVersionHeaderQualifiesAfterATrailer() {
+        rejectAfter(version, zeroPadding + version.copyOf().also { putU32(it, 8, 1) })
+        rejectAfter(version, zeroPadding + mux(0, ByteArray(8), magic = 2))
+        rejectAfter(synAck, capturedPadding + mux(0, byteArrayOf(0x49, 0x28, 0x73, 0), magic = 0xfaceface.toInt()))
+    }
+
     private fun assertEverySplitPreservesFrames(first: ByteArray, padding: ByteArray, next: ByteArray) {
         val wire = first + padding + next
         for (split in 0..wire.size) {

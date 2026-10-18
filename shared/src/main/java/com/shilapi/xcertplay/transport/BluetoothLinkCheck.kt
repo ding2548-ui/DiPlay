@@ -9,6 +9,8 @@ package com.shilapi.xcertplay.transport
  * the driver nothing, and no retry can change it.
  */
 object BluetoothLinkCheck {
+    const val NO_SOCKETS_MARK = "cannot open connections for apps"
+
     /** True for a connect that returned at once and has delivered nothing since. */
     fun looksUnreal(connectMillis: Long, bytesReceived: Long): Boolean =
         connectMillis < INSTANT_CONNECT_MILLIS && bytesReceived == 0L

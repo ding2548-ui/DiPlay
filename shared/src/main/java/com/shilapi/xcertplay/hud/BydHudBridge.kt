@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.IBinder
 import android.os.Parcel
+import android.os.SystemClock
 import android.util.Log
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.util.concurrent.Executors
@@ -42,6 +43,8 @@ internal object BydHudBridge {
     private var showing = false
     private var lastSendResult: Int? = null
     private var icons: Map<Int, ByteArray>? = null
+    private var refusedBinds = 0
+    private var nextBindAtMillis = 0L
 
     // The gateway pings registered callbacks and drops registrations that do not answer like an AIDL stub.
     private val callback = object : Binder() {
@@ -108,7 +111,7 @@ internal object BydHudBridge {
     }
 
     private fun tick() = synchronized(lock) {
-        if (binder == null && !binding) bindLocked()
+        if (binder == null && !binding && SystemClock.elapsedRealtime() >= nextBindAtMillis) bindLocked()
         sendCurrentLocked()
     }
 
@@ -183,11 +186,24 @@ internal object BydHudBridge {
                 type = appContext.packageName
             }
             binding = appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-            Log.i(TAG, "bindService=$binding")
+            if (binding) {
+                Log.i(TAG, "bindService=true")
+                refusedBinds = 0
+            } else {
+                refused()
+            }
         } catch (error: Throwable) {
             binding = false
-            Log.w(TAG, "cannot bind SOME/IP service", error)
+            if (refusedBinds == 0) Log.w(TAG, "cannot bind SOME/IP service", error)
+            refused()
         }
+    }
+
+    // Logged once per run of refusals; the retries back off instead of repeating every tick.
+    private fun refused() {
+        refusedBinds++
+        nextBindAtMillis = SystemClock.elapsedRealtime() + BydHudProtocol.bindRetryMillis(refusedBinds)
+        if (refusedBinds == 1) Log.i(TAG, "bindService=false; retrying with backoff up to ${BydHudProtocol.MAX_BIND_RETRY_MILLIS / 1000}s")
     }
 
     private fun onGatewayCallback(action: () -> Unit) {

@@ -18,11 +18,9 @@ object AppUpdater {
     private const val SOURCE_KEY = "update_source"
 
     // Both lines publish into this one repository, so the release tag prefix is what tells this
-    // updater which builds are its own. This line tags diplay-<run_number> and attaches a single
+    // updater which builds are its own. This line tags v0.2.15-<run_number> and attaches a single
     // asset named mobile-release.apk; the Leapmotor line tags v2.0-<run> with a differently named
-    // asset, and offering one of those here would install the wrong build. The tag namespace is
-    // deliberately version-free ("diplay-<run>"): the in-app versionName (0.2.17, …) can follow
-    // the beta line without ever touching the OTA channel.
+    // asset, and offering one of those here would install the wrong build.
     private const val TAG_PREFIX = "diplay-"
     private const val RELEASE_ASSET = "mobile-release.apk"
     private const val LOCAL_PREFIX = "DiPlay-0.2.17-"
