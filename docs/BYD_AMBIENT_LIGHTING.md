@@ -61,6 +61,14 @@ How it works, as seen on a 2024 Tang (DiLink 5, Android 12):
   - If DiPlay's process ends, the head unit drops its token, which ends a rhythm started directly. If DiPlay goes away while the helper runs, the helper's stdin closes and it stops. If the helper dies, the head unit drops its token.
 - **What else drives the lamps.** While started, everything on the output mix drives the rhythm, including navigation prompts during music.
 
+### Head units that make no spectrum of their own (2023 Han, DiLink 3.0, Android 10)
+
+The Han's `AudioService` has no visualizer for this. Its `AtmosphereLampControl.startAudioOutput` only tells the lamp controller that media audio is working in music mode (`AUDIO_MEDIA_AUDIO_WORKING_MODE_SET` 2, `AUDIO_MEDIA_AUDIO_WORKING_STATE_SET` 1; stop sets the state to 2), and only for the media centre, Kuwo, Kugou and the karaoke app. The spectrum comes from elsewhere: the media centre builds it itself, and the framework's `AudioDataHandler` does it for Kuwo and Kugou, then calls `BYDAutoAudioDevice.setAmbientLightFreq`, 16 values from 1 to 15 at about 40, 80, 120, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1200, 1600, 1800 and 3500 Hz (feature ids 774897672 to 774897732, 4 apart). On the Han, `startAudioOutput` alone left every lamp dark.
+
+**Send music data to the car's rhythm** (Settings, Ambient light, off by default) fills that gap. While the car's own music rhythm runs, DiPlay reduces the PCM it plays to the same 16 bands (Goertzel filters over the last 2048 frames, in dB below the loudest recent band) and the ADB helper writes them about eleven times a second. The car's own rhythm modes then drive all lamps, including the passenger dash, which the front and rear lamp zones cannot reach.
+
+Observed on a 2023 Han (GCC): with the car's Rhythm Ambient Light on and DiPlay's own lamp control off, writing the "working" state alone switched every lamp off; writing the state and synthetic bands at about 12 Hz for 12 seconds made every lamp, including the passenger dash, follow a beat pattern; the matching stop returned the lamps to normal. This setting has not been installed on a car; the data path was verified with that synthetic input.
+
 ## Evidence and verification
 
 Album-color extension validation on 2026-10-09: the full nine-task repository CI command passed locally, with 2258 tests reported, zero failures/errors and 1 existing platform skip. All three lint tasks had zero errors, and mobile/home/maphost source-only debug builds assembled. Compact 600dp / font 1.3 and full 1280dp / font 1.5 captures were rendered at a 960px physical viewport and visually checked; the dialog controls and Save/Cancel remained accessible. This does not replace vehicle acceptance of the upstream port.

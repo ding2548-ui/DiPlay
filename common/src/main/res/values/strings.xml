@@ -1111,4 +1111,7 @@
     <string name="settings_ambient_palette">OEM color numbers (multiple selections)</string>
     <string name="settings_ambient_palette_summary">Colors · %1$d selected</string>
     <string name="settings_ambient_select_all">Select all</string>
+    <string name="settings_ambient_brightness">Maximum brightness</string>
+    <string name="settings_ambient_car_rhythm_feed">Send music data to the car\'s rhythm (older head units)</string>
+    <string name="settings_ambient_car_rhythm_feed_description">On some head units (such as a 2023 Han) the car\'s rhythm starts but stays dark, because the car makes no spectrum of its own for CarPlay music. This sends the played music\'s 16 frequency bands to the car\'s lamp controller, so the car\'s own rhythm, including the passenger dash, follows it. Only has an effect when the car\'s own music rhythm above is on, and needs the car\'s network ADB.</string>
 </resources>

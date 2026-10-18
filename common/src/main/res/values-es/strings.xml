@@ -912,4 +912,7 @@
 
     <string name="settings_hotspot_interface">Interfaz del punto de acceso (opcional)</string>
     <string name="settings_hotspot_interface_description">Solo para unidades que ejecutan su punto de acceso en una interfaz de red que Android no informa como punto de acceso Wi-Fi, por ejemplo eth0.3 en algunas unidades Geely, Lynk &amp; Co y otros Qualcomm. Déjalo vacío para encontrarla automáticamente.</string>
+    <string name="settings_ambient_brightness">Brillo máximo</string>
+    <string name="settings_ambient_car_rhythm_feed">Enviar datos de la música al ritmo del coche (unidades antiguas)</string>
+    <string name="settings_ambient_car_rhythm_feed_description">En algunas unidades (como un Han de 2023) el ritmo del coche arranca pero las luces quedan apagadas, porque el coche no genera un espectro propio para la música de CarPlay. Esto envía las 16 bandas de frecuencia de la música reproducida al controlador de luces del coche, de modo que el ritmo del coche, incluido el salpicadero del pasajero, la siga. Solo tiene efecto con el ritmo musical del coche activado arriba y requiere el ADB de red del coche.</string>
 </resources>

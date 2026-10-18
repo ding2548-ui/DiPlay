@@ -862,6 +862,8 @@
     <string name="settings_ambient_car_rhythm">車両純正の音楽リズム</string>
     <string name="settings_ambient_car_rhythm_description">CarPlay の音楽再生中は、車両純正のアンビエントライト音楽リズムが動作し、色と効果は車両のアンビエントライトメニューの設定に従います（そこで音楽リズムをオンにしてください）。その間、DiPlay はライトを制御しません。オンにするときに確認します。車両のネットワーク ADB は、ヘッドユニットが DiPlay 自身によるリズムの開始を許可しない場合にのみ必要です。</string>
     <string name="settings_ambient_car_rhythm_unavailable">車両の音楽リズムは使用できません。DiPlay 自身では開始できず、さらに DiPlay のネットワーク ADB アクセス、またはヘッドユニットのオーディオサービス呼び出しがありません。何も保存されていません。</string>
+    <string name="settings_ambient_car_rhythm_feed">音楽データを車のリズムに送る（古いヘッドユニット）</string>
+    <string name="settings_ambient_car_rhythm_feed_description">一部のヘッドユニット（2023年のHanなど）では、車のリズムは始まっても、CarPlayの音楽に対して車が独自のスペクトルを作らないため、照明が消えたままになります。再生中の音楽の16の周波数帯を車の照明コントローラーに送り、助手席側のダッシュを含む車のリズムが追従するようにします。上の車のミュージックリズムがオンのときのみ有効で、車のネットワークADBが必要です。</string>
     <string name="settings_interface_size">画面UIのサイズ</string>
     <string name="settings_interface_size_auto">自動</string>
     <string name="settings_interface_size_hint">DiPlay自体の文字と操作部のサイズです。「自動」は画面密度が低い大画面で拡大します。CarPlayの表示には影響しません。</string>

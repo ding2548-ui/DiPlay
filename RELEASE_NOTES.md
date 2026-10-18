@@ -1,4 +1,4 @@
-# DiPlay 0.2.17 · PSA 车机版（beta 测试渠道）
+# DiPlay 0.2.21 · PSA 车机版（beta 测试渠道）
 
 > **这是 PSA 线的 beta 渠道**，从 `psa-beta` 分支发布，包名 `com.shihab.diplay.psabeta`
 > （可与正式包 `com.shihab.diplay` 共存安装），发版 tag 走 `v0.2.17-beta-<run>`，
@@ -41,6 +41,12 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 
 ### 功能
 
+- **上游 0.2.21 同步** 🆕：并入上游 0.2.21 相对 0.2.20 的更新——BYD 分屏声明
+  （`BYD_SUPPORT_SPLIT_ACTIVITY`，DiLink 7.0 分屏元数据，DiLink 7.0 分屏可用）、车机音乐
+  节奏频段分析（BydCarMusicRhythm 0.2.21 版）、文档/官网更新、意大利语补全。
+  软件内版本号跟进 **0.2.21**；OTA 通道不变（beta 仍 `v0.2.17-beta-<run>`，正式仍
+  `diplay-<run>`）。上游 0.2.21 其余改动（音乐时钟调整计卡顿修复、有线自恢复、
+  BYD 仪表交还等）位于本线保留的连接核心/氛围灯区，继续按本线实现，不跟。
 - **方向盘方控**：
   - **S01**：通道 A（`car.meter.music.BROADCAST` 的 JSON）—— 实测正确。
   - **T03**：通道 B（`com.leapmotor.customkey.music.pauseplay` 的整数 extras）—— **可用**。

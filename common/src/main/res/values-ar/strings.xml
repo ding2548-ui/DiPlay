@@ -961,4 +961,7 @@
 
     <string name="settings_hotspot_interface">واجهة نقطة الاتصال (اختياري)</string>
     <string name="settings_hotspot_interface_description">لوحدات الرأس التي تشغّل نقطة الاتصال على واجهة شبكة لا يبلّغ عنها أندرويد كنقطة اتصال Wi-Fi، مثل eth0.3 في بعض وحدات Geely وLynk &amp; Co وغيرها من وحدات Qualcomm. اتركه فارغاً للعثور عليها تلقائياً.</string>
+    <string name="settings_ambient_brightness">أقصى سطوع</string>
+    <string name="settings_ambient_car_rhythm_feed">إرسال بيانات الموسيقى إلى إيقاع السيارة (الأجهزة الأقدم)</string>
+    <string name="settings_ambient_car_rhythm_feed_description">في بعض الأجهزة (مثل هان 2023) يبدأ إيقاع السيارة لكن تبقى الإضاءة مظلمة لأن السيارة لا تولّد طيفًا خاصًا بها لموسيقى CarPlay. يرسل هذا الخيار نطاقات التردد الستة عشر للموسيقى المشغَّلة إلى وحدة التحكم بالإضاءة، فيتبعها إيقاع السيارة بما في ذلك لوحة الراكب. يعمل فقط عند تشغيل إيقاع موسيقى السيارة أعلاه ويحتاج إلى ADB الشبكي للسيارة.</string>
 </resources>

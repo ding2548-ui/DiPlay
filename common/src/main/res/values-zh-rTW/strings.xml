@@ -973,4 +973,7 @@
 
     <string name="settings_hotspot_interface">熱點網路介面（選填）</string>
     <string name="settings_hotspot_interface_description">僅用於把熱點放在 Android 不認為是 Wi-Fi 熱點的網路介面上的車機，例如部分吉利、領克及其它高通車機上的 eth0.3。留空則自動尋找。</string>
+    <string name="settings_ambient_brightness">最高亮度</string>
+    <string name="settings_ambient_car_rhythm_feed">向車輛律動傳送音樂資料（較舊的車機）</string>
+    <string name="settings_ambient_car_rhythm_feed_description">在部分車機（如 2023 款漢）上，車輛的律動會啟動但燈光保持熄滅，因為車輛不會為 CarPlay 音樂產生自己的頻譜。此選項會把正在播放音樂的 16 個頻段傳送給車輛的燈光控制器，讓車輛自身的律動（包括副駕駛一側的儀表台）隨之變化。僅在上方的車輛音樂律動開啟時有效，並且需要車輛的網路 ADB。</string>
 </resources>

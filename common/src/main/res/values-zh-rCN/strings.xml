@@ -1067,4 +1067,7 @@
     <string name="settings_ambient_palette">原车颜色编号（多选）</string>
     <string name="settings_ambient_palette_summary">颜色 · 已选%1$d种</string>
     <string name="settings_ambient_select_all">全选</string>
+    <string name="settings_ambient_brightness">亮度上限</string>
+    <string name="settings_ambient_car_rhythm_feed">向车辆律动发送音乐数据（较旧的车机）</string>
+    <string name="settings_ambient_car_rhythm_feed_description">在部分车机（如 2023 款汉）上，车辆的律动会启动但灯光保持熄灭，因为车辆不会为 CarPlay 音乐生成自己的频谱。此选项会把正在播放音乐的 16 个频段发送给车辆的灯光控制器，让车辆自身的律动（包括副驾驶一侧的仪表台）随之变化。仅在上方的车辆音乐律动开启时有效，并且需要车辆的网络 ADB。</string>
 </resources>
