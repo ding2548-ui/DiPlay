@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -19,7 +20,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.shilapi.xcertplay.airplay.SafeAreaRect
-import com.shilapi.xcertplay.airplay.SafeAreaEditorView
+import com.shilapi.xcertplay.SafeAreaEditorView
 
 /**
  * OgleaPlay's `extension.ExtensionsActivity` — the whole 车辆与多屏 page, ported.
@@ -104,15 +105,15 @@ class ExtensionsActivity : Activity() {
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
-    private fun title(text: String): TextView = TextView(this).apply {
-        text = text
+    private fun title(label: String): TextView = TextView(this).apply {
+        text = label
         setTextColor(Color.WHITE)
         textSize = 20f
         setPadding(0, dp(18), 0, dp(6))
     }
 
-    private fun note(text: String): TextView = TextView(this).apply {
-        text = text
+    private fun note(label: String): TextView = TextView(this).apply {
+        text = label
         setTextColor(0xFF9AA3AD.toInt())
         textSize = 14f
         setPadding(0, dp(4), 0, dp(4))
