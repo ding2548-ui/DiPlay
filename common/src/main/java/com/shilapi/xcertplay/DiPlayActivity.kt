@@ -6457,9 +6457,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val editor = SafeAreaEditorView(this).apply {
             interactive = true
             dimOutside = false
-            setRect(ClusterScreenProfile.Region.toRect(pending, refW, refH), refW, refH)
+            setRect(screenRect(pending, refW, refH), refW, refH)
             onRectChanged = { rect ->
-                ClusterScreenProfile.Region.fromRect(rect, refW, refH)?.let {
+                screenRegion(rect, refW, refH)?.let {
                     pending = it
                     readout.text = "位置 ${(it.x * 100).toInt()}% ${(it.y * 100).toInt()}% · 尺寸 " +
                         "${(it.width * 100).toInt()}% × ${(it.height * 100).toInt()}%"
@@ -6499,6 +6499,31 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    /** ScreenRegion ↔ SafeAreaRect：框选编辑器用像素参考系，按屏 profile 用归一化区域。 */
+    private fun screenRect(
+        region: com.shilapi.xcertplay.cluster.ScreenRegion,
+        refW: Int,
+        refH: Int,
+    ): SafeAreaRect = SafeAreaRect(
+        (region.x * refW).toInt(), (region.y * refH).toInt(),
+        ((region.x + region.width) * refW).toInt(), ((region.y + region.height) * refH).toInt(),
+    )
+
+    private fun screenRegion(
+        rect: SafeAreaRect,
+        refW: Int,
+        refH: Int,
+    ): com.shilapi.xcertplay.cluster.ScreenRegion? {
+        if (refW <= 0 || refH <= 0) return null
+        return runCatching {
+            com.shilapi.xcertplay.cluster.ScreenRegion(
+                rect.left / refW.toFloat(), rect.top / refH.toFloat(),
+                (rect.right - rect.left) / refW.toFloat(),
+                (rect.bottom - rect.top) / refH.toFloat(),
+            )
+        }.getOrNull()
     }
 
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)); tag = SPACER }

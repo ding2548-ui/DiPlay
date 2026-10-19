@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.cluster
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.os.Build
+import com.shilapi.xcertplay.ClusterScreenProfile
 import android.view.Display
 import org.json.JSONObject
 
