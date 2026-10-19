@@ -5209,6 +5209,10 @@ class CarPlayHostActivity : ComponentActivity() {
         // never reaches the exported report. One hook now covers every transport, so the tester can
         // grep the report for the ambient lines the release notes point at.
         AmbientDiagnostics.onDiagnostic = { message -> appendLog(message) }
+        // The location source logs which provider it forwards (GPS / fused / network) and how old the
+        // fix is; without this the report says nothing about why the iPhone's position drifts.
+        com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider.onDiagnostic =
+            { message -> appendLog(message) }
         BluetoothAudioHandoff.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)

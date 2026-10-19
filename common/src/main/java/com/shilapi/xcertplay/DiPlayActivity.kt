@@ -4460,18 +4460,24 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun showVehicleDataSettings(card: LinearLayout, capabilities: BydVehicleCapabilities?) {
-        toggle(card, getString(R.string.bt_suspend_during_carplay), getString(R.string.bt_suspend_during_carplay_description),
-            AirPlayPersistence.loadBtSuspendDuringCarplay(this), enabled = !adbSwitchChangePending) {
-            AirPlayPersistence.saveBtSuspendDuringCarplay(this, it)
-            markReconnectNeeded()
-            if (it) checkAdbState(mayAsk = true)
-        }
-        if (AirPlayPersistence.loadBtSuspendDuringCarplay(this)) {
-            val delays = listOf(5, 10, 15, 30)
-            choice(card, getString(R.string.bt_suspend_delay), delays.map { getString(R.string.bt_suspend_delay_option, it) },
-                delays.indexOf(AirPlayPersistence.loadBtSuspendDelaySeconds(this)).coerceAtLeast(0), reconnects = false) {
-                AirPlayPersistence.saveBtSuspendDelaySeconds(this, delays[it])
+        // Pausing the car's Bluetooth radio is `svc bluetooth disable` over the ADB shell. A Leapmotor
+        // head unit has no adbd, and the car exposes no broadcast that turns the radio off (its
+        // `com.leapmotor.bluetooth.BROADCAST` only reports state), so the switch is not offered there
+        // instead of being shown and doing nothing.
+        if (!lmHeadUnit()) {
+            toggle(card, getString(R.string.bt_suspend_during_carplay), getString(R.string.bt_suspend_during_carplay_description),
+                AirPlayPersistence.loadBtSuspendDuringCarplay(this), enabled = !adbSwitchChangePending) {
+                AirPlayPersistence.saveBtSuspendDuringCarplay(this, it)
                 markReconnectNeeded()
+                if (it) checkAdbState(mayAsk = true)
+            }
+            if (AirPlayPersistence.loadBtSuspendDuringCarplay(this)) {
+                val delays = listOf(5, 10, 15, 30)
+                choice(card, getString(R.string.bt_suspend_delay), delays.map { getString(R.string.bt_suspend_delay_option, it) },
+                    delays.indexOf(AirPlayPersistence.loadBtSuspendDelaySeconds(this)).coerceAtLeast(0), reconnects = false) {
+                    AirPlayPersistence.saveBtSuspendDelaySeconds(this, delays[it])
+                    markReconnectNeeded()
+                }
             }
         }
         if (capabilities == null || capabilities.batterySupported) {

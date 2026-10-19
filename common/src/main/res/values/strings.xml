@@ -358,7 +358,7 @@
     <string name="saving_report">Saving report…</string>
     <string name="security">Security</string>
     <string name="selecting_carplay_configuration">Selecting CarPlay configuration</string>
-    <string name="sends_precise_android_location_as_carplay_gps_data_when_th">Sends precise Android location as CarPlay GPS data when the iPhone requests it.</string>
+    <string name="sends_precise_android_location_as_carplay_gps_data_when_th">Sends the head unit\'s own GPS position to the iPhone as CarPlay GPS data, never a mix of GPS and cell/Wi-Fi fixes. When the car reports nothing at all the iPhone falls back to its own GPS, which is system behaviour.</string>
     <string name="server_address">Server address</string>
     <string name="set">Set</string>
     <string name="set_up_once_your_details_stay_saved_for_the_next_drive_cha">Set up once. Your details stay saved for the next drive. Changes apply to your next connection.</string>
