@@ -96,6 +96,24 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   同一帧不再重复编码下发（GPS 0.2–1 Hz 时不会每秒重发同一个时间戳）。
   报告新增 `location sources ...` 与 `location fix provider=gps accuracy=8m ageMs=120` 行。
   ⚠️ 车机完全没有定位时 iPhone 仍会退回自身 GPS，这是 iOS 行为，App 侧无法禁止。
+- **修复：使用情况访问权限被误判为未授权** 🔧：「中控屏上的仪表盘地图 → 离开桌面时自动隐藏卡片」
+  与「跟随仪表主题」都依赖使用情况访问权限。此前只认 `MODE_ALLOWED`，而本机（系统应用）在 Android 7
+  上该权限是 **`MODE_DEFAULT`** —— ROM 通过默认策略放行，所以功能本来能用，界面却一直显示"需要授权"，
+  必须手动去系统设置里重新开一次才会变成已授权。现在按系统的方式解析 `MODE_DEFAULT`：
+  实际读一次 `queryUsageStats` 有数据即视为已授权，系统应用同样视为已授权；只有明确的
+  `MODE_ERRORED` / `MODE_IGNORED` 才算未授权。
+- **缓冲音乐（实验性）：拒绝原因进诊断报告** 🔧：iPhone 在缓冲流被拒时**不会**退回普通音乐流，而是
+  改用手机自己的扬声器，车机这边就是"不播放、也没声音"。此前拒绝原因只打 logcat（报告里看不到），
+  无法定位。现在每条拒绝都写进报告并带上原始字段：
+  `Buffered audio declined: audioFormat=0x… decoded=… rate=…`、`ct=… spf=…`、`shk` 长度、
+  对端地址缺失、旧渲染器未清理完等；接受时另有 `buffered audio stream client=… rate=… port=…`
+  与 `Buffered audio: connected` / `queued N s, received … kbit/s`。
+  **若打开后仍无声音，请把报告发回**，这几行足以区分"没连上 / 被拒 / 队列没填满"。
+- **通过车辆蓝牙播放 CarPlay 音频（实验性）：零跑上隐藏并强制忽略旧偏好** 🔧：该开关让接收端
+  **不再声明任何音频输出**（去掉 `audioFormats`、清掉音频特性位），改由 iPhone 保持 A2DP。实测本车
+  打开后**整个会话没有画面流**（灰色窗口、有背光）。上游也把它列为"需要实车反馈"，而本线保留自己的
+  无线连接核心（交接期间独占蓝牙链路）。现改为：零跑上不显示该开关，且**会话构建时忽略已存的该偏好**
+  （`disableAudioOutput` 恒为 false），避免旧配置把 CarPlay 卡成灰屏。BYD 车机行为不变。
 - **修复：驻车播放视频在 BYD 上永远不放行** 🔧：视频门控此前**写死**读零跑的 CAN 档位，
   而 BYD 车机上那条广播从不启动 → 档位恒为空 → iOS 27 视频一直不开放。现在按车型分流：
   **BYD 用 P 挡（ADB 读取），零跑用 N 挡（CAN 广播；零跑只上报 R/N/D，没有 P 挡读数）**。
@@ -270,6 +288,20 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
    **正常情况下不应出现 `provider=network`** —— 出现说明车机 GPS 没有星号，此时定位会偏，
    属天线/信号问题，不是 App 在混用两个源。
 3. 车机 GPS 正常时，CarPlay 地图的定位点应稳定跟车，不再在真实位置和几公里外之间跳。
+
+使用情况访问（零跑）：
+
+1. 设置 → 高级 →「中控屏上的仪表盘地图」：`离开桌面时自动隐藏卡片` 下面应直接显示**已授权**，
+   不需要去系统设置里手动开一次（系统应用在 Android 7 上是 `MODE_DEFAULT`）。
+2. 若仍显示需要授权，说明本机该 op 确实被拒（不是默认模式），此时按提示授权即可。
+
+缓冲音乐（零跑，实验性）：
+
+1. 打开后播放 Apple Music：报告里应有 `buffered audio stream client=…` 与
+   `Buffered audio: connected`。
+2. 若没有声音，报告里必然有一行 `Buffered audio declined: <原因>` —— 把这一行发回即可定位。
+3. 若两行都有但仍断续，看 `Buffered audio: queued N s, received … kbit/s`：`received` 低于音乐码率
+   说明链路带宽不够（见 `docs/BUFFERED_AUDIO.md` 的说明），不是本功能的 bug。
 
 高级车辆数据（零跑，需车辆通电）：
 

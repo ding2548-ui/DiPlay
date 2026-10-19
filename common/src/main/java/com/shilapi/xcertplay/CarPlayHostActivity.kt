@@ -4625,7 +4625,11 @@ class CarPlayHostActivity : ComponentActivity() {
         appendLog(requestSummary)
         appendLog(support.details)
         appendLog(effectiveSummary)
-        val carBluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(this)
+        // A stored preference from before this build must not keep a Leapmotor unit in the broken
+        // "no audio output" shape: the switch is hidden there (see DiPlayActivity), and this is the
+        // one place the session actually reads it.
+        val carBluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(this) &&
+            !com.shilapi.xcertplay.hud.BydOutputSettings.leapmotorHeadUnit()
         if (carBluetoothAudio) logCarBluetoothAudio()
         return AirPlayConfig(
             deviceName = "DiPlay",
@@ -5152,6 +5156,11 @@ class CarPlayHostActivity : ComponentActivity() {
                 "microphone=${airPlayConfig.microphone} " +
                 "location=${if (config.locationReportingEnabled) "enabled" else "disabled"}" +
                 "${if (config.identification.vehicleSpeedEnabled) "+wheel-speed" else ""} " +
+                // Whether the receiver offers audio at all decides which CarPlay features the iPhone
+                // enables; a report that says "car-bluetooth" is the one to ask for when the screen
+                // stays grey.
+                "audio=${if (config.disableAudioOutput) "car-bluetooth" else "carplay"}" +
+                "${if (config.mainBufferedAudio) "+buffered" else ""} " +
                 "mfi=${mfiTargetLabel(config.mfiTarget)}" +
                 if (config.transport == CarPlayTransport.WIRED) " usbCharging=${config.availableCurrentMilliAmps}mA" else "",
         )

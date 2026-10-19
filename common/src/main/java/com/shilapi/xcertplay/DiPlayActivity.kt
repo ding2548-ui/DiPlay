@@ -2091,10 +2091,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveSpeechWithout8And16Khz(this, it)
                 reconnectIfRunning()
             }
-            toggle(card, getString(R.string.settings_car_bluetooth_audio), getString(R.string.settings_car_bluetooth_audio_description),
-                AirPlayPersistence.loadCarBluetoothAudio(this)) {
-                AirPlayPersistence.saveCarBluetoothAudio(this, it)
-                reconnectIfRunning()
+            // Car Bluetooth audio is not offered on a Leapmotor unit. The switch makes the receiver
+            // advertise itself without audio output (no `audioFormats`, audio feature bits cleared)
+            // and expects the iPhone to keep A2DP to the car instead. Measured on this car: the
+            // session came up with no screen stream at all — a grey window with the backlight on.
+            // Upstream also lists it as needing vehicle feedback, and this line keeps its own
+            // wireless core (which owns the Bluetooth link during handoff), so it is hidden here
+            // rather than offered as a switch that breaks CarPlay.
+            if (!lmHeadUnit()) {
+                toggle(card, getString(R.string.settings_car_bluetooth_audio), getString(R.string.settings_car_bluetooth_audio_description),
+                    AirPlayPersistence.loadCarBluetoothAudio(this)) {
+                    AirPlayPersistence.saveCarBluetoothAudio(this, it)
+                    reconnectIfRunning()
+                }
             }
         }
         filteredSection(content, SettingsSection.CAR_BUTTON,
