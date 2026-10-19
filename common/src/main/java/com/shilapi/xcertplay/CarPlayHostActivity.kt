@@ -5158,9 +5158,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 "${if (config.identification.vehicleSpeedEnabled) "+wheel-speed" else ""} " +
                 // Whether the receiver offers audio at all decides which CarPlay features the iPhone
                 // enables; a report that says "car-bluetooth" is the one to ask for when the screen
-                // stays grey.
-                "audio=${if (config.disableAudioOutput) "car-bluetooth" else "carplay"}" +
-                "${if (config.mainBufferedAudio) "+buffered" else ""} " +
+                // stays grey. These two live on the AirPlay config, not on the host config.
+                "audio=${if (airPlayConfig.disableAudioOutput) "car-bluetooth" else "carplay"}" +
+                "${if (airPlayConfig.mainBufferedAudio) "+buffered" else ""} " +
                 "mfi=${mfiTargetLabel(config.mfiTarget)}" +
                 if (config.transport == CarPlayTransport.WIRED) " usbCharging=${config.availableCurrentMilliAmps}mA" else "",
         )
