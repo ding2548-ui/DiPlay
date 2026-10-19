@@ -6514,7 +6514,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         )
 
     private fun screenRegion(
-        rect: SafeAreaRect,
+        rect: com.shilapi.xcertplay.airplay.SafeAreaRect,
         refW: Int,
         refH: Int,
     ): com.shilapi.xcertplay.cluster.ScreenRegion? {
