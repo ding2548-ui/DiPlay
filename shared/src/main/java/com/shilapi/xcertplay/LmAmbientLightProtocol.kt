@@ -68,37 +68,12 @@ internal object LmAmbientLightProtocol {
         LmAmbientMode.AUTO -> Params(SW_AUTO, AUTO_ON, deg, (rgb shr 16) and 0xff, (rgb shr 8) and 0xff, rgb and 0xff)
     }
 
-    /**
-     * The OEM **multi-colour** flow rule (`VehicleControlService$6`, the `musicColorMode == 2`
-     * branch): each band drives one colour channel (`lampR=|f0|*2`, `lampG=|f1|*2`, `lampB=|f2|*2`)
-     * while the angle keeps the user's stored `fendeng`:
-     *
-     * ```
-     * SendAtmosPhere2Can(ctx, sw, auto, atmosphere.GetDeg(), |f0|*2, |f1|*2, |f2|*2)
-     * ```
-     *
-     * The OEM's `f0/f1/f2` are raw band magnitudes in `0..127`, which is why the same block doubles
-     * for the colour channels. [bass]/[mid]/[high] here are the same bands normalised to `0..1`, so
-     * the colour formula becomes `v*127*2` — i.e. `v*254`, already inside the protocol's range.
-     * Scaling by 255 would saturate every channel as soon as the band passed half scale.
-     *
-     * [deg] is the user's own `lampDeg` (0..10) and is **constant** here: the OEM multi-colour
-     * branch never derives the angle from the spectrum. Only the single-colour branch does
-     * (`|f0|*10/128`, falling back to `GetDeg()` when that rounds to 0) — see
-     * `LmAmbientMusicFlow.singleColour`.
-     *
-     * [mode] supplies SW/Auto only, exactly as the OEM engine overrides them from the stored
-     * `atmosphere` value; OFF is never produced here because the flow light only runs while on.
+    /*
+     * 原厂 `musicColorMode == 2`（`VehicleControlService$6`）把频谱幅度直接当颜色
+     * （`lampR=|f0|*2, lampG=|f1|*2, lampB=|f2|*2`）。这会让灯带显示用户从未选过的颜色，
+     * 看起来就是「随机变色」，所以这里刻意不复刻：两种流光模式都只显示用户选择的颜色，
+     * 由 `LmAmbientMusicFlow` 决定亮度怎么动。
      */
-    fun flowParams(mode: LmAmbientMode, bass: Double, mid: Double, high: Double, deg: Int): Params {
-        fun band(value: Double) = (value.coerceIn(0.0, 1.0) * 127.0 * 2.0).toInt().coerceIn(0, 255)
-        val level = deg.coerceIn(DEG_MIN, DEG_MAX)
-        val active = if (mode == LmAmbientMode.AUTO) LmAmbientMode.AUTO else LmAmbientMode.ON
-        return when (active) {
-            LmAmbientMode.AUTO -> Params(SW_AUTO, AUTO_ON, level, band(bass), band(mid), band(high))
-            else -> Params(SW_ON, AUTO_OFF, level, band(bass), band(mid), band(high))
-        }
-    }
 }
 
 /** The head unit's own 关/开/自动 three-state switch. */

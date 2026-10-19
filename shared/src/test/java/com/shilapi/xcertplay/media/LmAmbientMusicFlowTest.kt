@@ -16,18 +16,15 @@ class LmAmbientMusicFlowTest {
         assertEquals(0xa8, idle.r); assertEquals(0x4c, idle.g); assertEquals(0xc1, idle.b)
     }
 
-    @Test fun bandsDriveTheThreeChannelsIndependently() {
+    @Test fun multiColourShowsOnlyTheUserColour() {
+        // 颜色只能来自用户选择：MULTI 显示调用方传入的色板当前色，绝不发频谱 RGB
+        // （原厂 musicColorMode==2 的 |f0|*2 行为看起来就是随机变色，已刻意不复刻）。
         val flow = LmAmbientMusicFlow { LmAmbientMode.ON }
-        // Every band normalises against its own decaying peak, so a single frame would map all three
-        // channels to full scale. Prime the peaks with one loud frame, then send a frame where the
-        // bands differ by a known ratio.
-        flow.params(AmbientMusicEnvelope.Energy(1.0, 1.0, 1.0, 1.0), 0L, 0xffffff)
-        val params = flow.params(AmbientMusicEnvelope.Energy(0.5, 0.5, 0.25, 0.01), 200L, 0xffffff)
-        // The low band is the loudest, so red dominates and blue trails well behind.
-        assertTrue("r=${params.r} g=${params.g} b=${params.b}", params.r > params.g)
-        assertTrue("r=${params.r} g=${params.g} b=${params.b}", params.g > params.b)
-        assertEquals(LmAmbientLightProtocol.SW_ON, params.sw)
-        assertEquals(LmAmbientLightProtocol.AUTO_OFF, params.auto)
+        flow.params(AmbientMusicEnvelope.Energy(1.0, 1.0, 1.0, 1.0), 0L, 0xb8224c,
+            AmbientFlowMode.MULTI, 7)
+        val params = flow.params(AmbientMusicEnvelope.Energy(0.5, 0.5, 0.25, 0.01), 200L, 0xb8224c,
+            AmbientFlowMode.MULTI, 7)
+        assertEquals(0xb8, params.r); assertEquals(0x22, params.g); assertEquals(0x4c, params.b)
     }
 
     @Test fun everyProducedParamIsAcceptedByTheProtocol() {

@@ -9,15 +9,16 @@ import kotlin.math.sqrt
  * Turns played audio energy into the Leapmotor flow-light broadcast, reusing the envelope the BYD
  * path already fills instead of a second spectrum service.
  *
- * The OEM engine reacts to raw spectrum magnitudes that are re-read every callback; our envelope
- * delivers a 200ms played window, so each channel is normalised against its own decaying peak and
- * then eased. Without that the lamp jumps between near-black and saturated on every frame, because
- * raw PCM RMS sits around 0.05..0.3 while the OEM's `|f|*2` scale expects a 0..127 band value.
+ * 颜色永远来自用户的选择：SINGLE 固定显示选中色，MULTI 显示色板推进到的当前色。原厂
+ * `musicColorMode == 2` 把频谱幅度当颜色（`lampR=|f0|*2`…），会显示用户没选过的颜色、
+ * 看起来就是随机变色，所以这里刻意不复刻。
+ *
+ * 亮度是这里唯一动的量（且只在 SINGLE 下动）：包络提供 200ms 播放窗口，低频段相对自身
+ * 衰减峰值归一化后再缓动；不做归一化的话原始 PCM RMS 只有 0.05..0.3，而 `lampDeg` 是
+ * 0..10 的档位，灯带会在近黑和过曝之间每帧乱跳。
  */
 internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAmbientMode.ON }) {
     private var bassPeak = 0.05
-    private var midPeak = 0.05
-    private var highPeak = 0.05
     private var smoothed: LmAmbientLightProtocol.Params? = null
     private var previousTime: Long? = null
 
@@ -25,15 +26,15 @@ internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAm
     fun reset() {
         smoothed = null
         previousTime = null
-        bassPeak = 0.05; midPeak = 0.05; highPeak = 0.05
+        bassPeak = 0.05
     }
 
     /**
      * @param energy played window from [AmbientMusicEnvelope]; zero energy yields the idle look.
      * @param idleColor the RGB held while nothing is playing, taken from the user's colour choice.
-     * @param flowMode [AmbientFlowMode.MULTI] drives one band per colour channel and keeps the
-     *   brightness fixed (the OEM multi-colour rule); [AmbientFlowMode.SINGLE] holds [idleColor]
-     *   and lets only the brightness move (the OEM single-colour rule).
+     * @param flowMode [AmbientFlowMode.SINGLE] 固定 [idleColor] 只让亮度随低频动；
+     *   [AmbientFlowMode.MULTI] 显示 [idleColor]（色板当前色）且亮度固定为用户档位。
+     *   两者颜色都来自用户选择，绝不发频谱 RGB。
      * @param flowBrightness the user's `lampDeg` 0..10: the constant level in MULTI, the floor of the
      *   sweep in SINGLE.
      */
@@ -44,8 +45,6 @@ internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAm
         previousTime = nowMillis
         val decay = exp(-elapsed / 4_000.0)
         bassPeak = maxOf(0.05, energy.bassRms, bassPeak * decay)
-        midPeak = maxOf(0.05, energy.midRms, midPeak * decay)
-        highPeak = maxOf(0.05, energy.highRms, highPeak * decay)
         if (energy.rms < SILENCE_RMS) {
             val resting = idle(idleColor, flowBrightness)
             // Seed the easing state with what the lamp actually shows now, otherwise the first
@@ -54,12 +53,10 @@ internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAm
             return resting
         }
         val bass = normalize(energy.bassRms, bassPeak)
-        val mid = normalize(energy.midRms, midPeak)
-        val high = normalize(energy.highRms, highPeak)
         val resolved = active()
         val target = if (flowMode == AmbientFlowMode.SINGLE)
             singleColour(resolved, bass, idleColor, flowBrightness)
-        else LmAmbientLightProtocol.flowParams(resolved, bass, mid, high, flowBrightness)
+        else multiColour(resolved, idleColor, flowBrightness)
         return ease(target, elapsed)
     }
 
@@ -94,6 +91,17 @@ internal class LmAmbientMusicFlow(private val mode: () -> LmAmbientMode = { LmAm
         val level = (bass.coerceIn(0.0, 1.0) * (LmAmbientLightProtocol.DEG_MAX - floor) + floor).toInt()
             .coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
         return LmAmbientLightProtocol.switchParams(mode, level, idleColor)
+    }
+
+    /**
+     * 多色流光（用户语义，非原厂复刻）：颜色只来自调用方传入的 [color]（= 选中色板里当前那一色，
+     * 由 `AmbientMusicController` 按「颜色变化方式」推进），亮度固定为用户档位。绝不发频谱 RGB——
+     * 原厂 `musicColorMode == 2` 的 `lampR=|f0|*2…` 会显示用户从未选过的颜色，看起来就是随机变色。
+     */
+    fun multiColour(mode: LmAmbientMode, color: Int,
+        flowBrightness: Int = LmAmbientLightProtocol.DEG_DEFAULT): LmAmbientLightProtocol.Params {
+        val deg = flowBrightness.coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
+        return LmAmbientLightProtocol.switchParams(mode, deg, color)
     }
 
     /**

@@ -150,10 +150,9 @@ object AmbientMusicController {
         val palette = ambientColorPalette(settings.colorSource, settings.selectedColors, albumColor)
         val initial = if (settings.colorSource == AmbientColorSource.ALBUM) albumColor ?: palette.first()
             else settings.color
-        val random = if (settings.colorSource == AmbientColorSource.ALBUM && albumColor == null)
-            ({ size: Int -> kotlin.random.Random.nextInt(size) }) else null
-        if (preserveTiming) colors.updatePalette(initial, palette, random)
-        else colors = AmbientMusicColorDetector(initial, palette, AmbientColorSpeed.STANDARD, random)
+        // 不再注入随机取色：颜色只能来自用户色板（或专辑解析出的颜色），否则就是「随机变色」。
+        if (preserveTiming) colors.updatePalette(initial, palette)
+        else colors = AmbientMusicColorDetector(initial, palette, AmbientColorSpeed.STANDARD)
     }
 
     /**
@@ -258,10 +257,9 @@ object AmbientMusicController {
     }
 
     /**
-     * The Leapmotor light follows the spectrum (`VehicleControlService$6`). While the music follows,
-     * the flow mode decides the colour: [AmbientFlowMode.MULTI] maps one band per channel, while
-     * [AmbientFlowMode.SINGLE] holds the user's colour and lets only the brightness move. Otherwise
-     * the selected colour is held at the user's brightness.
+     * 零跑灯带帧。音乐跟随中：SINGLE 固定为用户选定色、亮度随低频；MULTI 显示色板推进色
+     * （由「颜色变化方式」在已选色板内切换）、亮度为用户档位。非跟随帧显示用户色板色。
+     * 两种模式都不发频谱 RGB——那是用户看到的「随机变色」来源。
      *
      * The switch state is [LmAmbientMode.ON] on every frame. The OEM music engine echoes whatever
      * switch state the driver had stored (`GetSW()`/`GetAuto()`), which this app cannot read: the
@@ -272,7 +270,12 @@ object AmbientMusicController {
      */
     private fun leapmotorFrame(target: AmbientMusicTarget, values: AmbientMusicSettings.Values,
         energy: AmbientMusicEnvelope.Energy, nowMillis: Long, colorIndex: Int): LeapmotorLamp {
-        val selectedRgb = AmbientAlbumPalette.previewRgb(colorIndex.coerceIn(1, 31))
+        // SINGLE 固定显示用户选定的颜色（`values.color`，如 26#B8224C），绝不随音乐跳变；
+        // MULTI 显示色板推进到的当前色（由颜色变化方式在已选色板内切换）。
+        val heldIndex = (if (values.colorSource == AmbientColorSource.ALBUM) albumColor else null)
+            ?: values.color
+        val shownIndex = if (values.flowMode == AmbientFlowMode.SINGLE) heldIndex else colorIndex
+        val selectedRgb = AmbientAlbumPalette.previewRgb(shownIndex.coerceIn(1, 31))
         val deg = values.flowBrightness
             .coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX)
         return if (target == AmbientMusicTarget.FOLLOW_PLAYBACK && values.music) {
