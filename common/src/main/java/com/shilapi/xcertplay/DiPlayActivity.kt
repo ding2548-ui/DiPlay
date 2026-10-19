@@ -6324,6 +6324,23 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun rounded(color: Int, stroke: Int) = GradientDrawable().apply { setColor(color); cornerRadius = layoutCornerRadius() * 1.35f; setStroke(dp(1), stroke) }
     private fun matchButton(top: Int = 0, height: Int = 68) = LinearLayout.LayoutParams(-1, dp(height)).apply { topMargin = dp(top) }
 
+    /**
+     * 框选预览按当前屏幕的可用宽高取尺寸：固定 78% 宽会把预览下半截顶出对话框，
+     * 剩下只有顶边够得着。先按宽算，超高就改按高算。
+     */
+    private fun previewSize(aspect: Double): IntArray {
+        val metrics = resources.displayMetrics
+        val maxWidth = (metrics.widthPixels * 0.78f).toInt().coerceAtLeast(1)
+        val maxHeight = (metrics.heightPixels * 0.46f).toInt().coerceAtLeast(1)
+        var width = maxWidth
+        var height = (width / aspect).toInt().coerceAtLeast(1)
+        if (height > maxHeight) {
+            height = maxHeight
+            width = (height * aspect).toInt().coerceAtLeast(1)
+        }
+        return intArrayOf(width, height.coerceAtLeast(1))
+    }
+
     /** 副屏输出：选屏、输出方式与校准。内容源/显示区域由上面几行统一管理，三处同时生效。 */
     private fun secondaryScreenControls(card: LinearLayout) {
         val store = com.shilapi.xcertplay.cluster.ScreenProfileStore
@@ -6334,11 +6351,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             return
         }
         val target = store.preferredDisplay(this)
-        choice(card, "目标副屏", displays.map { store.describe(this, it) },
-            displays.indexOfFirst { it.displayId == target?.displayId }.coerceAtLeast(0),
-            reconnects = false) {
-            store.rememberOutput(this, displays[it])
-            store.setEnabled(this, true)
+        choice(card, "目标副屏",
+            listOf("不使用副屏") + displays.map { store.describe(this, it) },
+            if (store.enabled(this))
+                displays.indexOfFirst { it.displayId == target?.displayId } + 1 else 0,
+            reconnects = false) { index ->
+            if (index == 0) {
+                // 取消选择：不再自动发射副屏，输出回到仪表盘与中控卡片。
+                store.setEnabled(this, false)
+                com.shilapi.xcertplay.cluster.SecondaryScreenController.stop(this)
+            } else {
+                store.rememberOutput(this, displays[index - 1])
+                store.setEnabled(this, true)
+            }
             render()
         }
         val modes = com.shilapi.xcertplay.cluster.OutputMode.entries
@@ -6349,6 +6374,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             store.setOutputMode(this, modes[it])
             store.setEnabled(this, true)
             render()
+        }
+        if (!store.enabled(this)) {
+            card.addView(label("已关闭副屏输出；选择目标副屏后，会话启动时自动发射。", 14, MUTED))
+            return
         }
         val chosen = target ?: return
         card.addView(button("在副屏上校准（网格 + 拖拽）", false) {
@@ -6383,9 +6412,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
             else -> 8.0 / 3
         }.coerceIn(0.5, 4.0)
-        val metrics = resources.displayMetrics
-        val previewWidth = (metrics.widthPixels * 0.78f).toInt()
-        val previewHeight = (previewWidth / aspect).toInt().coerceAtLeast(1)
+        val size = previewSize(aspect)
+        val previewWidth = size[0]
+        val previewHeight = size[1]
         val refW = 1000
         val refH = (1000 / aspect).toInt().coerceAtLeast(1)
         var pending = ClusterScreenProfile.region(this, source)
@@ -6445,9 +6474,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             com.shilapi.xcertplay.cluster.ContentSource.NAVIGATION -> 1920.0 / 720.0
             com.shilapi.xcertplay.cluster.ContentSource.MUSIC -> 16.0 / 9.0
         }.coerceIn(0.5, 4.0)
-        val metrics = resources.displayMetrics
-        val previewWidth = (metrics.widthPixels * 0.78f).toInt()
-        val previewHeight = (previewWidth / aspect).toInt().coerceAtLeast(1)
+        val size = previewSize(aspect)
+        val previewWidth = size[0]
+        val previewHeight = size[1]
         val refW = 1000
         val refH = (1000 / aspect).toInt().coerceAtLeast(1)
         var pending = profile.activeCrop
