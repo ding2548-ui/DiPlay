@@ -195,8 +195,9 @@ internal object ScreenProfileStore {
             ?: Build.MODEL.orEmpty()
         val firmware = extensions.getString(KEY_FIRMWARE, null)?.takeIf { it.isNotBlank() }
             ?: Build.DISPLAY.orEmpty()
+        // `Display.getUniqueId()` is @hide; the original reached it by reflection and so does this.
         val uniqueId = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) display.uniqueId else null
+            Display::class.java.getMethod("getUniqueId").invoke(display) as? String
         }.getOrNull()?.takeIf { it.isNotBlank() }
             ?: "${display.name}:${display.displayId}"
         val size = runCatching {
