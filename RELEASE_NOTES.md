@@ -114,6 +114,23 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
   打开后**整个会话没有画面流**（灰色窗口、有背光）。上游也把它列为"需要实车反馈"，而本线保留自己的
   无线连接核心（交接期间独占蓝牙链路）。现改为：零跑上不显示该开关，且**会话构建时忽略已存的该偏好**
   （`disableAudioOutput` 恒为 false），避免旧配置把 CarPlay 卡成灰屏。BYD 车机行为不变。
+- **副屏显示 · 多屏与区域校正（OgleaPlay 1:1 移植）** 🆕：设置 → 高级 →「仪表盘 CarPlay 地图」→
+  「副屏显示」。把 CarPlay 画面以**独立页面**发射到车机的第二块 Display
+  （`ActivityOptions.setLaunchDisplayId`，Android 8+；API 25 车机自动降级为**兼容窗口**），
+  并按屏幕分别保存区域与裁剪：
+  ① 数据模型 1:1 —— 七字段 ScreenProfile（主屏视频 / 独立导航 / 音乐，各带**视频区域 + 裁剪区域**、
+  FIT/CROP、当前源），归一化 0..1 坐标，含原版的 1.001 浮点容差与默认音乐区 (0.2,0.15,0.6,0.7)；
+  ② 裁剪 1:1 —— 双层几何：视频盒按区域定位，SurfaceView 按 FIT(min)/CROP(max) 对裁剪矩形缩放后
+  以**负 margin** 平移对齐，不动解码器；
+  ③ 校准 1:1 —— 10×10 蓝色网格 + 橙色活动区域框（色值 0x489AFF / 5px / 22px 字号同原版），
+  单指拖动移动区域、拖边/角改大小，五指左右滑动切源（阈值 8% 屏宽），保存即热推送、无需重启页面；
+  ④ 持久化 1:1 —— `screen_profiles` 按 `model|firmware|uniqueId|WxH` 分键存 JSON，
+  记忆上次成功输出的 Display，重连自动落到同一块屏；导航源写 `_navigation_stream_requested` 标志；
+  ⑤ 热插拔 —— DisplayListener：副屏断开即清理，分辨率变化按原 profile 自动重发。
+  **未移植**：音乐卡片的歌曲内容（MUSIC 源仍显示占位区域与文案）、副屏单指触摸转发 CarPlay、
+  三指点按媒体键、`MANAGE_DISPLAYS` 权限预检文案。诊断行 `Secondary screen: …` 进报告。
+  **适用前提**：仪表 = 车机同一 Android 实例的第二块 Display（DiLink 类）；零跑 T03 的仪表是独立
+  ICU，不适用（继续用已有的悬浮卡 / 广播路径）。
 - **修复：驻车播放视频在 BYD 上永远不放行** 🔧：视频门控此前**写死**读零跑的 CAN 档位，
   而 BYD 车机上那条广播从不启动 → 档位恒为空 → iOS 27 视频一直不开放。现在按车型分流：
   **BYD 用 P 挡（ADB 读取），零跑用 N 挡（CAN 广播；零跑只上报 R/N/D，没有 P 挡读数）**。

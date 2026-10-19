@@ -1169,6 +1169,23 @@ class CarPlayHostActivity : ComponentActivity() {
             dismissClusterPresentation()
             return
         }
+        if (com.shilapi.xcertplay.cluster.ScreenProfileStore.enabled(this)) {
+            // OgleaPlay-style secondary screen: a real activity launched onto the other panel, with
+            // per-display calibration. It replaces the in-app card presentation, so the other
+            // branches must not also claim the cluster surface.
+            appendLog("Cluster map: secondary-screen path (OgleaPlay port)")
+            com.shilapi.xcertplay.cluster.SecondaryScreenController.onDiagnostic = { appendLog(it) }
+            com.shilapi.xcertplay.cluster.SecondaryScreenController.onProfilePushed = { applyClusterRouting() }
+            com.shilapi.xcertplay.cluster.SecondaryScreenController.bind(this) { onClusterSurface(it) }
+            ClusterActivityOutput.stop(this)
+            dismissClusterPresentation()
+            runCatching { com.shilapi.xcertplay.cluster.SecondaryScreenController.ensure(this) }
+                .onFailure {
+                    appendLog("Secondary screen: launch failed ${it.javaClass.simpleName}: ${it.message}")
+                }
+            return
+        }
+        com.shilapi.xcertplay.cluster.SecondaryScreenController.stop(this)
         if (AdbClusterRouter.enabled(this)) {
             appendLog("Cluster map: adb router branch taken; no presentable cluster display yet")
             ClusterActivityOutput.bind(this, taskId) { onClusterSurface(it) }
@@ -1327,6 +1344,23 @@ class CarPlayHostActivity : ComponentActivity() {
     private var dashboardSource: ClusterScreenProfile.Source? = null
 
     private fun attachClusterSurface(surface: Surface) {
+        // The secondary-screen port owns its own source; the card profile only applies when that
+        // path is not running.
+        val secondary = com.shilapi.xcertplay.cluster.SecondaryScreenController.request
+        if (secondary != null) {
+            dashboardSource = null
+            when (secondary.profile.source) {
+                com.shilapi.xcertplay.cluster.ContentSource.MAIN -> {
+                    sink?.clearSurface(SCREEN_TYPE_ALT, surface)
+                    sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ClusterScreenProfile.DASHBOARD_KEY, surface)
+                }
+                com.shilapi.xcertplay.cluster.ContentSource.MUSIC ->
+                    sink?.clearSurface(SCREEN_TYPE_ALT, surface)
+                com.shilapi.xcertplay.cluster.ContentSource.NAVIGATION ->
+                    sink?.setSurface(SCREEN_TYPE_ALT, surface)
+            }
+            return
+        }
         dashboardSource = ClusterScreenProfile.source(this)
         when (dashboardSource) {
             ClusterScreenProfile.Source.MAIN -> {
@@ -1336,6 +1370,14 @@ class CarPlayHostActivity : ComponentActivity() {
             ClusterScreenProfile.Source.MUSIC -> sink?.clearSurface(SCREEN_TYPE_ALT, surface)
             else -> sink?.setSurface(SCREEN_TYPE_ALT, surface)
         }
+    }
+
+    /** A calibration edit changed the active source: route the live surface to its decoder again. */
+    private fun applyClusterRouting() {
+        val surface = clusterSurface ?: return
+        detachClusterSurface(surface)
+        attachClusterSurface(surface)
+        appendLog("Secondary screen: re-routed the cluster surface for the new source")
     }
 
     private fun detachClusterSurface(surface: Surface) {
