@@ -118,6 +118,25 @@ internal object SecondaryScreenController {
         push(ScreenProfileStore.load(host, display), force = true)
     }
 
+    /** The calibration bar's 保存: persist the edited profile for the live display and push it. */
+    fun saveProfile(profile: ScreenProfile) {
+        val request = current ?: return
+        val host = hostRef.get() ?: return
+        val display = ScreenProfileStore.secondaryDisplays(host)
+            .firstOrNull { it.displayId == request.displayId } ?: return
+        ScreenProfileStore.save(host, display, profile)
+        push(profile, force = true)
+    }
+
+    /** The calibration bar's 取消: discard the edits and re-apply the stored profile. */
+    fun revertProfile() {
+        val request = current ?: return
+        val host = hostRef.get() ?: return
+        val display = ScreenProfileStore.secondaryDisplays(host)
+            .firstOrNull { it.displayId == request.displayId } ?: return
+        push(ScreenProfileStore.load(host, display), force = true)
+    }
+
     private fun launch(
         host: Activity,
         display: Display,

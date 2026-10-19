@@ -11,6 +11,7 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
 
@@ -34,7 +35,9 @@ import android.widget.TextView
 internal class SecondaryScreenRenderer(
     context: Context,
     private val onSurface: (Surface?) -> Unit,
-    private val onProfileEdited: (ScreenProfile) -> Unit,
+    private val onSave: (ScreenProfile) -> Unit,
+    private val onCancel: () -> Unit,
+    private val onExit: () -> Unit = {},
 ) : FrameLayout(context) {
 
     private val videoBox = FrameLayout(context).apply { clipChildren = true }
@@ -56,6 +59,24 @@ internal class SecondaryScreenRenderer(
         visibility = GONE
     }
     private val grid = CalibrationGrid(context)
+    private val density = context.resources.displayMetrics.density
+    private val calibrationBar = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        visibility = GONE
+    }
+    private val saveButton = Button(context).apply {
+        text = "保存"
+        isAllCaps = false
+    }
+    private val cancelButton = Button(context).apply {
+        text = "取消"
+        isAllCaps = false
+    }
+    private val exitButton = Button(context).apply {
+        text = "退出页面"
+        isAllCaps = false
+    }
 
     private var profile = ScreenProfile()
     private var calibrating = false
@@ -80,6 +101,28 @@ internal class SecondaryScreenRenderer(
         addView(videoBox, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(musicCard, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        // Calibration controls sit at the bottom, sized in dp from the current density, so they are
+        // reachable on every panel resolution (a fixed pixel offset put them off-screen on some).
+        val barHeight = (52 * density).toInt().coerceAtLeast(1)
+        val gap = (10 * density).toInt()
+        listOf(cancelButton, saveButton, exitButton).forEachIndexed { index, button ->
+            calibrationBar.addView(button, LinearLayout.LayoutParams(0, barHeight, 1f).apply {
+                if (index > 0) marginStart = gap
+            })
+        }
+        addView(calibrationBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.BOTTOM
+            marginStart = (24 * density).toInt()
+            marginEnd = (24 * density).toInt()
+            bottomMargin = (20 * density).toInt()
+        })
+        cancelButton.setOnClickListener { setCalibrating(false); onCancel() }
+        saveButton.setOnClickListener {
+            val saved = profile
+            setCalibrating(false)
+            onSave(saved)
+        }
+        exitButton.setOnClickListener { setCalibrating(false); onExit() }
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 surface = holder.surface
@@ -111,6 +154,7 @@ internal class SecondaryScreenRenderer(
     fun setCalibrating(calibrating: Boolean) {
         this.calibrating = calibrating
         grid.visible = calibrating
+        calibrationBar.visibility = if (calibrating) VISIBLE else GONE
         status.visibility = if (!calibrating && shouldShowStatus) VISIBLE else GONE
         grid.invalidate()
         requestLayout()
@@ -243,7 +287,8 @@ internal class SecondaryScreenRenderer(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (dragging) onProfileEdited(profile)
+                // Edits stay in memory until the calibration bar's 保存 is pressed, so 取消 can
+                // restore the stored profile exactly as it was.
                 dragging = false
                 fiveFinger = false
                 dragMode = DragMode.NONE
@@ -260,7 +305,6 @@ internal class SecondaryScreenRenderer(
         }
         profile = profile.copy(source = next)
         applyProfile(profile)
-        onProfileEdited(profile)
     }
 
     /** Which part of [region] the touch grabbed; the outer 15 % is a resize handle. */

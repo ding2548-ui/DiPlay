@@ -49,7 +49,9 @@ class SecondaryScreenActivity : Activity() {
         val view = SecondaryScreenRenderer(
             this,
             onSurface = { surface -> SecondaryScreenController.surfaceChanged(this, surface) },
-            onProfileEdited = { profile -> persist(profile) },
+            onSave = { profile -> persist(profile) },
+            onCancel = { SecondaryScreenController.revertProfile() },
+            onExit = { finish() },
         )
         renderer = view
         setContentView(view)

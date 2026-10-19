@@ -33,7 +33,8 @@ internal class SecondaryScreenWindow(
         renderer = SecondaryScreenRenderer(
             host,
             onSurface = { surface -> SecondaryScreenController.surfaceChanged(this, surface) },
-            onProfileEdited = { edited -> current = edited },
+            onSave = { edited -> current = edited },
+            onCancel = { renderer.applyProfile(current) },
         )
         setContentView(renderer, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
