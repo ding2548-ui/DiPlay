@@ -2191,33 +2191,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             if (clusterMapEnabled) {
                 clusterSpeedometerControls(card)
                 clusterMusicControls(card)
-                // PSA line: 内容源/区域/裁切为卡片与仪表盘共用（仪表盘接上即生效），不依赖卡片开关。
-                val sources = ClusterScreenProfile.Source.entries
-                choice(card, "内容源", sources.map { it.label },
-                    sources.indexOf(ClusterScreenProfile.source(this)).coerceAtLeast(0), reconnects = false) {
-                    ClusterScreenProfile.setSource(this, sources[it])
-                    render()
-                }
-                for (source in sources) {
-                    if (CenterMapOverlay.shown && ClusterScreenProfile.source(this) == source) {
-                        card.addView(button(if (CenterMapOverlay.calibrating) "${source.label} · 完成卡片框选"
-                            else "${source.label} · 在卡片上框选（实况预览）", false) {
-                            if (CenterMapOverlay.calibrating) CenterMapOverlay.exitCalibration(true)
-                            else CenterMapOverlay.enterCalibration(this, source)
-                            render()
-                        }, matchButton(6, 54))
-                    } else {
-                        card.addView(button("${source.label} · 触摸框选区域", false) {
-                            showRegionEditor(source)
-                        }, matchButton(6, 54))
-                    }
-                    val modes = ClusterScreenProfile.ScaleMode.entries
-                    choice(card, "${source.label} · 裁切方式", modes.map { it.label },
-                        modes.indexOf(ClusterScreenProfile.scaleMode(this, source)), reconnects = false) {
-                        ClusterScreenProfile.setScaleMode(this, source, modes[it])
-                    }
-                }
-                secondaryScreenControls(card)
+                // PSA line: 内容源/区域/裁切已由 OgleaPlay 的「车辆与多屏」页整体接管（四页签：
+                // 多屏显示 / 内容 / 车机音乐 / 车辆与原厂），这里只留入口。ClusterScreenProfile
+                // 仍是 ADB 集群路由那条路的数据模型，设置页不再直接改它。
+                card.addView(button("车辆与多屏（多屏显示 · 区域校正 · 原厂接口）", false) {
+                    com.shilapi.xcertplay.cluster.ExtensionsActivity.start(this)
+                }, matchButton(6, 54))
                 if (CenterMapOverlay.calibrating) {
                     card.addView(label("正在卡片上框选：拖动四条边调整，完成后点卡片上的「保存/取消」。", 14, WARNING))
                 }
@@ -6328,140 +6307,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun rounded(color: Int, stroke: Int) = GradientDrawable().apply { setColor(color); cornerRadius = layoutCornerRadius() * 1.35f; setStroke(dp(1), stroke) }
     private fun matchButton(top: Int = 0, height: Int = 68) = LinearLayout.LayoutParams(-1, dp(height)).apply { topMargin = dp(top) }
 
-    // PSA line: 触摸框选对话框 — SafeAreaEditorView 在与内容源同比例的预览画布上拖动四边，
-    // 实时百分比读数；「保存」写入配置（卡片/仪表盘即时生效），「重置」恢复全画布。
-    /**
-     * OgleaPlay's secondary-screen output, ported 1:1: a real page launched onto the other panel
-     * with `setLaunchDisplayId`, a per-display profile (region + crop per source), a calibration
-     * grid, and a window fallback for platforms that cannot launch onto a display.
-     */
-    /**
-     * OgleaPlay's secondary-screen output, ported 1:1: a real page launched onto the other panel
-     * with `setLaunchDisplayId`, a per-display profile (region + crop per source), a calibration
-     * grid, and a window fallback for platforms that cannot launch onto a display.
-     */
-    private fun secondaryScreenControls(card: LinearLayout) {
-        val store = com.shilapi.xcertplay.cluster.ScreenProfileStore
-        val displays = store.secondaryDisplays(this)
-        val target = store.preferredDisplay(this)
-        card.addView(label("副屏显示 · 多屏与区域校正（实验性）", 15, MUTED)
-            .apply { setPadding(0, dp(14), 0, 0) })
-        card.addView(label(
-            if (displays.isEmpty()) "未检测到副屏（仪表与车机不是同一个 Android 实例时不适用）"
-            else "检测到 ${displays.size} 块副屏：" + displays.joinToString("；") { store.describe(this, it) },
-            14, if (displays.isEmpty()) WARNING else MUTED))
-        reconnectingToggle(card, "启用副屏显示（替换仪表盘卡片）",
-            "在副屏上用独立页面显示 CarPlay 画面，并按屏幕分别保存区域与裁剪。会重新连接 CarPlay。",
-            store.enabled(this)) {
-            store.setEnabled(this, it)
-            render()
-        }
-        if (!store.enabled(this)) return
-        val modes = com.shilapi.xcertplay.cluster.OutputMode.entries
-        choice(card, "输出方式", modes.map {
-                if (it == com.shilapi.xcertplay.cluster.OutputMode.ACTIVITY) "独立页面（需要 Android 8 以上）"
-                else "兼容窗口（同一屏悬浮）"
-            }, modes.indexOf(store.outputMode(this)).coerceAtLeast(0), reconnects = false) {
-            store.setOutputMode(this, modes[it])
-            render()
-        }
-        if (displays.isEmpty()) return
-        choice(card, "目标副屏", displays.map { store.describe(this, it) },
-            displays.indexOfFirst { it.displayId == target?.displayId }.coerceAtLeast(0),
-            reconnects = false) {
-            store.rememberOutput(this, displays[it])
-            render()
-        }
-        val chosen = target ?: return
-        val profile = store.load(this, chosen)
-        card.addView(label(
-            "当前源：${profile.source.label} · 区域 " + percent(profile.activeVideo) +
-                " · 裁剪 " + percent(profile.activeCrop) + " · " + profile.mode.name,
-            14, MUTED))
-        val sources = com.shilapi.xcertplay.cluster.ContentSource.entries
-        choice(card, "副屏内容源", sources.map { it.label },
-            sources.indexOf(profile.source).coerceAtLeast(0), reconnects = false) {
-            val next = profile.copy(source = sources[it])
-            store.save(this, chosen, next)
-            com.shilapi.xcertplay.cluster.SecondaryScreenController.push(next, force = true)
-            render()
-        }
-        val fitModes = com.shilapi.xcertplay.cluster.FitMode.entries
-        choice(card, "副屏裁切方式", fitModes.map { if (it == com.shilapi.xcertplay.cluster.FitMode.FIT) "适应（完整放入）" else "裁满（放大铺满）" },
-            fitModes.indexOf(profile.mode).coerceAtLeast(0), reconnects = false) {
-            val next = profile.copy(mode = fitModes[it])
-            store.save(this, chosen, next)
-            com.shilapi.xcertplay.cluster.SecondaryScreenController.push(next, force = true)
-            render()
-        }
-        card.addView(button("在副屏上校准（网格 + 拖拽区域）", false) {
-            store.rememberOutput(this, chosen)
-            val started = runCatching {
-                com.shilapi.xcertplay.cluster.SecondaryScreenController.relaunchOn(this, chosen, grid = true)
-            }.getOrDefault(false)
-            if (!started) toast("副屏启动失败，请检查输出方式或改用车机自带的副屏权限")
-        }, matchButton(8, 54))
-        card.addView(button("关闭副屏页面", false) {
-            com.shilapi.xcertplay.cluster.SecondaryScreenController.stop(this)
-            render()
-        }, matchButton(6, 52))
-        card.addView(label(
-            "校准：单指拖动移动区域，拖边缘/角改变大小；五指左右滑动切换内容源。区域与裁剪按屏幕分别保存，" +
-                "切换分辨率后仍按比例生效。", 14, MUTED))
-    }
-
-    private fun percent(region: com.shilapi.xcertplay.cluster.ScreenRegion): String =
-        "${(region.x * 100).toInt()},${(region.y * 100).toInt()}," +
-            "${(region.width * 100).toInt()},${(region.height * 100).toInt()}"
-
-    private fun showRegionEditor(source: ClusterScreenProfile.Source) {
-        val aspect = when (source) {
-            ClusterScreenProfile.Source.MAIN ->
-                resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
-            ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
-            else -> 8.0 / 3
-        }.coerceIn(0.5, 4.0)
-        val metrics = resources.displayMetrics
-        val previewWidth = (metrics.widthPixels * 0.78f).toInt()
-        val previewHeight = (previewWidth / aspect).toInt().coerceAtLeast(1)
-        val refW = 1000
-        val refH = (1000 / aspect).toInt().coerceAtLeast(1)
-        var pending = ClusterScreenProfile.region(this, source)
-        val readout = label("", 14, MUTED)
-        readout.text = regionReadout(pending)
-        val editor = SafeAreaEditorView(this).apply {
-            interactive = true
-            dimOutside = false
-            setRect(ClusterScreenProfile.Region.toRect(pending, refW, refH), refW, refH)
-            onRectChanged = { rect ->
-                ClusterScreenProfile.Region.fromRect(rect, refW, refH)?.let {
-                    pending = it
-                    readout.text = regionReadout(it)
-                }
-            }
-        }
-        val preview = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        preview.addView(editor)
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(16), dp(24), dp(8))
-            addView(preview, LinearLayout.LayoutParams(previewWidth, previewHeight).apply {
-                gravity = android.view.Gravity.CENTER_HORIZONTAL
-            })
-            addView(readout, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
-        }
-        appDialogBuilder()
-            .setTitle("${source.label} · 框选区域")
-            .setView(column)
-            .setPositiveButton("保存") { _, _ -> ClusterScreenProfile.setRegion(this, source, pending) }
-            .setNeutralButton("重置") { _, _ -> ClusterScreenProfile.setRegion(this, source, ClusterScreenProfile.Region.FULL) }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun regionReadout(region: ClusterScreenProfile.Region): String =
-        "x=${(region.x * 100).toInt()}%  y=${(region.y * 100).toInt()}%  " +
-            "w=${(region.width * 100).toInt()}%  h=${(region.height * 100).toInt()}%"
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)); tag = SPACER }
 
     /**
