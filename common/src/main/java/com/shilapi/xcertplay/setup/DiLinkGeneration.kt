@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.setup
 import android.content.Context
 import android.os.Build
 import com.shilapi.xcertplay.hud.BydOutputSettings
+import com.shilapi.xcertplay.hud.BydVehicleDataMode
 
 /**
  * The car the driver told DiPlay about. The setup guide uses it to explain which features apply and
@@ -89,9 +90,12 @@ enum class DiLinkGeneration(val key: String) {
         /**
          * Save the driver's pick and push it into the shared probe so every module agrees.
          *
-         * - [LEAPMOTOR] marks the unit as Leapmotor (all Leapmotor protocols on, no detection needed).
+         * - [LEAPMOTOR] marks the unit as Leapmotor (all Leapmotor protocols on, no detection needed)
+         *   and moves the advanced vehicle-data panel onto the CAN bus, because a Leapmotor head unit
+         *   has no adbd and neither DiLink mode can read anything there.
          * - A BYD generation explicitly marks it as *not* Leapmotor, which also overrides a stale
-         *   probe file on a re-flashed unit.
+         *   probe file on a re-flashed unit, and drops a stale Leapmotor vehicle-data mode. An
+         *   explicit default/legacy pick is left alone.
          * - [UNKNOWN] ("Not sure") clears the override and defers to the runtime probe, so leaving it
          *   on Not sure never breaks a real Leapmotor car.
          */
@@ -99,7 +103,16 @@ enum class DiLinkGeneration(val key: String) {
             prefs(context).edit().putString(KEY, generation.key).apply()
             when (generation) {
                 DiLinkGeneration.UNKNOWN -> BydOutputSettings.clearLeapmotorUserChoice(context)
-                else -> BydOutputSettings.setLeapmotorUserChoice(context, generation.isLeapmotor)
+                else -> {
+                    BydOutputSettings.setLeapmotorUserChoice(context, generation.isLeapmotor)
+                    when {
+                        generation.isLeapmotor -> BydOutputSettings.setVehicleDataMode(
+                            context, BydVehicleDataMode.LEAPMOTOR)
+                        BydOutputSettings.vehicleDataMode(context) == BydVehicleDataMode.LEAPMOTOR ->
+                            BydOutputSettings.setVehicleDataMode(context, BydVehicleDataMode.DEFAULT)
+                        else -> Unit
+                    }
+                }
             }
         }
     }

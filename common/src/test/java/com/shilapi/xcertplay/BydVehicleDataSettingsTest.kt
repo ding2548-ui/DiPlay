@@ -769,7 +769,11 @@ class BydVehicleDataSettingsTest {
 
     private fun selectLegacyMode(enabled: Boolean) {
         ReflectionHelpers.callInstanceMethod<Unit>(activity, "selectVehicleDataMode",
-            ReflectionHelpers.ClassParameter.from(Boolean::class.javaPrimitiveType!!, enabled))
+            ReflectionHelpers.ClassParameter.from(
+                com.shilapi.xcertplay.hud.BydVehicleDataMode::class.java,
+                if (enabled) com.shilapi.xcertplay.hud.BydVehicleDataMode.LEGACY
+                else com.shilapi.xcertplay.hud.BydVehicleDataMode.DEFAULT,
+            ))
     }
 
     private fun modeChoice(): TextView = texts()

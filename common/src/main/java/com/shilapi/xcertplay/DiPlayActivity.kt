@@ -61,6 +61,7 @@ import com.shilapi.xcertplay.hud.BydFieldSource
 import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.hud.BydVehicleCapabilities
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
+import com.shilapi.xcertplay.hud.BydVehicleDataMode
 import com.shilapi.xcertplay.hud.BydVehicleField
 import com.shilapi.xcertplay.hud.BydVehicleFieldStore
 import com.shilapi.xcertplay.hud.BydVehicleProbeOutcome
@@ -4158,24 +4159,67 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     /** True on a Leapmotor head unit, where OEM outputs use broadcasts instead of ADB. */
     private fun lmHeadUnit(): Boolean = BydOutputSettings.leapmotorHeadUnit()
 
+    private fun vehicleDataModeLabel(mode: BydVehicleDataMode): Int = when (mode) {
+        BydVehicleDataMode.DEFAULT -> R.string.vehicle_data_mode_default
+        BydVehicleDataMode.LEGACY -> R.string.vehicle_data_mode_legacy
+        BydVehicleDataMode.LEAPMOTOR -> R.string.vehicle_data_mode_leapmotor
+    }
+
+    /**
+     * The Leapmotor vehicle-data panel: no ADB, no probe, no per-field map.
+     *
+     * Every reading the switches below need arrives in one `leapmotor.cantoapp.update` broadcast, so
+     * the only status worth showing is whether frames are actually coming in. An empty snapshot means
+     * the car is asleep or off — not that the mode is wrong.
+     */
+    private fun leapmotorVehicleData(card: LinearLayout) {
+        val snapshot = LeapmotorVehicleSignals.snapshot()
+        val status = if (snapshot == null) {
+            getString(R.string.leapmotor_vehicle_data_waiting)
+        } else {
+            getString(
+                R.string.leapmotor_vehicle_data_reading,
+                snapshot.gear?.letter?.toString() ?: "-",
+                snapshot.speedKmh?.let { "%.0f".format(it) } ?: "-",
+                snapshot.socPercent?.toString() ?: "-",
+            )
+        }
+        card.addView(label(status, 14, if (snapshot == null) WARNING else MUTED)
+            .apply { setPadding(0, dp(12), 0, 0) })
+        showVehicleDataSettings(card, capabilities = null)
+        card.addView(label(getString(R.string.leapmotor_vehicle_data_hint), 14, MUTED)
+            .apply { setPadding(0, dp(10), 0, 0) })
+    }
+
     private fun advancedVehicleData(card: LinearLayout) {
-        val legacyMode = BydOutputSettings.legacyVehicleProbe(this)
+        // The Leapmotor protocol is not a third DiLink variant: a Leapmotor unit has no adbd, so
+        // offering the two DiLink modes there is offering two modes that can never read anything.
+        // The option only exists on a unit that answers the CAN broadcast, where it is also the
+        // default (see BydOutputSettings.vehicleDataMode).
+        val modes = if (lmHeadUnit()) listOf(
+            BydVehicleDataMode.DEFAULT,
+            BydVehicleDataMode.LEGACY,
+            BydVehicleDataMode.LEAPMOTOR,
+        ) else listOf(BydVehicleDataMode.DEFAULT, BydVehicleDataMode.LEGACY)
+        val stored = BydOutputSettings.vehicleDataMode(this)
+        val mode = if (stored in modes) stored else BydVehicleDataMode.DEFAULT
         card.addView(label(getString(R.string.advanced_vehicle_data_description), 14, MUTED)
             .apply { setPadding(0, dp(12), 0, 0) })
         choice(
             card,
             getString(R.string.vehicle_data_mode),
-            listOf(
-                getString(R.string.vehicle_data_mode_default),
-                getString(R.string.vehicle_data_mode_legacy),
-            ),
-            if (legacyMode) 1 else 0,
+            modes.map { getString(vehicleDataModeLabel(it)) },
+            modes.indexOf(mode),
             reconnects = false,
             announcesReconnect = vehicleDataSwitchesOn(),
             // A switch during ADB work would be dropped by the running step.
             enabled = !adbSwitchChangePending && !vehicleAdbWorkInProgress(),
-        ) { selectVehicleDataMode(it == 1) }
-        if (!legacyMode) {
+        ) { selectVehicleDataMode(modes[it]) }
+        if (mode == BydVehicleDataMode.LEAPMOTOR) {
+            leapmotorVehicleData(card)
+            return
+        }
+        if (mode == BydVehicleDataMode.DEFAULT) {
             defaultVehicleData(card)
             return
         }
@@ -4283,16 +4327,31 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             BydOutputSettings.wheelSpeedToIphone(this) || BydOutputSettings.videoWhileParked(this))
     }
 
-    private fun selectVehicleDataMode(legacyMode: Boolean) {
+    private fun selectVehicleDataMode(mode: BydVehicleDataMode) {
         if (adbSwitchChangePending) return
-        // A stale mode dialog must also invalidate a probe when the Boolean stays the same.
+        // A stale mode dialog must also invalidate a probe when the selection stays the same.
         synchronized(vehicleOperationLock) { vehicleProbeGeneration++ }
         vehicleProbeAuthorizationInProgress = false
         vehicleProbeInProgress = false
-        if (!legacyMode) {
+        if (mode == BydVehicleDataMode.LEAPMOTOR) {
             cancelAutomaticVehicleValidationForUserOperation(resumeAfter = false)
             synchronized(vehicleOperationLock) {
-                BydOutputSettings.setLegacyVehicleProbe(this, false)
+                BydOutputSettings.setVehicleDataMode(this, BydVehicleDataMode.LEAPMOTOR)
+            }
+            vehicleProbeOutcome = null
+            pendingVehicleReplacement = null
+            pendingVehicleLostFields = emptySet()
+            defaultVehicleStatus = null
+            render()
+            // Nothing to probe: the CAN bus needs no authorization. Rebuild the session only if a
+            // vehicle-data switch is on, so the iPhone is told about the new source.
+            if (vehicleDataSwitchesOn()) reconnectForVehicleSetting()
+            return
+        }
+        if (mode == BydVehicleDataMode.DEFAULT) {
+            cancelAutomaticVehicleValidationForUserOperation(resumeAfter = false)
+            synchronized(vehicleOperationLock) {
+                BydOutputSettings.setVehicleDataMode(this, BydVehicleDataMode.DEFAULT)
             }
             vehicleProbeOutcome = null
             pendingVehicleReplacement = null
@@ -4309,7 +4368,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             return
         }
         synchronized(vehicleOperationLock) {
-            BydOutputSettings.setLegacyVehicleProbe(this, true)
+            BydOutputSettings.setVehicleDataMode(this, BydVehicleDataMode.LEGACY)
         }
         vehicleProbeOutcome = null
         pendingVehicleReplacement = null
@@ -5569,9 +5628,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     appendLine("--- Standalone HUD compatibility ---")
                     appendLine(BydOutputSettings.standaloneHudDiagnosticReport(appContext))
                     appendLine()
-                    appendLine("--- BYD vehicle-data probe ---")
+                    appendLine("--- Vehicle-data source ---")
                     appendLine(
-                        "mode=${if (BydOutputSettings.legacyVehicleProbe(appContext)) "legacy-probe" else "default"} " +
+                        "mode=${BydOutputSettings.vehicleDataMode(appContext).name.lowercase()} " +
+                            "leapmotor=${BydOutputSettings.leapmotorHeadUnit()} " +
                             "switches location=${AirPlayPersistence.loadLocationReportingEnabled(appContext)} " +
                             "battery=${BydOutputSettings.batteryToIphone(appContext)} " +
                             "wheelSpeed=${BydOutputSettings.wheelSpeedToIphone(appContext)} " +

@@ -4,6 +4,20 @@ import android.content.Context
 import com.shilapi.xcertplay.transport.EvChargingConnectors
 
 /**
+ * Which protocol the advanced vehicle-data panel drives.
+ *
+ * The first two are BYD DiLink: [DEFAULT] reads the addresses verified on DiLink 5.0, [LEGACY] reads
+ * the fields a saved head-unit probe confirmed. Both go through the network ADB shell.
+ *
+ * [LEAPMOTOR] is a different car, not a third DiLink variant: the signals arrive on the
+ * `leapmotor.cantoapp.update` broadcast (`LeapmotorVehicleSignals`), and a Leapmotor head unit has
+ * no adbd at all, so every ADB step is skipped. The gear letter also differs where it matters most:
+ * BYD reports P while parked, Leapmotor only reports R/N/D and treats **N** as the video-allowed
+ * gear (`LeapmotorParkedState`).
+ */
+enum class BydVehicleDataMode { DEFAULT, LEGACY, LEAPMOTOR }
+
+/**
  * One user switch for BYD navigation output. On the tested car the windshield HUD mirrors what the
  * instrument cluster receives, so separate HUD/cluster switches cannot behave independently.
  */
@@ -26,6 +40,7 @@ object BydOutputSettings {
     private const val KEY_FCE_CLUSTER = "fce_cluster_guidance_experimental"
     private const val KEY_OEM_CLUSTER_HOLD = "oem_cluster_hold"
     private const val KEY_LEGACY_VEHICLE_PROBE = "legacy_vehicle_probe"
+    private const val KEY_VEHICLE_DATA_MODE = "vehicle_data_mode"
     const val DEFAULT_LOW_CHARGE_PERCENT = 20
     val lowChargePresets = listOf(10, 15, 20, 25, 30)
 
@@ -92,8 +107,16 @@ object BydOutputSettings {
 
     fun wheelSpeedToIphoneActive(context: Context): Boolean =
         wheelSpeedToIphone(context) && supportedInSelectedMode(context) { it.motionSupported }
-    /** Offer iOS 27 video in car, played only while the gear reads P (needs ADB over network). */
-    fun videoWhileParked(context: Context): Boolean = prefs(context).getBoolean(KEY_VIDEO_WHILE_PARKED, false)
+    /**
+     * Offer iOS 27 video in car, played only while the car is parked.
+     *
+     * "Parked" is per car line: BYD reports P and it is read over ADB, a Leapmotor unit reports only
+     * R/N/D on the CAN bus and allows video in N. The default follows that: the N-gear gate needs
+     * nothing but the broadcast, so a Leapmotor unit starts with this on; the BYD path needs ADB over
+     * network and stays opt-in.
+     */
+    fun videoWhileParked(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_VIDEO_WHILE_PARKED, com.shilapi.xcertplay.LmCarProbe.isLeapmotor())
 
     fun setVideoWhileParked(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_VIDEO_WHILE_PARKED, enabled).commit()
@@ -143,23 +166,40 @@ object BydOutputSettings {
         videoWhileParked(context) && supportedInSelectedMode(context) { it.gearSupported }
 
     /**
-     * Use addresses saved by the legacy head-unit probe. Existing installations with a saved probe
-     * migrate to this mode; a fresh installation stays on the default DiLink 5.0 path.
+     * The vehicle-data protocol in use. An explicit pick always wins; with nothing saved, a
+     * Leapmotor head unit answers on the CAN bus and can use nothing else, so it defaults to
+     * [BydVehicleDataMode.LEAPMOTOR]. Everything else keeps the historical decision: a saved probe
+     * means [BydVehicleDataMode.LEGACY], a fresh installation [BydVehicleDataMode.DEFAULT].
      */
-    fun legacyVehicleProbe(context: Context): Boolean {
+    fun vehicleDataMode(context: Context): BydVehicleDataMode {
         val settings = prefs(context)
-        return if (settings.contains(KEY_LEGACY_VEHICLE_PROBE)) {
-            settings.getBoolean(KEY_LEGACY_VEHICLE_PROBE, false)
-        } else {
-            BydVehicleFieldStore.load(context) != null
-        }
+        settings.getString(KEY_VEHICLE_DATA_MODE, null)
+            ?.let { saved -> BydVehicleDataMode.entries.firstOrNull { it.name == saved } }
+            ?.let { return it }
+        if (com.shilapi.xcertplay.LmCarProbe.isLeapmotor()) return BydVehicleDataMode.LEAPMOTOR
+        return if (BydVehicleFieldStore.load(context) != null) BydVehicleDataMode.LEGACY
+        else BydVehicleDataMode.DEFAULT
     }
 
-    fun setLegacyVehicleProbe(context: Context, enabled: Boolean) {
-        check(prefs(context).edit().putBoolean(KEY_LEGACY_VEHICLE_PROBE, enabled).commit()) {
-            "Could not persist BYD vehicle-data mode"
-        }
+    /** Persists the mode and keeps the historical [KEY_LEGACY_VEHICLE_PROBE] flag in step. */
+    fun setVehicleDataMode(context: Context, mode: BydVehicleDataMode) {
+        check(prefs(context).edit()
+            .putString(KEY_VEHICLE_DATA_MODE, mode.name)
+            .putBoolean(KEY_LEGACY_VEHICLE_PROBE, mode == BydVehicleDataMode.LEGACY)
+            .commit()) { "Could not persist vehicle-data mode" }
     }
+
+    /**
+     * Whether the saved legacy head-unit probe should be used. Derived from [vehicleDataMode] so the
+     * legacy mode and the Leapmotor mode can never both claim the vehicle-data switches.
+     */
+    fun legacyVehicleProbe(context: Context): Boolean =
+        vehicleDataMode(context) == BydVehicleDataMode.LEGACY
+
+    /** Kept for the existing call sites: `true` = legacy probe, `false` = the DiLink 5.0 default. */
+    fun setLegacyVehicleProbe(context: Context, enabled: Boolean) =
+        setVehicleDataMode(context,
+            if (enabled) BydVehicleDataMode.LEGACY else BydVehicleDataMode.DEFAULT)
 
     /** Optional title/lyrics when navigation is absent; only the verified HUD output can send it. */
     fun hudSong(context: Context): Boolean = prefs(context).getBoolean(KEY_HUD_SONG, false)
@@ -219,10 +259,25 @@ object BydOutputSettings {
     private fun installed(context: Context, pkg: String): Boolean =
         runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess
 
+    /**
+     * Whether a switch is usable in the mode that is selected.
+     *
+     * [BydVehicleDataMode.DEFAULT] reads fixed DiLink 5.0 addresses and needs no probe, so it is
+     * always usable. [BydVehicleDataMode.LEAPMOTOR] reads the CAN broadcast, which carries every
+     * field regardless of the head unit, so it needs no probe either. Only the legacy mode has to
+     * check what its saved probe actually confirmed.
+     */
     private fun supportedInSelectedMode(
         context: Context,
         supported: (BydVehicleCapabilities) -> Boolean,
-    ): Boolean = !legacyVehicleProbe(context) || BydVehicleFieldStore.load(context)?.let(supported) == true
+    ): Boolean = when (vehicleDataMode(context)) {
+        BydVehicleDataMode.LEAPMOTOR, BydVehicleDataMode.DEFAULT -> true
+        BydVehicleDataMode.LEGACY -> BydVehicleFieldStore.load(context)?.let(supported) == true
+    }
+
+    /** True when the selected mode reads through the ADB shell, i.e. never on a Leapmotor unit. */
+    fun vehicleDataNeedsAdb(context: Context): Boolean =
+        vehicleDataMode(context) != BydVehicleDataMode.LEAPMOTOR
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
