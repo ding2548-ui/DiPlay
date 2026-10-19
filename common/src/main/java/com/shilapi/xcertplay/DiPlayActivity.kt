@@ -6506,10 +6506,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         region: com.shilapi.xcertplay.cluster.ScreenRegion,
         refW: Int,
         refH: Int,
-    ): SafeAreaRect = SafeAreaRect(
-        (region.x * refW).toInt(), (region.y * refH).toInt(),
-        ((region.x + region.width) * refW).toInt(), ((region.y + region.height) * refH).toInt(),
-    )
+    ): com.shilapi.xcertplay.airplay.SafeAreaRect =
+        com.shilapi.xcertplay.airplay.SafeAreaRect(
+            (region.x * refW).toInt(), (region.y * refH).toInt(),
+            ((region.x + region.width) * refW).toInt(),
+            ((region.y + region.height) * refH).toInt(),
+        )
 
     private fun screenRegion(
         rect: SafeAreaRect,
