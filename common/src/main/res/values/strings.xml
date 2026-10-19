@@ -641,7 +641,6 @@
     <string name="manual_grant_cmd_hint">Or run this ADB command from your computer:</string>
     <string name="adb_cluster_activity_label">Cluster Map</string>
     <string name="secondary_screen_label">Secondary screen</string>
-    <string name="extensions_label">Vehicle &amp; multi-screen</string>
     <string name="adb_cluster_activity_mode">DiLink 4 cluster video via ADB (experimental)</string>
     <string name="adb_cluster_activity_description">Launch the map directly on the verified cluster display through internal ADB. Authorize ADB, then reconnect the iPhone.</string>
     <string name="adb_cluster_authorize">Authorize ADB / retry cluster routing</string>

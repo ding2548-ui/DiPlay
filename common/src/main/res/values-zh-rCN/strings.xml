@@ -601,7 +601,6 @@
     <string name="manual_grant_cmd_hint">或在电脑终端执行以下 ADB 命令一键授权：</string>
     <string name="adb_cluster_activity_label">仪表地图</string>
     <string name="secondary_screen_label">副屏显示</string>
-    <string name="extensions_label">车辆与多屏</string>
     <string name="adb_cluster_activity_mode">DiLink 4 仪表视频（ADB，实验性）</string>
     <string name="adb_cluster_activity_description">通过内置ADB直接在已验证仪表副屏启动地图。请先授权ADB，再重新连接iPhone。</string>
     <string name="adb_cluster_authorize">授权 ADB / 重试仪表移动</string>

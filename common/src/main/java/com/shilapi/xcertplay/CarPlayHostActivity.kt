@@ -1179,7 +1179,13 @@ class CarPlayHostActivity : ComponentActivity() {
             com.shilapi.xcertplay.cluster.SecondaryScreenController.bind(this) { onClusterSurface(it) }
             ClusterActivityOutput.stop(this)
             dismissClusterPresentation()
-            runCatching { com.shilapi.xcertplay.cluster.SecondaryScreenController.ensure(this) }
+            runCatching {
+                // Start from the card/cluster profile, so the panel and the card always agree.
+                com.shilapi.xcertplay.cluster.ScreenProfileStore.preferredDisplay(this)?.let {
+                    com.shilapi.xcertplay.cluster.ScreenProfileStore.syncFromClusterProfile(this, it)
+                }
+                com.shilapi.xcertplay.cluster.SecondaryScreenController.ensure(this)
+            }
                 .onFailure {
                     appendLog("Secondary screen: launch failed ${it.javaClass.simpleName}: ${it.message}")
                 }
@@ -1344,23 +1350,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var dashboardSource: ClusterScreenProfile.Source? = null
 
     private fun attachClusterSurface(surface: Surface) {
-        // The secondary-screen port owns its own source; the card profile only applies when that
-        // path is not running.
-        val secondary = com.shilapi.xcertplay.cluster.SecondaryScreenController.request
-        if (secondary != null) {
-            dashboardSource = null
-            when (secondary.profile.source) {
-                com.shilapi.xcertplay.cluster.ContentSource.MAIN -> {
-                    sink?.clearSurface(SCREEN_TYPE_ALT, surface)
-                    sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ClusterScreenProfile.DASHBOARD_KEY, surface)
-                }
-                com.shilapi.xcertplay.cluster.ContentSource.MUSIC ->
-                    sink?.clearSurface(SCREEN_TYPE_ALT, surface)
-                com.shilapi.xcertplay.cluster.ContentSource.NAVIGATION ->
-                    sink?.setSurface(SCREEN_TYPE_ALT, surface)
-            }
-            return
-        }
+        // One source of truth for all three outputs (secondary screen, cluster, centre card):
+        // the cluster-screen profile the settings page edits.
         dashboardSource = ClusterScreenProfile.source(this)
         when (dashboardSource) {
             ClusterScreenProfile.Source.MAIN -> {

@@ -134,13 +134,6 @@
             android:theme="@style/Theme.AdbCluster" />
 
         <activity
-            android:name="com.shilapi.xcertplay.cluster.ExtensionsActivity"
-            android:label="@string/extensions_label"
-            android:exported="false"
-            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:theme="@style/Theme.Xcertplay" />
-
-        <activity
             android:name="com.shilapi.xcertplay.CarPlayVideoActivity"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
