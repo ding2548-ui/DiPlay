@@ -2194,8 +2194,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 // PSA line: 内容源与显示区域对副屏、仪表盘、中控卡三处同时生效；
                 // 裁剪画面只在副屏渲染器上成立（卡片与仪表盘用的是 TextureView 变换）。
                 secondaryScreenControls(card)
-                // 对齐 OgleaPlay：先选内容源，下面的框选显示区域 / 裁切方式 / 裁剪画面
-                // 都只针对当前选中的源操作；各源已保存的值保留在原处，切回即恢复。
+                // 对齐 OgleaPlay：先选内容源，唯一的「视频框选预览」编辑器针对当前源操作；
+                // 编辑器内用「显示框 / 保留画面」两态切换（同上游 cropEditing 标志的语义）。
                 val sources = ClusterScreenProfile.Source.entries
                 val selected = ClusterScreenProfile.source(this)
                 choice(card, "内容源", sources.map { it.label },
@@ -2204,8 +2204,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     syncSecondaryProfile()
                     render()
                 }
-                card.addView(button("${selected.label} · 框选显示区域", false) {
-                    showProfileRegionEditor(selected)
+                card.addView(button("${selected.label} · 视频框选预览", false) {
+                    showClusterFrameEditor(selected)
                 }, matchButton(6, 54))
                 val modes = ClusterScreenProfile.ScaleMode.entries
                 choice(card, "裁切方式", modes.map { it.label },
@@ -2213,8 +2213,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     ClusterScreenProfile.setScaleMode(this, selected, modes[it])
                     syncSecondaryProfile()
                 }
-                card.addView(button("框选裁剪画面", false) { showProfileCropEditor() },
-                    matchButton(6, 54))
                 if (CenterMapOverlay.calibrating) {
                     card.addView(label("正在卡片上框选：拖动四条边调整，完成后点卡片上的「保存/取消」。", 14, WARNING))
                 }
@@ -6405,73 +6403,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         com.shilapi.xcertplay.cluster.SecondaryScreenController.push(store.load(this, display), force = true)
     }
 
-    /** 显示区域编辑：8 手柄画布（对齐 OgleaPlay），保存即写卡片/仪表盘共用的配置，并同步副屏。 */
-    private fun showProfileRegionEditor(source: ClusterScreenProfile.Source) {
-        val aspect = when (source) {
-            ClusterScreenProfile.Source.MAIN ->
-                resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
-            ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
-            else -> 8.0 / 3
-        }.coerceIn(0.5, 4.0)
-        val size = previewSize(aspect)
-        val previewWidth = size[0]
-        val previewHeight = size[1]
-        var pending = ClusterScreenProfile.region(this, source)
-        val readout = label("", 14, MUTED)
-        readout.text = "位置 ${(pending.x * 100).toInt()}% ${(pending.y * 100).toInt()}% · 尺寸 " +
-            "${(pending.width * 100).toInt()}% × ${(pending.height * 100).toInt()}%"
-        // 归一化坐标直接进画布（Region 与 ScreenRegion 同为 0..1），不再经 SafeAreaRect 参考系换算。
-        val editor = com.shilapi.xcertplay.cluster.RegionHandleEditorView(this).apply {
-            region = com.shilapi.xcertplay.cluster.ScreenRegion(pending.x, pending.y, pending.width, pending.height)
-            dimOutside = true
-            onRegionChanged = { region ->
-                pending = ClusterScreenProfile.Region(region.x, region.y, region.width, region.height)
-                readout.text = "位置 ${(region.x * 100).toInt()}% ${(region.y * 100).toInt()}% · 尺寸 " +
-                    "${(region.width * 100).toInt()}% × ${(region.height * 100).toInt()}%"
-            }
-        }
-        val preview = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        preview.addView(editor)
-        val body = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(16), dp(24), dp(8))
-            addView(preview, LinearLayout.LayoutParams(previewWidth, previewHeight).apply {
-                gravity = android.view.Gravity.CENTER_HORIZONTAL
-            })
-            addView(readout, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
-        }
-        appDialogBuilder()
-            .setTitle("${source.label} · 框选显示区域")
-            .setView(body)
-            .setPositiveButton("保存") { _, _ ->
-                ClusterScreenProfile.setRegion(this, source, pending)
-                syncSecondaryProfile()
-            }
-            .setNeutralButton("恢复完整") { _, _ ->
-                ClusterScreenProfile.setRegion(this, source, ClusterScreenProfile.Region.FULL)
-                syncSecondaryProfile()
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
     /**
-     * 裁剪视频画面（副屏 / 仪表盘 / 中控卡共用同一份按源裁剪框）。
+     * 视频框选预览 · 唯一编辑器（对齐上游 g61 架构）。
      *
-     * 对齐 OgleaPlay 0.2.18 的编辑器架构（g61 内嵌 yb3）：预览就是一个真正的
-     * [com.shilapi.xcertplay.cluster.SecondaryScreenRenderer]，其 SurfaceView 经
-     * [com.shilapi.xcertplay.cluster.CropPreviewBridge] 借宿主的镜像解码器出画；拖动 8 手柄时
-     * 实时 applyProfile 重排——所见即输出端将显示的裁剪结果（裁剪内容铺满预览，被裁掉的部分
-     * 不再出现），而不是「框选内容 + 周围黑屏」。保存写入按源共享裁剪框并同步副屏热推送；
-     * 仪表盘与中控卡随 profile 监听即时重排。
+     * 上游 OgleaPlay 的编辑器用 cropEditing 标志承载两种编辑态，同一个画布、同一个手势：
+     * - 「显示框」(cropEditing=false → ec3.d)：拖动/缩放手柄框，决定内容在输出屏上的位置与大小；
+     * - 「保留画面」(cropEditing=true → ec3.c)：决定源画面保留哪一部分（框外裁掉）。
+     * 两者组合 = 先裁源，再把裁出的内容放进显示框。预览是 [FramePreviewTextureView] 吃
+     * [CropPreviewBridge] 镜像流：显示框态视口跟随手柄框（框外留黑 = 输出屏黑边），保留画面态
+     * 视口铺满画布（所见即输出端将显示的裁剪结果），同一套 applyCropGeometry 几何。
+     * 保存一次性写回两个态并同步副屏热推送；仪表盘与中控卡随 profile 监听即时重排。
      */
-    private fun showProfileCropEditor() {
-        val source = ClusterScreenProfile.source(this)
-        val contentSource = when (source) {
-            ClusterScreenProfile.Source.MAIN -> com.shilapi.xcertplay.cluster.ContentSource.MAIN
-            ClusterScreenProfile.Source.NAVIGATION -> com.shilapi.xcertplay.cluster.ContentSource.NAVIGATION
-            ClusterScreenProfile.Source.MUSIC -> com.shilapi.xcertplay.cluster.ContentSource.MUSIC
-        }
+    private fun showClusterFrameEditor(source: ClusterScreenProfile.Source) {
         val streamType = source.streamType
         val aspect = when (source) {
             ClusterScreenProfile.Source.MAIN ->
@@ -6480,95 +6423,137 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             ClusterScreenProfile.Source.MUSIC -> 16.0 / 9.0
         }.coerceIn(0.5, 4.0)
         val size = previewSize(aspect)
-        val previewWidth = size[0]
-        val previewHeight = size[1]
-        val mode = when (ClusterScreenProfile.scaleMode(this, source)) {
+        val canvasW = size[0].toFloat()
+        val canvasH = size[1].toFloat()
+        val fitMode = when (ClusterScreenProfile.scaleMode(this, source)) {
             ClusterScreenProfile.ScaleMode.FIT -> com.shilapi.xcertplay.cluster.FitMode.FIT
             ClusterScreenProfile.ScaleMode.CROP -> com.shilapi.xcertplay.cluster.FitMode.CROP
         }
-        var pending = ClusterScreenProfile.crop(this, source)
-        // 独立音乐在副屏模型里没有独立裁剪槽（musicVideo 同时是区域与裁剪），编辑区域槽。
+        var pendingVideo = ClusterScreenProfile.region(this, source)
+        var pendingCrop = ClusterScreenProfile.crop(this, source)
+        var editingCrop = false
+        // 独立音乐在副屏模型里没有独立裁剪槽（musicVideo 同时是区域与裁剪），只有显示框态。
         val musicSlot = source == ClusterScreenProfile.Source.MUSIC
-        fun previewProfile(crop: ClusterScreenProfile.Region): com.shilapi.xcertplay.cluster.ScreenProfile {
-            val region = com.shilapi.xcertplay.cluster.ScreenRegion(crop.x, crop.y, crop.width, crop.height)
-            return when (contentSource) {
-                com.shilapi.xcertplay.cluster.ContentSource.MAIN ->
-                    com.shilapi.xcertplay.cluster.ScreenProfile(
-                        video = com.shilapi.xcertplay.cluster.ScreenRegion.FULL,
-                        mode = mode, crop = region, source = contentSource)
-                com.shilapi.xcertplay.cluster.ContentSource.NAVIGATION ->
-                    com.shilapi.xcertplay.cluster.ScreenProfile(
-                        source = contentSource, mode = mode,
-                        navigationVideo = com.shilapi.xcertplay.cluster.ScreenRegion.FULL,
-                        navigationCrop = region)
-                com.shilapi.xcertplay.cluster.ContentSource.MUSIC ->
-                    com.shilapi.xcertplay.cluster.ScreenProfile(source = contentSource, musicVideo = region)
-            }
-        }
+
         val readout = label("", 14, MUTED)
-        fun readoutText(region: ClusterScreenProfile.Region) {
-            readout.text = "位置 ${(region.x * 100).toInt()}% ${(region.y * 100).toInt()}% · 尺寸 " +
-                "${(region.width * 100).toInt()}% × ${(region.height * 100).toInt()}%"
+        val hint = label("", 13, MUTED)
+        fun readoutText(r: ClusterScreenProfile.Region) {
+            readout.text = "位置 ${(r.x * 100).toInt()}% ${(r.y * 100).toInt()}% · 尺寸 " +
+                "${(r.width * 100).toInt()}% × ${(r.height * 100).toInt()}%"
         }
-        readoutText(pending)
-        val renderer = com.shilapi.xcertplay.cluster.SecondaryScreenRenderer(
-            this,
-            onSurface = { surface ->
-                if (surface == null) {
-                    streamType?.let { com.shilapi.xcertplay.cluster.CropPreviewBridge.release(it) }
-                } else {
-                    streamType?.let { com.shilapi.xcertplay.cluster.CropPreviewBridge.request(it, surface) }
-                }
-            },
-            onSave = {}, onCancel = {}, onExit = {})
-        renderer.applyProfile(previewProfile(pending))
-        val editor = com.shilapi.xcertplay.cluster.RegionHandleEditorView(this).apply {
-            region = com.shilapi.xcertplay.cluster.ScreenRegion(pending.x, pending.y, pending.width, pending.height)
-            // 预览本身就是裁剪结果（渲染器只显示框选内容），不再叠加压暗层。
-            dimOutside = false
-            onRegionChanged = { region ->
-                pending = ClusterScreenProfile.Region(region.x, region.y, region.width, region.height)
-                readoutText(pending)
-                renderer.applyProfile(previewProfile(pending))
+        fun hintText() {
+            hint.text = when {
+                musicSlot -> "独立音乐：拖动 / 缩放调整音乐卡片在输出屏上的位置与大小。"
+                !com.shilapi.xcertplay.cluster.CropPreviewBridge.available() ->
+                    "未连接 CarPlay，预览暂无画面；仍可编辑并保存。"
+                editingCrop -> "保留画面 · 拖动 / 裁剪：框住的部分被保留，框外裁掉；预览即输出端的裁剪结果。"
+                else -> "显示框 · 拖动 / 缩放：决定内容在输出屏上的位置与大小；框内显示的是保留画面后的内容。"
             }
         }
-        val preview = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        preview.addView(renderer, FrameLayout.LayoutParams(-1, -1))
-        preview.addView(editor, FrameLayout.LayoutParams(-1, -1))
-        val hint = label(
-            when {
-                musicSlot ->
-                    "独立音乐没有视频画面；这里调整的是音乐卡片在副屏上的位置与大小。"
-                com.shilapi.xcertplay.cluster.CropPreviewBridge.available() ->
-                    "八个手柄拖动改大小，框内拖动整体移动，框外拖动重新框选；预览即裁剪结果。"
-                else ->
-                    "未连接 CarPlay，预览暂无画面；区域数值仍可编辑并保存。"
-            },
-            13,
-            MUTED,
-        )
+
+        val previewTexture = com.shilapi.xcertplay.cluster.FramePreviewTextureView(this).apply {
+            bind(streamType)
+        }
+        fun refreshPreview(r: ClusterScreenProfile.Region) {
+            if (editingCrop || musicSlot) {
+                // 视口 = 整块画布（显示框视口），裁剪内容铺满 —— 所见即输出端结果。
+                previewTexture.layoutParams = FrameLayout.LayoutParams(canvasW.toInt(), canvasH.toInt())
+                previewTexture.applyCropGeometry(
+                    com.shilapi.xcertplay.cluster.ScreenRegion(
+                        pendingCrop.x, pendingCrop.y, pendingCrop.width, pendingCrop.height),
+                    fitMode, canvasW, canvasH)
+            } else {
+                // 视口 = 显示框矩形，框外留黑（输出屏的黑边）；内容在框内铺满/居中。
+                val left = (r.x * canvasW).toInt()
+                val top = (r.y * canvasH).toInt()
+                val w = (r.width * canvasW).toInt().coerceAtLeast(1)
+                val h = (r.height * canvasH).toInt().coerceAtLeast(1)
+                previewTexture.layoutParams = FrameLayout.LayoutParams(w, h).apply {
+                    leftMargin = left
+                    topMargin = top
+                }
+                previewTexture.applyCropGeometry(
+                    com.shilapi.xcertplay.cluster.ScreenRegion(
+                        pendingCrop.x, pendingCrop.y, pendingCrop.width, pendingCrop.height),
+                    fitMode, w.toFloat(), h.toFloat())
+            }
+        }
+
+        val editor = com.shilapi.xcertplay.cluster.RegionHandleEditorView(this).apply {
+            region = com.shilapi.xcertplay.cluster.ScreenRegion(
+                pendingVideo.x, pendingVideo.y, pendingVideo.width, pendingVideo.height)
+            dimOutside = true
+            onRegionChanged = { region ->
+                val value = ClusterScreenProfile.Region(region.x, region.y, region.width, region.height)
+                if (editingCrop) pendingCrop = value else pendingVideo = value
+                readoutText(value)
+                refreshPreview(value)
+            }
+        }
+        val canvas = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        canvas.addView(previewTexture, FrameLayout.LayoutParams(canvasW.toInt(), canvasH.toInt()))
+        canvas.addView(editor, FrameLayout.LayoutParams(-1, -1))
+
+        val videoBtn = button("显示框", false) {}
+        val cropBtn = button("保留画面", false) {}
+        fun refreshModeButtons() {
+            videoBtn.alpha = if (editingCrop) 0.45f else 1f
+            cropBtn.alpha = if (editingCrop || musicSlot) 0.45f else 1f
+        }
+        fun switchMode() {
+            refreshModeButtons()
+            val r = if (editingCrop) pendingCrop else pendingVideo
+            editor.region = com.shilapi.xcertplay.cluster.ScreenRegion(r.x, r.y, r.width, r.height)
+            readoutText(r)
+            hintText()
+            refreshPreview(r)
+        }
+        videoBtn.setOnClickListener {
+            if (!editingCrop) return@setOnClickListener
+            editingCrop = false
+            switchMode()
+        }
+        cropBtn.setOnClickListener {
+            if (editingCrop || musicSlot) return@setOnClickListener
+            editingCrop = true
+            switchMode()
+        }
+
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            addView(videoBtn)
+            if (!musicSlot) addView(cropBtn)
+        }
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(16), dp(24), dp(8))
-            addView(preview, LinearLayout.LayoutParams(previewWidth, previewHeight).apply {
+            addView(modeRow, LinearLayout.LayoutParams(-2, -2).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL })
+            addView(canvas, LinearLayout.LayoutParams(canvasW.toInt(), canvasH.toInt()).apply {
                 gravity = android.view.Gravity.CENTER_HORIZONTAL
+                topMargin = dp(8)
             })
             addView(readout, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
             addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
         }
-        fun saveCrop(region: ClusterScreenProfile.Region) {
-            if (musicSlot) ClusterScreenProfile.setRegion(this, source, region)
-            else ClusterScreenProfile.setCrop(this, source, region)
-            syncSecondaryProfile()
-        }
         appDialogBuilder()
-            .setTitle("裁剪视频画面")
+            .setTitle("${source.label} · 视频框选预览")
             .setView(body)
-            .setPositiveButton("保存并推送") { _, _ -> saveCrop(pending) }
-            .setNeutralButton("恢复完整画面") { _, _ -> saveCrop(ClusterScreenProfile.Region.FULL) }
+            .setPositiveButton("保存") { _, _ ->
+                ClusterScreenProfile.setRegion(this, source, pendingVideo)
+                if (!musicSlot) ClusterScreenProfile.setCrop(this, source, pendingCrop)
+                syncSecondaryProfile()
+            }
+            .setNeutralButton("恢复完整") { _, _ ->
+                ClusterScreenProfile.setRegion(this, source, ClusterScreenProfile.Region.FULL)
+                if (!musicSlot) ClusterScreenProfile.setCrop(this, source, ClusterScreenProfile.Region.FULL)
+                syncSecondaryProfile()
+            }
             .setNegativeButton("取消", null)
             .show()
+        switchMode()
     }
+
 
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)); tag = SPACER }
 
