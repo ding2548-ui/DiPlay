@@ -2194,23 +2194,24 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 // PSA line: 内容源与显示区域对副屏、仪表盘、中控卡三处同时生效；
                 // 裁剪画面只在副屏渲染器上成立（卡片与仪表盘用的是 TextureView 变换）。
                 secondaryScreenControls(card)
+                // 对齐 OgleaPlay：先选内容源，下面的框选显示区域 / 裁切方式 / 裁剪画面
+                // 都只针对当前选中的源操作；各源已保存的值保留在原处，切回即恢复。
                 val sources = ClusterScreenProfile.Source.entries
+                val selected = ClusterScreenProfile.source(this)
                 choice(card, "内容源", sources.map { it.label },
-                    sources.indexOf(ClusterScreenProfile.source(this)).coerceAtLeast(0), reconnects = false) {
+                    sources.indexOf(selected).coerceAtLeast(0), reconnects = false) {
                     ClusterScreenProfile.setSource(this, sources[it])
                     syncSecondaryProfile()
                     render()
                 }
-                sources.forEach { source ->
-                    card.addView(button("${source.label} · 框选显示区域", false) {
-                        showProfileRegionEditor(source)
-                    }, matchButton(6, 54))
-                    val modes = ClusterScreenProfile.ScaleMode.entries
-                    choice(card, "${source.label} · 裁切方式", modes.map { it.label },
-                        modes.indexOf(ClusterScreenProfile.scaleMode(this, source)), reconnects = false) {
-                        ClusterScreenProfile.setScaleMode(this, source, modes[it])
-                        syncSecondaryProfile()
-                    }
+                card.addView(button("${selected.label} · 框选显示区域", false) {
+                    showProfileRegionEditor(selected)
+                }, matchButton(6, 54))
+                val modes = ClusterScreenProfile.ScaleMode.entries
+                choice(card, "裁切方式", modes.map { it.label },
+                    modes.indexOf(ClusterScreenProfile.scaleMode(this, selected)), reconnects = false) {
+                    ClusterScreenProfile.setScaleMode(this, selected, modes[it])
+                    syncSecondaryProfile()
                 }
                 card.addView(button("框选裁剪画面（仅副屏）", false) { showProfileCropEditor() },
                     matchButton(6, 54))
@@ -6404,7 +6405,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         com.shilapi.xcertplay.cluster.SecondaryScreenController.push(store.load(this, display), force = true)
     }
 
-    /** 显示区域编辑：保存即写卡片/仪表盘共用的配置，并同步副屏。 */
+    /** 显示区域编辑：8 手柄画布（对齐 OgleaPlay），保存即写卡片/仪表盘共用的配置，并同步副屏。 */
     private fun showProfileRegionEditor(source: ClusterScreenProfile.Source) {
         val aspect = when (source) {
             ClusterScreenProfile.Source.MAIN ->
@@ -6415,22 +6416,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val size = previewSize(aspect)
         val previewWidth = size[0]
         val previewHeight = size[1]
-        val refW = 1000
-        val refH = (1000 / aspect).toInt().coerceAtLeast(1)
         var pending = ClusterScreenProfile.region(this, source)
         val readout = label("", 14, MUTED)
         readout.text = "位置 ${(pending.x * 100).toInt()}% ${(pending.y * 100).toInt()}% · 尺寸 " +
             "${(pending.width * 100).toInt()}% × ${(pending.height * 100).toInt()}%"
-        val editor = SafeAreaEditorView(this).apply {
-            interactive = true
-            dimOutside = false
-            setRect(ClusterScreenProfile.Region.toRect(pending, refW, refH), refW, refH)
-            onRectChanged = { rect ->
-                ClusterScreenProfile.Region.fromRect(rect, refW, refH)?.let {
-                    pending = it
-                    readout.text = "位置 ${(it.x * 100).toInt()}% ${(it.y * 100).toInt()}% · 尺寸 " +
-                        "${(it.width * 100).toInt()}% × ${(it.height * 100).toInt()}%"
-                }
+        // 归一化坐标直接进画布（Region 与 ScreenRegion 同为 0..1），不再经 SafeAreaRect 参考系换算。
+        val editor = com.shilapi.xcertplay.cluster.RegionHandleEditorView(this).apply {
+            region = com.shilapi.xcertplay.cluster.ScreenRegion(pending.x, pending.y, pending.width, pending.height)
+            dimOutside = true
+            onRegionChanged = { region ->
+                pending = ClusterScreenProfile.Region(region.x, region.y, region.width, region.height)
+                readout.text = "位置 ${(region.x * 100).toInt()}% ${(region.y * 100).toInt()}% · 尺寸 " +
+                    "${(region.width * 100).toInt()}% × ${(region.height * 100).toInt()}%"
             }
         }
         val preview = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
@@ -6472,7 +6469,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val display = store.preferredDisplay(this) ?: run {
             toast("未检测到副屏"); return
         }
-        val profile = store.load(this, display)
+        val profile = store.load(this, display).copy(
+            // 裁剪只针对当前选中的内容源（OgleaPlay 语义）；按屏 profile 里留存的 source 可能过期。
+            source = when (ClusterScreenProfile.source(this)) {
+                ClusterScreenProfile.Source.MAIN -> com.shilapi.xcertplay.cluster.ContentSource.MAIN
+                ClusterScreenProfile.Source.NAVIGATION -> com.shilapi.xcertplay.cluster.ContentSource.NAVIGATION
+                ClusterScreenProfile.Source.MUSIC -> com.shilapi.xcertplay.cluster.ContentSource.MUSIC
+            })
         val aspect = when (profile.source) {
             com.shilapi.xcertplay.cluster.ContentSource.MAIN ->
                 resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
