@@ -23,10 +23,12 @@ import android.widget.TextView
  *
  * 1. **Region** — [videoBox] is positioned inside the canvas by the active source's normalized
  *    rectangle, converted straight to `FrameLayout.LayoutParams`.
- * 2. **Crop** — the decoded frame is never re-encoded: the SurfaceView is scaled to the crop rect
- *    and then pulled by **negative margins** so exactly that sub-rectangle fills the box. That is
- *    the trick that makes "show this part of the source in this part of the panel" work without
- *    touching the decoder.
+ * 2. **Crop** — the decoded frame is never re-encoded: the SurfaceView is grown to the size the
+ *    whole frame would need for the crop rectangle to cover the box (i.e. `box / crop`), then
+ *    pulled by **negative margins** so exactly that sub-rectangle fills the box. That is the trick
+ *    that makes "show only this part of the source, at full scale" work without touching the
+ *    decoder — sizing the SurfaceView to the crop rect instead would shrink the whole frame into
+ *    the box, which is what this port used to do.
  *
  * The original also hosted a music card and a CarPlay touch forwarder; the card here is a plain
  * placeholder (the song card lives in the host's own views) and single-finger touch forwarding is
@@ -209,9 +211,17 @@ internal class SecondaryScreenRenderer(
     /**
      * `a()`: the crop geometry, exactly as the original computed it.
      *
-     * The box is [videoBox]'s size; the frame is scaled by FIT (min) or CROP (max) against the crop
-     * rectangle, then offset so the crop rect's own origin lands on the box origin — which is what
-     * the negative margins do.
+     * The box is [videoBox]'s size; [scale] is derived from the crop rectangle (FIT = min, CROP =
+     * max), then the SurfaceView is sized to the **whole** frame at that scale — `sourceWidth *
+     * scale`, not `crop.width * sourceWidth * scale`. Dividing the visible size back out by the
+     * crop fraction is what the original did on its next two instructions (`div-float` by
+     * `crop.c` / `crop.d`), and it is the difference between two very different pictures:
+     *
+     * * surface sized to the crop rect → the entire CarPlay screen is squeezed into the small box;
+     * * surface sized to the whole frame → the box shows **only** the cropped part, at full scale.
+     *
+     * The negative margins then pull the frame so `crop.x/y` lands on the box origin, and
+     * [videoBox]'s `clipChildren` hides everything outside it.
      */
     private fun applyCrop() {
         if (width <= 0 || height <= 0) return
@@ -225,8 +235,9 @@ internal class SecondaryScreenRenderer(
             FitMode.FIT -> minOf(boxW / cropW, boxH / cropH)
             FitMode.CROP -> maxOf(boxW / cropW, boxH / cropH)
         }
-        val surfaceW = (cropW * scale).toInt().coerceAtLeast(1)
-        val surfaceH = (cropH * scale).toInt().coerceAtLeast(1)
+        // Whole frame at this scale: the crop fraction must not survive into the SurfaceView size.
+        val surfaceW = (sourceWidth * scale).toInt().coerceAtLeast(1)
+        val surfaceH = (sourceHeight * scale).toInt().coerceAtLeast(1)
         val left = ((boxW - surfaceW) / 2f - crop.x * surfaceW).toInt()
         val top = ((boxH - surfaceH) / 2f - crop.y * surfaceH).toInt()
         val params = surfaceView.layoutParams

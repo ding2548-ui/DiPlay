@@ -712,6 +712,10 @@ class CarPlayHostActivity : ComponentActivity() {
         CenterMapOverlay.hostSaysVisible = { isActivityStarted }
         ShowmapOverlay.enabled = AirPlayPersistence.loadShowmapShare(this)
         ShowmapOverlay.sink = { surface -> sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ShowmapOverlay.KEY, surface) }
+        // 设置页的「裁剪视频画面」编辑器要看到实时画面：把镜像解码器借给它，对话框关闭时注销。
+        com.shilapi.xcertplay.cluster.CropPreviewBridge.attach = { type, key, surface ->
+            sink?.setMirrorSurface(type, key, surface)
+        }
         ShowmapOverlay.touchBridge = { contacts -> controller?.sendTouch(contacts) ?: false }
         ShowmapOverlay.onDiagnostic = { message -> appendLog(message) }
         // The showmap plugin (dudu's launcher) sends these, so the receiver has to be exported;
@@ -1732,6 +1736,7 @@ class CarPlayHostActivity : ComponentActivity() {
         ShowmapOverlay.hide()
         ShowmapOverlay.touchBridge = null
         ShowmapOverlay.onDiagnostic = null
+        com.shilapi.xcertplay.cluster.CropPreviewBridge.attach = null
         if (MapMirrors.sink === mirrorSink) {
             MapMirrors.sink = null
             MapMirrors.setStreamActive(false)

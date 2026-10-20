@@ -6459,8 +6459,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     /**
-     * 裁剪画面只由副屏渲染器实现（卡片与仪表盘用 TextureView 变换做 FIT/CROP，没有负 margin 层），
-     * 所以这个编辑器只写副屏的按屏 profile。
+     * 裁剪视频画面 · 副屏。
+     *
+     * 对齐 OgleaPlay 0.2.18 的编辑器：八个手柄（四角 + 四边中点）可拖，框内拖动整体平移，
+     * 框外按下拖动重新框选；画布底下垫一层 CarPlay 实时画面（[com.shilapi.xcertplay.cluster.CropPreviewBridge]
+     * 从宿主借镜像解码器），框外压暗——拖动时看到的就是裁剪后的结果，而不是凭百分比想象。
+     * 保存后热推送副屏；渲染器把整幅解码画面放大、用负 margin 平移后只露出该区域，
+     * 即「裁哪显示哪」，而不是把整幅 CarPlay 缩小塞进局部。
      */
     private fun showProfileCropEditor() {
         val store = com.shilapi.xcertplay.cluster.ScreenProfileStore
@@ -6477,26 +6482,56 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val size = previewSize(aspect)
         val previewWidth = size[0]
         val previewHeight = size[1]
-        val refW = 1000
-        val refH = (1000 / aspect).toInt().coerceAtLeast(1)
+        val streamType = profile.source.streamType
         var pending = profile.activeCrop
         val readout = label("", 14, MUTED)
         readout.text = "位置 ${(pending.x * 100).toInt()}% ${(pending.y * 100).toInt()}% · 尺寸 " +
             "${(pending.width * 100).toInt()}% × ${(pending.height * 100).toInt()}%"
-        val editor = SafeAreaEditorView(this).apply {
-            interactive = true
-            dimOutside = false
-            setRect(screenRect(pending, refW, refH), refW, refH)
-            onRectChanged = { rect ->
-                screenRegion(rect, refW, refH)?.let {
-                    pending = it
-                    readout.text = "位置 ${(it.x * 100).toInt()}% ${(it.y * 100).toInt()}% · 尺寸 " +
-                        "${(it.width * 100).toInt()}% × ${(it.height * 100).toInt()}%"
+        // 垫底的实时画面：与副屏渲染器同一条镜像通路，画布上看到的就是副屏将显示的内容。
+        val livePreview = android.view.SurfaceView(this).apply {
+            holder.addCallback(object : android.view.SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+                    streamType?.let {
+                        com.shilapi.xcertplay.cluster.CropPreviewBridge.request(it, holder.surface)
+                    }
                 }
+
+                override fun surfaceChanged(
+                    holder: android.view.SurfaceHolder,
+                    format: Int,
+                    surfaceWidth: Int,
+                    surfaceHeight: Int,
+                ) = Unit
+
+                override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                    streamType?.let { com.shilapi.xcertplay.cluster.CropPreviewBridge.release(it) }
+                }
+            })
+        }
+        val editor = com.shilapi.xcertplay.cluster.RegionHandleEditorView(this).apply {
+            region = pending
+            dimOutside = true
+            onRegionChanged = { region ->
+                pending = region
+                readout.text = "位置 ${(region.x * 100).toInt()}% ${(region.y * 100).toInt()}% · 尺寸 " +
+                    "${(region.width * 100).toInt()}% × ${(region.height * 100).toInt()}%"
             }
         }
         val preview = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        preview.addView(editor)
+        preview.addView(livePreview, FrameLayout.LayoutParams(-1, -1))
+        preview.addView(editor, FrameLayout.LayoutParams(-1, -1))
+        val hint = label(
+            when {
+                streamType == null ->
+                    "独立音乐没有视频画面；框外压暗的部分即会被裁掉。"
+                com.shilapi.xcertplay.cluster.CropPreviewBridge.available() ->
+                    "八个手柄拖动改大小，框内拖动整体移动，框外拖动重新框选；框外压暗即裁剪结果。"
+                else ->
+                    "未连接 CarPlay，预览为黑屏；区域数值仍可编辑并保存。"
+            },
+            13,
+            MUTED,
+        )
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(16), dp(24), dp(8))
@@ -6504,6 +6539,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 gravity = android.view.Gravity.CENTER_HORIZONTAL
             })
             addView(readout, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+            addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
         }
         appDialogBuilder()
             .setTitle("裁剪视频画面 · 副屏")
@@ -6528,33 +6564,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
             .setNegativeButton("取消", null)
             .show()
-    }
-
-    /** ScreenRegion ↔ SafeAreaRect：框选编辑器用像素参考系，按屏 profile 用归一化区域。 */
-    private fun screenRect(
-        region: com.shilapi.xcertplay.cluster.ScreenRegion,
-        refW: Int,
-        refH: Int,
-    ): com.shilapi.xcertplay.airplay.SafeAreaRect =
-        com.shilapi.xcertplay.airplay.SafeAreaRect(
-            (region.x * refW).toInt(), (region.y * refH).toInt(),
-            ((region.x + region.width) * refW).toInt(),
-            ((region.y + region.height) * refH).toInt(),
-        )
-
-    private fun screenRegion(
-        rect: com.shilapi.xcertplay.airplay.SafeAreaRect,
-        refW: Int,
-        refH: Int,
-    ): com.shilapi.xcertplay.cluster.ScreenRegion? {
-        if (refW <= 0 || refH <= 0) return null
-        return runCatching {
-            com.shilapi.xcertplay.cluster.ScreenRegion(
-                rect.left / refW.toFloat(), rect.top / refH.toFloat(),
-                (rect.right - rect.left) / refW.toFloat(),
-                (rect.bottom - rect.top) / refH.toFloat(),
-            )
-        }.getOrNull()
     }
 
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)); tag = SPACER }
