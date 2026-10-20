@@ -209,19 +209,18 @@ internal class SecondaryScreenRenderer(
     }
 
     /**
-     * `a()`: the crop geometry, exactly as the original computed it.
+     * `a()`: the crop geometry.
      *
      * The box is [videoBox]'s size; [scale] is derived from the crop rectangle (FIT = min, CROP =
      * max), then the SurfaceView is sized to the **whole** frame at that scale — `sourceWidth *
-     * scale`, not `crop.width * sourceWidth * scale`. Dividing the visible size back out by the
-     * crop fraction is what the original did on its next two instructions (`div-float` by
-     * `crop.c` / `crop.d`), and it is the difference between two very different pictures:
+     * scale`, not `crop.width * sourceWidth * scale`. Sizing the SurfaceView to the crop rect
+     * instead would shrink the whole frame into the box.
      *
-     * * surface sized to the crop rect → the entire CarPlay screen is squeezed into the small box;
-     * * surface sized to the whole frame → the box shows **only** the cropped part, at full scale.
-     *
-     * The negative margins then pull the frame so `crop.x/y` lands on the box origin, and
-     * [videoBox]'s `clipChildren` hides everything outside it.
+     * The margins then pull the frame so the **crop content** is centered in the box:
+     * `crop.width * scale` of the box is covered exactly (CROP: the other axis overflows and is
+     * clipped away by [videoBox]'s `clipChildren`; FIT: symmetric letterbox). Centering the whole
+     * frame instead (`(boxW - surfaceW) / 2`) leaves the crop content covering only a sub-rect of
+     * the box with black around it — the bug this port shipped with first.
      */
     private fun applyCrop() {
         if (width <= 0 || height <= 0) return
@@ -238,8 +237,8 @@ internal class SecondaryScreenRenderer(
         // Whole frame at this scale: the crop fraction must not survive into the SurfaceView size.
         val surfaceW = (sourceWidth * scale).toInt().coerceAtLeast(1)
         val surfaceH = (sourceHeight * scale).toInt().coerceAtLeast(1)
-        val left = ((boxW - surfaceW) / 2f - crop.x * surfaceW).toInt()
-        val top = ((boxH - surfaceH) / 2f - crop.y * surfaceH).toInt()
+        val left = ((boxW - crop.width * surfaceW) / 2f - crop.x * surfaceW).toInt()
+        val top = ((boxH - crop.height * surfaceH) / 2f - crop.y * surfaceH).toInt()
         val params = surfaceView.layoutParams
         if (params is LayoutParams && params.width == surfaceW && params.height == surfaceH &&
             params.leftMargin == left && params.topMargin == top) return

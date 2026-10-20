@@ -233,14 +233,17 @@ internal object ScreenProfileStore {
     }
 
     /**
-     * The card/cluster profile is what the settings page edits, and the same content source and
-     * regions must drive every output. This mirrors them into [display]'s profile, keeping the
-     * crop rectangles (which only the secondary renderer can realize).
+     * The card/cluster profile is what the settings page edits, and the same content source,
+     * regions and crop rectangles must drive every output (secondary renderer realizes them with
+     * the negative-margin geometry, cluster/card with TextureView transforms).
      */
     fun syncFromClusterProfile(context: Context, display: Display) {
-        val previous = load(context, display)
         fun region(source: ClusterScreenProfile.Source): ScreenRegion {
             val value = ClusterScreenProfile.region(context, source)
+            return ScreenRegion(value.x, value.y, value.width, value.height)
+        }
+        fun crop(source: ClusterScreenProfile.Source): ScreenRegion {
+            val value = ClusterScreenProfile.crop(context, source)
             return ScreenRegion(value.x, value.y, value.width, value.height)
         }
         val mode = when (ClusterScreenProfile.scaleMode(context, ClusterScreenProfile.source(context))) {
@@ -255,10 +258,10 @@ internal object ScreenProfileStore {
         save(context, display, ScreenProfile(
             video = region(ClusterScreenProfile.Source.MAIN),
             mode = mode,
-            crop = previous.crop,
+            crop = crop(ClusterScreenProfile.Source.MAIN),
             source = source,
             navigationVideo = region(ClusterScreenProfile.Source.NAVIGATION),
-            navigationCrop = previous.navigationCrop,
+            navigationCrop = crop(ClusterScreenProfile.Source.NAVIGATION),
             musicVideo = region(ClusterScreenProfile.Source.MUSIC),
         ))
     }

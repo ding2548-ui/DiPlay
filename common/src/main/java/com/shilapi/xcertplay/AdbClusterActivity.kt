@@ -118,7 +118,8 @@ class AdbClusterActivity : Activity() {
                 resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
             else -> 1920.0 / 720.0
         }
-        ClusterProfileLayout.applyTransform(texture, frameAspect, ClusterScreenProfile.scaleMode(this, source))
+        ClusterProfileLayout.applyTransform(texture, frameAspect, ClusterScreenProfile.scaleMode(this, source),
+            ClusterScreenProfile.crop(this, source))
         updateStream()
     }
 

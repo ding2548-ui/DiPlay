@@ -344,7 +344,8 @@ internal object CenterMapOverlay {
             ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
             else -> return
         }
-        ClusterProfileLayout.applyTransform(view, frameAspect, ClusterScreenProfile.scaleMode(context, source))
+        ClusterProfileLayout.applyTransform(view, frameAspect, ClusterScreenProfile.scaleMode(context, source),
+            ClusterScreenProfile.crop(context, source))
     }
 
     // PSA line: in-place region calibration on the live card — an edge editor overlays the card and

@@ -42,10 +42,45 @@ internal object ClusterProfileLayout {
 
     /** Maps the decoded frame into [view]: FIT letterboxes, CROP fills and clips.
      *  The TextureView stretches its buffer to the view by default, so the scale factors work
-     *  purely in view space against the frame's aspect ratio. */
-    fun applyTransform(view: TextureView?, frameAspect: Double, mode: ClusterScreenProfile.ScaleMode) {
+     *  purely in view space against the frame's aspect ratio.
+     *
+     *  [crop] 限定源画面里保留的归一化区域：变换把该区域映射到视图上（FIT 按裁剪内容宽高比
+     *  居中留黑边，CROP 铺满并裁掉溢出），被裁掉的部分不再参与显示——与副屏渲染器的
+     *  「整幅放大 + 负 margin 只露裁剪区域」同一语义。null 或全幅时走原整幅映射。 */
+    fun applyTransform(
+        view: TextureView?,
+        frameAspect: Double,
+        mode: ClusterScreenProfile.ScaleMode,
+        crop: ClusterScreenProfile.Region? = null,
+    ) {
         view ?: return
         if (view.width <= 0 || view.height <= 0) return
+        val full = crop == null || (crop.x <= 0.001f && crop.y <= 0.001f &&
+            crop.width >= 0.999f && crop.height >= 0.999f)
+        if (full) {
+            applyWholeFrameTransform(view, frameAspect, mode)
+            return
+        }
+        val c = crop!!
+        val zoom = when (mode) {
+            ClusterScreenProfile.ScaleMode.FIT ->
+                minOf(1f / c.width, 1f / c.height)
+            ClusterScreenProfile.ScaleMode.CROP ->
+                maxOf(1f / c.width, 1f / c.height)
+        }
+        val matrix = android.graphics.Matrix()
+        matrix.setScale(zoom, zoom)
+        matrix.postTranslate(
+            (view.width - c.width * view.width * zoom) / 2f - c.x * view.width * zoom,
+            (view.height - c.height * view.height * zoom) / 2f - c.y * view.height * zoom)
+        view.setTransform(matrix)
+    }
+
+    private fun applyWholeFrameTransform(
+        view: TextureView,
+        frameAspect: Double,
+        mode: ClusterScreenProfile.ScaleMode,
+    ) {
         if (!frameAspect.isFinite() || frameAspect <= 0) return
         val viewAspect = view.width.toDouble() / view.height.toDouble()
         var scaleX = 1f
