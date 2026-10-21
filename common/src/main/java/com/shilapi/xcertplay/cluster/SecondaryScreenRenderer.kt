@@ -44,6 +44,7 @@ internal class SecondaryScreenRenderer(
 ) : FrameLayout(context) {
 
     private val videoBox = FrameLayout(context).apply { clipChildren = true }
+    private val cropMask = com.shilapi.xcertplay.CropMaskView(context)
     private val surfaceView = SurfaceView(context).apply { setZOrderMediaOverlay(true) }
     private val status = TextView(context).apply {
         setBackgroundColor(Color.BLACK)
@@ -100,6 +101,8 @@ internal class SecondaryScreenRenderer(
     init {
         clipChildren = true
         videoBox.addView(surfaceView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        // FIT+裁剪时内容矩形两侧落在整幅画面内部，露出相邻内容；黑遮罩盖住内容矩形之外。
+        videoBox.addView(cropMask, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         videoBox.addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(videoBox, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(musicCard, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -246,6 +249,12 @@ internal class SecondaryScreenRenderer(
             leftMargin = left
             topMargin = top
         }
+        // 内容矩形（相对 videoBox）：矩形之外被遮罩涂黑——FIT 留边是黑边，而不是相邻画面。
+        val contentL = ((boxW - crop.width * surfaceW) / 2f).coerceAtLeast(0f)
+        val contentT = ((boxH - crop.height * surfaceH) / 2f).coerceAtLeast(0f)
+        cropMask.setGeometry(
+            contentL, contentT,
+            contentL + crop.width * surfaceW, contentT + crop.height * surfaceH)
     }
 
     // --- input -----------------------------------------------------------------------------

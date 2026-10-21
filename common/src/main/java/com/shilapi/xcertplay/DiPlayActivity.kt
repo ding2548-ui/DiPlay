@@ -6454,6 +6454,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val previewTexture = com.shilapi.xcertplay.cluster.FramePreviewTextureView(this).apply {
             bind(streamType)
         }
+        // 保留画面态 FIT 时内容矩形两侧露相邻画面，与输出端一致地遮黑；显示框态视口=框本身，无需遮。
+        val previewMask = com.shilapi.xcertplay.CropMaskView(this)
         fun refreshPreview(r: ClusterScreenProfile.Region) {
             if (editingCrop || musicSlot) {
                 // 视口 = 整块画布（显示框视口），裁剪内容铺满 —— 所见即输出端结果。
@@ -6462,6 +6464,14 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     com.shilapi.xcertplay.cluster.ScreenRegion(
                         pendingCrop.x, pendingCrop.y, pendingCrop.width, pendingCrop.height),
                     fitMode, canvasW, canvasH)
+                val crop = pendingCrop
+                val contentW = crop.width * canvasW * (if (fitMode == com.shilapi.xcertplay.cluster.FitMode.FIT)
+                    minOf(1f / crop.width, 1f / crop.height) else maxOf(1f / crop.width, 1f / crop.height))
+                val contentH = crop.height * canvasH * (if (fitMode == com.shilapi.xcertplay.cluster.FitMode.FIT)
+                    minOf(1f / crop.width, 1f / crop.height) else maxOf(1f / crop.width, 1f / crop.height))
+                previewMask.setGeometry(
+                    (canvasW - contentW) / 2f, (canvasH - contentH) / 2f,
+                    (canvasW + contentW) / 2f, (canvasH + contentH) / 2f)
             } else {
                 // 视口 = 显示框矩形，框外留黑（输出屏的黑边）；内容在框内铺满/居中。
                 val left = (r.x * canvasW).toInt()
@@ -6476,6 +6486,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     com.shilapi.xcertplay.cluster.ScreenRegion(
                         pendingCrop.x, pendingCrop.y, pendingCrop.width, pendingCrop.height),
                     fitMode, w.toFloat(), h.toFloat())
+                previewMask.clear()
             }
         }
 
@@ -6492,6 +6503,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         val canvas = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         canvas.addView(previewTexture, FrameLayout.LayoutParams(canvasW.toInt(), canvasH.toInt()))
+        canvas.addView(previewMask, FrameLayout.LayoutParams(-1, -1))
         canvas.addView(editor, FrameLayout.LayoutParams(-1, -1))
 
         val videoBtn = button("显示框", false) {}

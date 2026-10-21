@@ -21,6 +21,7 @@ class AdbClusterActivity : Activity() {
     private var waiting: TextView? = null
     private var surface: Surface? = null
     private var videoTexture: ClusterVideoTexture? = null
+    private var cropMask: CropMaskView? = null
     private var turnCard: ClusterTurnCardView? = null
     private var safeAreaPreview: SafeAreaEditorView? = null
     internal var routeStatus = ""
@@ -50,6 +51,10 @@ class AdbClusterActivity : Activity() {
         val legacy = AirPlayPersistence.loadLegacyClusterEnabled(this)
         val region = FrameLayout(this).also { videoRegion = it }
         region.addView(video, FrameLayout.LayoutParams(-1, -1))
+        // FIT+裁剪时内容矩形两侧露出相邻画面，黑遮罩盖住内容矩形之外（音乐卡片在其上，不受影响）。
+        val mask = CropMaskView(this)
+        region.addView(mask, FrameLayout.LayoutParams(-1, -1))
+        cropMask = mask
         root.addView(region, FrameLayout.LayoutParams(-1, -1))
         if (legacy) root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             LegacyClusterLayout.plan(root.width, root.height)?.let { plan ->
@@ -109,6 +114,7 @@ class AdbClusterActivity : Activity() {
         if (source == ClusterScreenProfile.Source.MUSIC) {
             texture.visibility = View.GONE
             waiting?.visibility = View.GONE
+            cropMask?.clear()
             return
         }
         texture.visibility = View.VISIBLE
@@ -119,7 +125,7 @@ class AdbClusterActivity : Activity() {
             else -> 1920.0 / 720.0
         }
         ClusterProfileLayout.applyTransform(texture, frameAspect, ClusterScreenProfile.scaleMode(this, source),
-            ClusterScreenProfile.crop(this, source))
+            ClusterScreenProfile.crop(this, source), cropMask)
         updateStream()
     }
 

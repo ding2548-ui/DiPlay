@@ -52,6 +52,7 @@ internal object ClusterProfileLayout {
         frameAspect: Double,
         mode: ClusterScreenProfile.ScaleMode,
         crop: ClusterScreenProfile.Region? = null,
+        mask: CropMaskView? = null,
     ) {
         view ?: return
         if (view.width <= 0 || view.height <= 0) return
@@ -59,6 +60,7 @@ internal object ClusterProfileLayout {
             crop.width >= 0.999f && crop.height >= 0.999f)
         if (full) {
             applyWholeFrameTransform(view, frameAspect, mode)
+            mask?.clear()
             return
         }
         val c = crop!!
@@ -74,6 +76,12 @@ internal object ClusterProfileLayout {
             (view.width - c.width * view.width * zoom) / 2f - c.x * view.width * zoom,
             (view.height - c.height * view.height * zoom) / 2f - c.y * view.height * zoom)
         view.setTransform(matrix)
+        // 内容矩形：FIT 时小于 view，两侧是整幅画面内部的相邻内容——遮罩涂黑，而不是露出来。
+        val contentW = c.width * view.width * zoom
+        val contentH = c.height * view.height * zoom
+        val contentL = (view.width - contentW) / 2f
+        val contentT = (view.height - contentH) / 2f
+        mask?.setGeometry(contentL, contentT, contentL + contentW, contentT + contentH)
     }
 
     private fun applyWholeFrameTransform(
