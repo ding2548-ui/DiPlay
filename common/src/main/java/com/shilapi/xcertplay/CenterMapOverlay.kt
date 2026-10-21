@@ -334,7 +334,10 @@ internal object CenterMapOverlay {
         val context = appContext ?: return
         if (layer.width <= 0 || layer.height <= 0) return
         val source = ClusterScreenProfile.source(context)
-        ClusterProfileLayout.applyRegion(video, ClusterScreenProfile.region(context, source), layer)
+        val regionValue = ClusterScreenProfile.region(context, source)
+        ClusterProfileLayout.applyRegion(video, regionValue, layer)
+        // 遮罩与 video 视图同区域定位：内容矩形是 video 视图坐标，显示框不是全屏时两者必须共坐标系。
+        cropMask?.let { ClusterProfileLayout.applyRegion(it, regionValue, layer) }
         ClusterProfileLayout.applyRegion(musicView, ClusterScreenProfile.region(context, ClusterScreenProfile.Source.MUSIC), layer)
     }
 

@@ -6473,7 +6473,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     (canvasW - contentW) / 2f, (canvasH - contentH) / 2f,
                     (canvasW + contentW) / 2f, (canvasH + contentH) / 2f)
             } else {
-                // 视口 = 显示框矩形，框外留黑（输出屏的黑边）；内容在框内铺满/居中。
+                // 视口 = 显示框矩形，框外留黑（输出屏的黑边）；框内 FIT/CROP 的留边同样涂黑——
+                // 预览与输出端一致，不露出裁剪框旁边的相邻画面。遮罩坐标 = 画布坐标，
+                // 内容矩形 = 视口原点 + 视口内内容矩形（与 applyCropGeometry 同一公式）。
                 val left = (r.x * canvasW).toInt()
                 val top = (r.y * canvasH).toInt()
                 val w = (r.width * canvasW).toInt().coerceAtLeast(1)
@@ -6486,7 +6488,20 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     com.shilapi.xcertplay.cluster.ScreenRegion(
                         pendingCrop.x, pendingCrop.y, pendingCrop.width, pendingCrop.height),
                     fitMode, w.toFloat(), h.toFloat())
-                previewMask.clear()
+                val crop = pendingCrop
+                val cw = crop.width * w
+                val ch = crop.height * h
+                if (cw > 0f && ch > 0f) {
+                    val zoom = if (fitMode == com.shilapi.xcertplay.cluster.FitMode.FIT)
+                        minOf(w / cw, h / ch) else maxOf(w / cw, h / ch)
+                    val contentW = cw * zoom
+                    val contentH = ch * zoom
+                    previewMask.setGeometry(
+                        left + (w - contentW) / 2f, top + (h - contentH) / 2f,
+                        left + (w + contentW) / 2f, top + (h + contentH) / 2f)
+                } else {
+                    previewMask.clear()
+                }
             }
         }
 

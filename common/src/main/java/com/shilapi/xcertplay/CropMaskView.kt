@@ -48,6 +48,8 @@ class CropMaskView(context: Context) : View(context) {
         val t = top.coerceIn(0f, h)
         val r = right.coerceIn(l, w)
         val b = bottom.coerceIn(t, h)
+        // clear() 后的退化矩形（r==l、b==t）不画：否则 b=0 < h 的边带判断会把整个 view 涂黑。
+        if (r <= l || b <= t) return
         if (l <= 0f && t <= 0f && r >= w && b >= h) return
         if (t > 0f) canvas.drawRect(0f, 0f, w, t, paint)
         if (b < h) canvas.drawRect(0f, b, w, h, paint)

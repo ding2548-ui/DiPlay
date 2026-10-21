@@ -118,7 +118,11 @@ class AdbClusterActivity : Activity() {
             return
         }
         texture.visibility = View.VISIBLE
-        ClusterProfileLayout.applyRegion(texture, ClusterScreenProfile.region(this, source), region)
+        val regionValue = ClusterScreenProfile.region(this, source)
+        ClusterProfileLayout.applyRegion(texture, regionValue, region)
+        // 遮罩与 video 视图同区域定位：applyTransform 的内容矩形是 video 视图坐标，
+        // 显示框不是全屏时两者必须共坐标系，否则遮罩整体错位、留边方向露出相邻画面。
+        cropMask?.let { ClusterProfileLayout.applyRegion(it, regionValue, region) }
         val frameAspect = when (source) {
             ClusterScreenProfile.Source.MAIN ->
                 resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
