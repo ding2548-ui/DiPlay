@@ -119,6 +119,11 @@ class AdbClusterActivity : Activity() {
         }
         texture.visibility = View.VISIBLE
         val regionValue = ClusterScreenProfile.region(this, source)
+        val cropValue = ClusterScreenProfile.crop(this, source)
+        android.util.Log.i("DiPlay-Crop",
+            "dashboard apply source=$source container=${region.width}x${region.height} " +
+                "region=$regionValue crop=$cropValue mode=${ClusterScreenProfile.scaleMode(this, source)} " +
+                "texture=${texture.width}x${texture.height}")
         ClusterProfileLayout.applyRegion(texture, regionValue, region)
         // 遮罩与 video 视图同区域定位：applyTransform 的内容矩形是 video 视图坐标，
         // 显示框不是全屏时两者必须共坐标系，否则遮罩整体错位、留边方向露出相邻画面。
@@ -129,7 +134,7 @@ class AdbClusterActivity : Activity() {
             else -> 1920.0 / 720.0
         }
         ClusterProfileLayout.applyTransform(texture, frameAspect, ClusterScreenProfile.scaleMode(this, source),
-            ClusterScreenProfile.crop(this, source), cropMask)
+            cropValue, cropMask)
         updateStream()
     }
 

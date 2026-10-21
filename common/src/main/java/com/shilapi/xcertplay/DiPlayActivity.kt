@@ -6567,6 +6567,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             .setTitle("${source.label} · 视频框选预览")
             .setView(body)
             .setPositiveButton("保存") { _, _ ->
+                android.util.Log.i("DiPlay-Crop",
+                    "editor save source=$source video=$pendingVideo crop=$pendingCrop mode=$fitMode")
                 ClusterScreenProfile.setRegion(this, source, pendingVideo)
                 if (!musicSlot) ClusterScreenProfile.setCrop(this, source, pendingCrop)
                 syncSecondaryProfile()
