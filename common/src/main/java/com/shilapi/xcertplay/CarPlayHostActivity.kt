@@ -1756,6 +1756,7 @@ class CarPlayHostActivity : ComponentActivity() {
         sessionLog?.append("Activity destroyed")
         sessionLog?.close()
         sessionLog = null
+        CropDiagLog.sink = null
         super.onDestroy()
     }
 
@@ -6256,6 +6257,7 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         }
         sessionLog = activeLog
+        CropDiagLog.sink = { message -> appendFileLog(message) }
     }
 
     private fun refreshLogView(nowMillis: Long) {

@@ -242,7 +242,7 @@ internal class SecondaryScreenRenderer(
         val surfaceH = (sourceHeight * scale).toInt().coerceAtLeast(1)
         val left = ((boxW - crop.width * surfaceW) / 2f - crop.x * surfaceW).toInt()
         val top = ((boxH - crop.height * surfaceH) / 2f - crop.y * surfaceH).toInt()
-        android.util.Log.i("DiPlay-Crop",
+        CropDiagLog.log(
             "secondary applyCrop box=${boxW}x${boxH} src=${sourceWidth}x${sourceHeight} crop=$crop " +
                 "scale=$scale surface=${surfaceW}x${surfaceH} margin=[$left,$top]")
         val params = surfaceView.layoutParams

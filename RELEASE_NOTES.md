@@ -153,6 +153,11 @@ Android 7.1.2（API 25）/ Qualcomm msm8953 车机上的 CarPlay 接收端。
 - **裁剪诊断日志（临时）** 🩺 beta-321：beta-319 后仪表盘 FIT+裁剪仍有相邻画面露出的反馈，
   全链路埋 `DiPlay-Crop` 标签日志定位——编辑器保存值 / 仪表盘读回值与容器、纹理尺寸 /
   变换内容矩形 / 副屏渲染器几何。**`adb logcat -s DiPlay-Crop`** 取证，定位后删除。
+- **诊断日志通道修正** 🩺 beta-322：beta-321 的埋点走 `Log.i`，而诊断报告只收 sessionLog
+  通道（Log.i 不进报告）——用户导出的报告里一条埋点都没有。改为 `CropDiagLog` 静态桥：
+  同写 logcat（`adb logcat -s DiPlay-Crop` 仍可用）与宿主 sessionLog，报告直接可见
+  `editor save` / `dashboard apply` / `applyTransform` / `cluster surface` /
+  `secondary applyCrop` 五类行，导出报告即可三点对照定位丢环。定位后删除插桩。
 - **裁剪语义修正：只显示框选内容，框外不再黑屏** 🔧：副屏渲染器把整幅解码画面放大后，
   平移量改为**把裁剪内容居中铺满视频盒**（此前错把整幅画面居中，裁剪内容只占盒子一角、
   其余全黑）；「裁切方式=裁满」时框选内容铺满盒子、溢出裁掉，无黑边。

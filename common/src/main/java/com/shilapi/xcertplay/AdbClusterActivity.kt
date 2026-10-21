@@ -120,7 +120,7 @@ class AdbClusterActivity : Activity() {
         texture.visibility = View.VISIBLE
         val regionValue = ClusterScreenProfile.region(this, source)
         val cropValue = ClusterScreenProfile.crop(this, source)
-        android.util.Log.i("DiPlay-Crop",
+        CropDiagLog.log(
             "dashboard apply source=$source container=${region.width}x${region.height} " +
                 "region=$regionValue crop=$cropValue mode=${ClusterScreenProfile.scaleMode(this, source)} " +
                 "texture=${texture.width}x${texture.height}")

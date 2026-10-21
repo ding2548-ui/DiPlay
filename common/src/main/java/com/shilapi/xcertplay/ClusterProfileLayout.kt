@@ -59,7 +59,7 @@ internal object ClusterProfileLayout {
         val full = crop == null || (crop.x <= 0.001f && crop.y <= 0.001f &&
             crop.width >= 0.999f && crop.height >= 0.999f)
         if (full) {
-            android.util.Log.i("DiPlay-Crop",
+            CropDiagLog.log(
                 "applyTransform FULL view=${view.width}x${view.height} aspect=$frameAspect mode=$mode")
             applyWholeFrameTransform(view, frameAspect, mode)
             mask?.clear()
@@ -84,7 +84,7 @@ internal object ClusterProfileLayout {
         val contentL = (view.width - contentW) / 2f
         val contentT = (view.height - contentH) / 2f
         mask?.setGeometry(contentL, contentT, contentL + contentW, contentT + contentH)
-        android.util.Log.i("DiPlay-Crop",
+        CropDiagLog.log(
             "applyTransform crop view=${view.width}x${view.height} mode=$mode crop=$crop zoom=$zoom " +
                 "content=[$contentL,$contentT,${contentL + contentW},${contentT + contentH}]")
     }
