@@ -358,7 +358,7 @@
     <string name="saving_report">正在保存报告…</string>
     <string name="security">安全类型</string>
     <string name="selecting_carplay_configuration">正在选择 CarPlay 配置</string>
-    <string name="sends_precise_android_location_as_carplay_gps_data_when_th">iPhone 请求时，将 Android 精确位置作为 CarPlay GPS 数据发送。</string>
+    <string name="sends_precise_android_location_as_carplay_gps_data_when_th">只把车机自己的 GPS 位置作为 CarPlay GPS 数据发给 iPhone（不再混用基站/Wi-Fi 定位）。车机完全没有定位时，iPhone 会退回用自身 GPS，这是系统行为。</string>
     <string name="server_address">服务器地址</string>
     <string name="set">设置</string>
     <string name="set_up_once_your_details_stay_saved_for_the_next_drive_cha">只需设置一次，信息会保存供下次驾驶使用。更改将在下次连接时生效。</string>
@@ -516,8 +516,12 @@
     <string name="adb_vehicle_gear_unreadable">此固件上无法读取挡位。</string>
     <string name="advanced_vehicle_data">高级车辆数据</string>
     <string name="hide_advanced_vehicle_data">收起高级车辆数据</string>
-    <string name="advanced_vehicle_data_description">可使用 DiLink 5.0 默认数据读取，或探测旧版车机字段；所有操作均为只读。</string>
+    <string name="advanced_vehicle_data_description">零跑车机走车自己的 CAN 广播（无需 ADB）；BYD 车机可选 DiLink 5.0 默认数据读取，或探测旧版车机字段。所有操作均为只读。</string>
     <string name="vehicle_data_mode">车辆数据模式</string>
+    <string name="vehicle_data_mode_leapmotor">零跑 CAN · 专属协议（无需 ADB）</string>
+    <string name="leapmotor_vehicle_data_waiting">等待 CAN 信号：需车辆通电，且已建立过一次 CarPlay 连接（1 Hz 轮询随会话启动）。零跑车机没有 adbd，档位/车速/电量全部来自 leapmotor.cantoapp.update 广播。</string>
+    <string name="leapmotor_vehicle_data_reading">CAN 信号：档位 %1$s · 车速 %2$s km/h · 电量 %3$s%%</string>
+    <string name="leapmotor_vehicle_data_hint">驻车播放视频按 N 挡判定（BYD 用 P 挡）；零跑只上报 R/N/D，没有 P 挡读数。</string>
     <string name="vehicle_data_mode_default">默认模式 · 已在 DiLink 5.0 车机验证</string>
     <string name="vehicle_data_mode_legacy">旧版车机探测 · 已在 13 控制器 / DiLink 3.0 车机实测</string>
     <string name="adb_not_checked">尚未检测 ADB。</string>
@@ -547,7 +551,7 @@
     <string name="wheel_speed_for_tunnels">隧道中的车轮速度</string>
     <string name="wheel_speed_for_tunnels_description">开启“向 iPhone 报告位置”后，DiPlay 还会发送车轮速度和挡位，让 Apple 地图在隧道和停车场里也能继续推算你的位置。会重新连接 CarPlay。需要在车机上开启网络 ADB。</string>
     <string name="video_while_parked">驻车时播放视频</string>
-    <string name="video_while_parked_description">iOS 27：在 iPhone 上投送到 CarPlay 的视频会在车辆处于 P 挡时在车机屏幕上播放。挂出 P 挡时播放器会关闭；没有 ADB 时视频保持关闭，iPhone 只播放声音。普通 HTTPS 视频（例如来自 Safari）可以播放；受 FairPlay 保护的视频（例如 Apple TV+）需要获得授权的接收器，在这里无法播放。会重新连接 CarPlay。需要车机开启网络 ADB。</string>
+    <string name="video_while_parked_description">iOS 27：在 iPhone 上投送到 CarPlay 的视频会在车辆驻车时于车机屏幕上播放。驻车档位按车型判定：BYD 用 P 挡（需要车机开启网络 ADB）；零跑用 N 挡（走 CAN 广播，无需 ADB）。挂出该档位时播放器会关闭；读不到档位时视频保持关闭，iPhone 只播放声音。普通 HTTPS 视频（例如来自 Safari）可以播放；受 FairPlay 保护的视频（例如 Apple TV+）需要获得授权的接收器，在这里无法播放。会重新连接 CarPlay。</string>
     <string name="cluster_song">仪表盘显示歌曲</string>
     <string name="cluster_song_description">CarPlay 正在播放的歌曲名和歌手会显示在仪表盘的音乐卡片中，并同步播放和暂停状态。卡片以比亚迪的“其他”音源显示，因为仪表盘不会绘制 CarPlay 自身的音源。立即生效。需要车机开启网络 ADB。</string>
     <string name="video_back_to_carplay">返回 CarPlay</string>
@@ -596,6 +600,7 @@
     <string name="btn_open_overlay_setting">前往开启【显示在其他应用上层】</string>
     <string name="manual_grant_cmd_hint">或在电脑终端执行以下 ADB 命令一键授权：</string>
     <string name="adb_cluster_activity_label">仪表地图</string>
+    <string name="secondary_screen_label">副屏显示</string>
     <string name="adb_cluster_activity_mode">DiLink 4 仪表视频（ADB，实验性）</string>
     <string name="adb_cluster_activity_description">通过内置ADB直接在已验证仪表副屏启动地图。请先授权ADB，再重新连接iPhone。</string>
     <string name="adb_cluster_authorize">授权 ADB / 重试仪表移动</string>
@@ -1067,6 +1072,7 @@
     <string name="settings_ambient_palette">原车颜色编号（多选）</string>
     <string name="settings_ambient_palette_summary">颜色 · 已选%1$d种</string>
     <string name="settings_ambient_select_all">全选</string>
+    <string name="settings_ambient_deselect_all">取消全选</string>
     <string name="settings_ambient_brightness">亮度上限</string>
     <string name="settings_ambient_car_rhythm_feed">向车辆律动发送音乐数据（较旧的车机）</string>
     <string name="settings_ambient_car_rhythm_feed_description">在部分车机（如 2023 款汉）上，车辆的律动会启动但灯光保持熄灭，因为车辆不会为 CarPlay 音乐生成自己的频谱。此选项会把正在播放音乐的 16 个频段发送给车辆的灯光控制器，让车辆自身的律动（包括副驾驶一侧的仪表台）随之变化。仅在上方的车辆音乐律动开启时有效，并且需要车辆的网络 ADB。</string>

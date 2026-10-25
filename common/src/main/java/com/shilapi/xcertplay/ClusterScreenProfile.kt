@@ -70,6 +70,7 @@ internal object ClusterScreenProfile {
     private const val PREFS = "diplay_center_map"
     private const val KEY_SOURCE = "profile_source"
     private const val KEY_REGION_PREFIX = "profile_region_"
+    private const val KEY_CROP_PREFIX = "profile_crop_"
     private const val KEY_SCALE_PREFIX = "profile_scale_"
 
     /** Mirror key for the dashboard surface when the profile routes stream 110 into it. */
@@ -102,6 +103,17 @@ internal object ClusterScreenProfile {
 
     fun setRegion(context: Context, source: Source, region: Region) {
         prefs(context).edit().putString(KEY_REGION_PREFIX + source.name, Region.toPercent(region)).apply()
+        notifyChanged()
+    }
+
+    /** 裁剪框：源画面里保留的区域（归一化），副屏 / 仪表盘 / 中控卡三处共用同一份。 */
+    fun crop(context: Context, source: Source): Region {
+        val text = prefs(context).getString(KEY_CROP_PREFIX + source.name, null) ?: return Region.FULL
+        return Region.fromPercent(text) ?: Region.FULL
+    }
+
+    fun setCrop(context: Context, source: Source, region: Region) {
+        prefs(context).edit().putString(KEY_CROP_PREFIX + source.name, Region.toPercent(region)).apply()
         notifyChanged()
     }
 

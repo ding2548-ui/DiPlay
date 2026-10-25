@@ -712,6 +712,10 @@ class CarPlayHostActivity : ComponentActivity() {
         CenterMapOverlay.hostSaysVisible = { isActivityStarted }
         ShowmapOverlay.enabled = AirPlayPersistence.loadShowmapShare(this)
         ShowmapOverlay.sink = { surface -> sink?.setMirrorSurface(SCREEN_TYPE_MAIN, ShowmapOverlay.KEY, surface) }
+        // 设置页的「裁剪视频画面」编辑器要看到实时画面：把镜像解码器借给它，对话框关闭时注销。
+        com.shilapi.xcertplay.cluster.CropPreviewBridge.attach = { type, key, surface ->
+            sink?.setMirrorSurface(type, key, surface)
+        }
         ShowmapOverlay.touchBridge = { contacts -> controller?.sendTouch(contacts) ?: false }
         ShowmapOverlay.onDiagnostic = { message -> appendLog(message) }
         // The showmap plugin (dudu's launcher) sends these, so the receiver has to be exported;
@@ -1169,6 +1173,29 @@ class CarPlayHostActivity : ComponentActivity() {
             dismissClusterPresentation()
             return
         }
+        if (com.shilapi.xcertplay.cluster.ScreenProfileStore.enabled(this)) {
+            // OgleaPlay-style secondary screen: a real activity launched onto the other panel, with
+            // per-display calibration. It replaces the in-app card presentation, so the other
+            // branches must not also claim the cluster surface.
+            appendLog("Cluster map: secondary-screen path (OgleaPlay port)")
+            com.shilapi.xcertplay.cluster.SecondaryScreenController.onDiagnostic = { appendLog(it) }
+            com.shilapi.xcertplay.cluster.SecondaryScreenController.onProfilePushed = { applyClusterRouting() }
+            com.shilapi.xcertplay.cluster.SecondaryScreenController.bind(this) { onClusterSurface(it) }
+            ClusterActivityOutput.stop(this)
+            dismissClusterPresentation()
+            runCatching {
+                // Start from the card/cluster profile, so the panel and the card always agree.
+                com.shilapi.xcertplay.cluster.ScreenProfileStore.preferredDisplay(this)?.let {
+                    com.shilapi.xcertplay.cluster.ScreenProfileStore.syncFromClusterProfile(this, it)
+                }
+                com.shilapi.xcertplay.cluster.SecondaryScreenController.ensure(this)
+            }
+                .onFailure {
+                    appendLog("Secondary screen: launch failed ${it.javaClass.simpleName}: ${it.message}")
+                }
+            return
+        }
+        com.shilapi.xcertplay.cluster.SecondaryScreenController.stop(this)
         if (AdbClusterRouter.enabled(this)) {
             appendLog("Cluster map: adb router branch taken; no presentable cluster display yet")
             ClusterActivityOutput.bind(this, taskId) { onClusterSurface(it) }
@@ -1327,6 +1354,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var dashboardSource: ClusterScreenProfile.Source? = null
 
     private fun attachClusterSurface(surface: Surface) {
+        // One source of truth for all three outputs (secondary screen, cluster, centre card):
+        // the cluster-screen profile the settings page edits.
         dashboardSource = ClusterScreenProfile.source(this)
         when (dashboardSource) {
             ClusterScreenProfile.Source.MAIN -> {
@@ -1336,6 +1365,14 @@ class CarPlayHostActivity : ComponentActivity() {
             ClusterScreenProfile.Source.MUSIC -> sink?.clearSurface(SCREEN_TYPE_ALT, surface)
             else -> sink?.setSurface(SCREEN_TYPE_ALT, surface)
         }
+    }
+
+    /** A calibration edit changed the active source: route the live surface to its decoder again. */
+    private fun applyClusterRouting() {
+        val surface = clusterSurface ?: return
+        detachClusterSurface(surface)
+        attachClusterSurface(surface)
+        appendLog("Secondary screen: re-routed the cluster surface for the new source")
     }
 
     private fun detachClusterSurface(surface: Surface) {
@@ -1699,6 +1736,7 @@ class CarPlayHostActivity : ComponentActivity() {
         ShowmapOverlay.hide()
         ShowmapOverlay.touchBridge = null
         ShowmapOverlay.onDiagnostic = null
+        com.shilapi.xcertplay.cluster.CropPreviewBridge.attach = null
         if (MapMirrors.sink === mirrorSink) {
             MapMirrors.sink = null
             MapMirrors.setStreamActive(false)
@@ -1718,6 +1756,7 @@ class CarPlayHostActivity : ComponentActivity() {
         sessionLog?.append("Activity destroyed")
         sessionLog?.close()
         sessionLog = null
+        CropDiagLog.sink = null
         super.onDestroy()
     }
 
@@ -4625,7 +4664,11 @@ class CarPlayHostActivity : ComponentActivity() {
         appendLog(requestSummary)
         appendLog(support.details)
         appendLog(effectiveSummary)
-        val carBluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(this)
+        // A stored preference from before this build must not keep a Leapmotor unit in the broken
+        // "no audio output" shape: the switch is hidden there (see DiPlayActivity), and this is the
+        // one place the session actually reads it.
+        val carBluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(this) &&
+            !com.shilapi.xcertplay.hud.BydOutputSettings.leapmotorHeadUnit()
         if (carBluetoothAudio) logCarBluetoothAudio()
         return AirPlayConfig(
             deviceName = "DiPlay",
@@ -4642,15 +4685,13 @@ class CarPlayHostActivity : ComponentActivity() {
             model = normalizedModel(),
             oemLabel = oemLabel,
             icons = listOf(loadAirPlayIcon()),
-            // Offered unconditionally, exactly as the Leapmotor line does. Upstream gates this on
-            // BydOutputSettings.videoWhileParkedActive(), but that switch only exists inside the
-            // BYD vehicle-data panel (BydOutputSettings.available() needs BYD packages or a BYD
-            // fingerprint, and the standalone HUD probe additionally needs API 28+), so on this head
-            // unit it can never be reached and the whole iOS 27 video path would never be offered to
-            // the iPhone. Offering it is not the same as allowing it: CarPlayController's
-            // VideoInCarGate reads LeapmotorGearMonitor.videoAllowed() (N 挡) once a second, and
-            // VideoInCar.allowed stays false until the CAN broadcast reports a gear.
-            videoInCar = true,
+            // Gated on the "video while parked" switch, which the advanced vehicle-data panel now
+            // really drives: it used to be offered unconditionally because the switch could not be
+            // honoured on this head unit. Offering it is not the same as allowing it either way —
+            // CarPlayController's VideoInCarGate reads BydNavigationOutputs.parked() once a second,
+            // which is P over ADB on a BYD unit and N on the CAN broadcast on a Leapmotor unit, and
+            // VideoInCar.allowed stays false until that read succeeds.
+            videoInCar = com.shilapi.xcertplay.hud.BydOutputSettings.videoWhileParkedActive(this),
             mainBufferedAudio = AirPlayPersistence.loadMainBufferedAudio(this),
             speechWithout8And16Khz = AirPlayPersistence.loadSpeechWithout8And16Khz(this),
             disableAudioOutput = carBluetoothAudio,
@@ -5154,6 +5195,11 @@ class CarPlayHostActivity : ComponentActivity() {
                 "microphone=${airPlayConfig.microphone} " +
                 "location=${if (config.locationReportingEnabled) "enabled" else "disabled"}" +
                 "${if (config.identification.vehicleSpeedEnabled) "+wheel-speed" else ""} " +
+                // Whether the receiver offers audio at all decides which CarPlay features the iPhone
+                // enables; a report that says "car-bluetooth" is the one to ask for when the screen
+                // stays grey. These two live on the AirPlay config, not on the host config.
+                "audio=${if (airPlayConfig.disableAudioOutput) "car-bluetooth" else "carplay"}" +
+                "${if (airPlayConfig.mainBufferedAudio) "+buffered" else ""} " +
                 "mfi=${mfiTargetLabel(config.mfiTarget)}" +
                 if (config.transport == CarPlayTransport.WIRED) " usbCharging=${config.availableCurrentMilliAmps}mA" else "",
         )
@@ -5207,6 +5253,14 @@ class CarPlayHostActivity : ComponentActivity() {
         // CarPlayMediaKeys now reports through its own log tag only (upstream 0.2.13+), so it no
         // longer has the onDiagnostic hook this line used to set.
         UsbAutoConfirmService.onDiagnostic = { message -> appendLog(message) }
+        // Ambient light ("氛围灯") lines used to go out on a `DiPlay-Ambient` logcat tag only, which
+        // never reaches the exported report. One hook now covers every transport, so the tester can
+        // grep the report for the ambient lines the release notes point at.
+        AmbientDiagnostics.onDiagnostic = { message -> appendLog(message) }
+        // The location source logs which provider it forwards (GPS / fused / network) and how old the
+        // fix is; without this the report says nothing about why the iPhone's position drifts.
+        com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider.onDiagnostic =
+            { message -> appendLog(message) }
         BluetoothAudioHandoff.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.onDiagnostic = { message -> appendLog(message) }
         LeapmotorMediaKeys.attach(this, next)
@@ -6203,6 +6257,7 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         }
         sessionLog = activeLog
+        CropDiagLog.sink = { message -> appendFileLog(message) }
     }
 
     private fun refreshLogView(nowMillis: Long) {

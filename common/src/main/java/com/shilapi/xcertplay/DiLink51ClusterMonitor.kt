@@ -4,6 +4,7 @@ import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
@@ -79,7 +80,39 @@ internal class DiLink51ClusterMonitor(context: Context, private val onState: (Cl
     }
 
     companion object {
-        fun hasAccess(context: Context): Boolean = context.getSystemService(AppOpsManager::class.java)
-            .checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED
+        /**
+         * Whether Usage Access is actually available, not merely explicitly granted.
+         *
+         * `MODE_DEFAULT` is the normal answer on this head unit even when the op works: DiPlay is
+         * installed as a system app, and Android 7 resolves the default mode for
+         * `GET_USAGE_STATS` through the ROM's default-op configuration rather than storing
+         * `MODE_ALLOWED`. Treating `MODE_DEFAULT` as "denied" is why the settings page kept asking
+         * the driver to re-grant a permission that was already in effect — and why it only went
+         * away after toggling it by hand, which finally wrote an explicit `MODE_ALLOWED`.
+         *
+         * So a default mode is resolved the same way the system does it: a real query is the
+         * authority when it returns data, and a system app is trusted otherwise.
+         */
+        fun hasAccess(context: Context): Boolean {
+            val mode = runCatching {
+                context.getSystemService(AppOpsManager::class.java).checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+            }.getOrDefault(AppOpsManager.MODE_ERRORED)
+            if (mode == AppOpsManager.MODE_ALLOWED) return true
+            if (mode != AppOpsManager.MODE_DEFAULT) return false
+            return usageStatsReadable(context) || isSystemApp(context)
+        }
+
+        /** A real read is the only proof: without the op this returns an empty list. */
+        private fun usageStatsReadable(context: Context): Boolean = runCatching {
+            val now = System.currentTimeMillis()
+            context.getSystemService(UsageStatsManager::class.java)
+                .queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 86_400_000L, now)
+                .orEmpty().isNotEmpty()
+        }.getOrDefault(false)
+
+        private fun isSystemApp(context: Context): Boolean = runCatching {
+            (context.applicationContext.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+        }.getOrDefault(false)
     }
 }

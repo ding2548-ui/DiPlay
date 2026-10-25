@@ -21,6 +21,7 @@ class AdbClusterActivity : Activity() {
     private var waiting: TextView? = null
     private var surface: Surface? = null
     private var videoTexture: ClusterVideoTexture? = null
+    private var cropMask: CropMaskView? = null
     private var turnCard: ClusterTurnCardView? = null
     private var safeAreaPreview: SafeAreaEditorView? = null
     internal var routeStatus = ""
@@ -50,6 +51,10 @@ class AdbClusterActivity : Activity() {
         val legacy = AirPlayPersistence.loadLegacyClusterEnabled(this)
         val region = FrameLayout(this).also { videoRegion = it }
         region.addView(video, FrameLayout.LayoutParams(-1, -1))
+        // FIT+裁剪时内容矩形两侧露出相邻画面，黑遮罩盖住内容矩形之外（音乐卡片在其上，不受影响）。
+        val mask = CropMaskView(this)
+        region.addView(mask, FrameLayout.LayoutParams(-1, -1))
+        cropMask = mask
         root.addView(region, FrameLayout.LayoutParams(-1, -1))
         if (legacy) root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             LegacyClusterLayout.plan(root.width, root.height)?.let { plan ->
@@ -109,16 +114,27 @@ class AdbClusterActivity : Activity() {
         if (source == ClusterScreenProfile.Source.MUSIC) {
             texture.visibility = View.GONE
             waiting?.visibility = View.GONE
+            cropMask?.clear()
             return
         }
         texture.visibility = View.VISIBLE
-        ClusterProfileLayout.applyRegion(texture, ClusterScreenProfile.region(this, source), region)
+        val regionValue = ClusterScreenProfile.region(this, source)
+        val cropValue = ClusterScreenProfile.crop(this, source)
+        CropDiagLog.log(
+            "dashboard apply source=$source container=${region.width}x${region.height} " +
+                "region=$regionValue crop=$cropValue mode=${ClusterScreenProfile.scaleMode(this, source)} " +
+                "texture=${texture.width}x${texture.height}")
+        ClusterProfileLayout.applyRegion(texture, regionValue, region)
+        // 遮罩与 video 视图同区域定位：applyTransform 的内容矩形是 video 视图坐标，
+        // 显示框不是全屏时两者必须共坐标系，否则遮罩整体错位、留边方向露出相邻画面。
+        cropMask?.let { ClusterProfileLayout.applyRegion(it, regionValue, region) }
         val frameAspect = when (source) {
             ClusterScreenProfile.Source.MAIN ->
                 resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
             else -> 1920.0 / 720.0
         }
-        ClusterProfileLayout.applyTransform(texture, frameAspect, ClusterScreenProfile.scaleMode(this, source))
+        ClusterProfileLayout.applyTransform(texture, frameAspect, ClusterScreenProfile.scaleMode(this, source),
+            cropValue, cropMask)
         updateStream()
     }
 

@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import android.content.Context
-import android.util.Log
+import com.shilapi.xcertplay.AmbientDiagnostics
 import com.shilapi.xcertplay.LmAmbientLightClient
 import com.shilapi.xcertplay.LmAmbientLightProtocol
 import com.shilapi.xcertplay.LmAmbientMode
@@ -33,7 +33,7 @@ internal class BydAdbLampSink(context: Context, private val executor: java.util.
         },
         dispatch = { executor.execute(it) },
         now = { android.os.SystemClock.uptimeMillis() },
-        log = { Log.i("DiPlay-Ambient", it) },
+        log = { AmbientDiagnostics.log(it) },
         applied = applied,
     )
 
@@ -42,7 +42,8 @@ internal class BydAdbLampSink(context: Context, private val executor: java.util.
         lampSession.update(Triple(frame.area, frame.colorIndex, frame.brightness))
     }
 
-    override fun restore() {
+    /** BYD's brightness lives in the 1..6 `brightness` field, so the Leapmotor level is unused. */
+    override fun restore(lampDeg: Int) {
         lampSession.setEnabled(false)
     }
 
@@ -52,10 +53,11 @@ internal class BydAdbLampSink(context: Context, private val executor: java.util.
 }
 
 /**
- * Leapmotor transport: one `leapmotor.carapp.CARCANCONTROL` broadcast per frame, routed with
+ * Leapmotor transport: one `leapmotor.carapp.CARCANCONTROL` broadcast per changed frame, routed with
  * `appCAN="Atmos_ctrl"`. The head unit never replies, so there is nothing to keep in sync and
- * nothing that can fail asynchronously — the only real constraint is the send rate, which the
- * controller's 200ms cadence already holds well under [LmAmbientLightProtocol.MAX_SENDS_PER_SECOND].
+ * nothing that can fail asynchronously; the only real constraint is the send rate, which the
+ * controller's 50 ms cadence keeps at 20/s and the "unchanged state is not re-sent" check below
+ * cuts further.
  */
 internal class LeapmotorLampSink(context: Context) : AmbientLampSink {
     private val client = LmAmbientLightClient(context)
@@ -65,30 +67,37 @@ internal class LeapmotorLampSink(context: Context) : AmbientLampSink {
 
     override fun render(frame: AmbientLampFrame) {
         val lamp = frame.leapmotor ?: return
-        val params = LmAmbientLightProtocol.switchParams(
-            if (lamp.mode == LmAmbientMode.OFF) LmAmbientMode.AUTO else lamp.mode, lamp.deg, lamp.rgb)
+        val params = LmAmbientLightProtocol.switchParams(lamp.mode, lamp.deg, lamp.rgb)
         if (params == last) return
+        // Only remember a state the platform accepted: a refused broadcast has to be retried on the
+        // next tick instead of being deduplicated away.
+        if (!client.send(params)) return
         last = params
-        client.send(params)
         sends++
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastLogMillis >= 5_000) {
             lastLogMillis = now
-            Log.i("DiPlay-Ambient", "leapmotor applied=$sends sw=${params.sw} auto=${params.auto} deg=${params.deg} r=${params.r} g=${params.g} b=${params.b}")
+            AmbientDiagnostics.log("leapmotor applied=$sends sw=${params.sw} auto=${params.auto} deg=${params.deg} r=${params.r} g=${params.g} b=${params.b}")
         }
     }
 
-    override fun restore() {
-        // The feature is off: hand the lamp back to the car's own automatic mode at the default
-        // angle rather than leaving it on our last colour.
-        val current = last
-        val params = LmAmbientLightProtocol.switchParams(LmAmbientMode.AUTO,
-            LmAmbientLightProtocol.DEG_DEFAULT, current?.let { (it.r shl 16) or (it.g shl 8) or it.b }
-                ?: DEFAULT_RGB)
-        if (params == last) return
-        last = params
-        client.send(params)
-        Log.i("DiPlay-Ambient", "leapmotor restored to auto")
+    /**
+     * Hands the switch back to the car's own automatic mode, keeping the colour we last sent and the
+     * brightness the user configured. Forcing [LmAmbientLightProtocol.DEG_DEFAULT] here (the old
+     * behaviour) silently reset the car's own `fendeng` to 5 every time the feature was turned off.
+     */
+    override fun restore(lampDeg: Int) {
+        val rgb = last?.let { (it.r shl 16) or (it.g shl 8) or it.b } ?: DEFAULT_RGB
+        val params = LmAmbientLightProtocol.switchParams(
+            LmAmbientMode.AUTO,
+            lampDeg.coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX),
+            rgb)
+        val alreadyCurrent = params == last
+        if (!alreadyCurrent) {
+            if (!client.send(params)) return
+            last = params
+        }
+        AmbientDiagnostics.log("leapmotor restored to auto deg=${params.deg} sent=${!alreadyCurrent}")
     }
 
     private companion object {

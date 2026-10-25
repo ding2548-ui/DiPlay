@@ -38,9 +38,6 @@ internal object LmAmbientLightProtocol {
     const val DEFAULT_G = 0xff
     const val DEFAULT_B = 0x14
 
-    /** Above this many sends per second the head unit's CAN queue starts dropping frames. */
-    const val MAX_SENDS_PER_SECOND = 20
-
     data class Params(val sw: Int, val auto: Int, val deg: Int, val r: Int, val g: Int, val b: Int)
 
     fun valid(params: Params): Boolean =
@@ -71,30 +68,12 @@ internal object LmAmbientLightProtocol {
         LmAmbientMode.AUTO -> Params(SW_AUTO, AUTO_ON, deg, (rgb shr 16) and 0xff, (rgb shr 8) and 0xff, rgb and 0xff)
     }
 
-    /**
-     * The OEM multi-colour flow rule (`VehicleControlService$6`): each band drives one channel
-     * (`lampR=|f0|*2`, `lampG=|f1|*2`, `lampB=|f2|*2`) and the low band also drives the angle
-     * (`lampDeg=|f0|*10/0x80`).
-     *
-     * The OEM's `f0/f1/f2` are raw band magnitudes in `0..127`, which is why the same block divides
-     * by 128 and doubles for the colour channels. [bass]/[mid]/[high] here are the same bands
-     * normalised to `0..1`, so the formulas become `f = v*127`, `lampX = f*2`, `lampDeg = f*10/128`
-     * — i.e. colour `v*254` and angle `v*10`, both already inside the protocol's ranges. Scaling by
-     * 255 would saturate every channel as soon as the band passed half scale.
-     *
-     * [mode] supplies SW/Auto only, exactly as the OEM engine overrides them from the stored
-     * `atmosphere` value; OFF is never produced here because the flow light only runs while on.
+    /*
+     * 原厂 `musicColorMode == 2`（`VehicleControlService$6`）把频谱幅度直接当颜色
+     * （`lampR=|f0|*2, lampG=|f1|*2, lampB=|f2|*2`）。这会让灯带显示用户从未选过的颜色，
+     * 看起来就是「随机变色」，所以这里刻意不复刻：两种流光模式都只显示用户选择的颜色，
+     * 由 `LmAmbientMusicFlow` 决定亮度怎么动。
      */
-    fun flowParams(mode: LmAmbientMode, bass: Double, mid: Double, high: Double): Params {
-        fun band(value: Double) = (value.coerceIn(0.0, 1.0) * 127.0 * 2.0).toInt().coerceIn(0, 255)
-        fun angle(value: Double) = (value.coerceIn(0.0, 1.0) * 127.0 * 10.0 / 128.0).toInt()
-            .coerceIn(DEG_MIN, DEG_MAX)
-        val active = if (mode == LmAmbientMode.AUTO) LmAmbientMode.AUTO else LmAmbientMode.ON
-        return when (active) {
-            LmAmbientMode.AUTO -> Params(SW_AUTO, AUTO_ON, angle(bass), band(bass), band(mid), band(high))
-            else -> Params(SW_ON, AUTO_OFF, angle(bass), band(bass), band(mid), band(high))
-        }
-    }
 }
 
 /** The head unit's own 关/开/自动 three-state switch. */
@@ -109,7 +88,7 @@ internal class LmAmbientLightClient(private val context: Context) {
         app.sendBroadcast(LmAmbientLightProtocol.intent(params))
         true
     } catch (error: Throwable) {
-        android.util.Log.w("DiPlay-Ambient", "leapmotor ambient send failed: ${error.javaClass.simpleName}")
+        AmbientDiagnostics.warn("leapmotor ambient send failed: ${error.javaClass.simpleName}", error)
         false
     }
 }

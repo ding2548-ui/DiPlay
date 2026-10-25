@@ -121,6 +121,19 @@
         </activity>
 
         <activity
+            android:name="com.shilapi.xcertplay.cluster.SecondaryScreenActivity"
+            android:label="@string/secondary_screen_label"
+            android:icon="@drawable/ic_dp_navigation"
+            android:taskAffinity="${applicationId}.secondary"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:allowEmbedded="true"
+            android:exported="false"
+            android:launchMode="standard"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.AdbCluster" />
+
+        <activity
             android:name="com.shilapi.xcertplay.CarPlayVideoActivity"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"

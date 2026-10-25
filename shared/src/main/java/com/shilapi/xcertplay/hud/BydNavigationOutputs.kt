@@ -75,8 +75,16 @@ object BydNavigationOutputs {
     fun wheelSpeed(context: Context): com.shilapi.xcertplay.transport.VehicleSpeedSource =
         if (com.shilapi.xcertplay.LmCarProbe.isLeapmotor()) LeapmotorSpeedSource.attach(context)
         else BydWheelSpeedSource.attach(context)
-    /** Whether the car is in P (read over adb), or null when it cannot tell. Blocking. */
-    fun parked(context: Context): Boolean? = BydParkedState.parked(context.applicationContext)
+    /**
+     * Whether in-car video may play right now, or null when the car cannot tell. Blocking.
+     *
+     * The gear that means "parked" is not the same on the two car lines: BYD reports **P** and it is
+     * read over ADB, while a Leapmotor head unit only reports R/N/D on the CAN bus and the car
+     * allows video in **N**. Callers must not assume P.
+     */
+    fun parked(context: Context): Boolean? =
+        if (com.shilapi.xcertplay.LmCarProbe.isLeapmotor()) LeapmotorParkedState.videoAllowed()
+        else BydParkedState.parked(context.applicationContext)
 
     fun start(context: Context) {
         val app = context.applicationContext

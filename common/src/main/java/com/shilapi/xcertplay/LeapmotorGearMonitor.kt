@@ -32,11 +32,13 @@ internal object LeapmotorGearMonitor {
 
     fun detach(expected: CarPlayController?) = LeapmotorVehicleSignals.detach(expected)
 
-    /** Whether video may play now (N 挡); null when no gear data ever arrived. */
-    fun videoAllowed(): Boolean? {
-        val raw = LeapmotorVehicleSignals.snapshot()?.gearRaw ?: return null
-        return raw == LeapmotorVehicleSignals.GEAR_N
-    }
+    /**
+     * Whether video may play now (N 挡); null when no gear data ever arrived.
+     *
+     * Delegates to [com.shilapi.xcertplay.hud.LeapmotorParkedState], which the session-side
+     * `BydNavigationOutputs.parked()` also uses, so the two entry points can never disagree.
+     */
+    fun videoAllowed(): Boolean? = com.shilapi.xcertplay.hud.LeapmotorParkedState.videoAllowed()
 
     /** Current gear as R/N/D/P (P covers "not R, N or D"), or null without data. */
     fun gearName(): String? = LeapmotorVehicleSignals.snapshot()?.gear?.letter?.toString()

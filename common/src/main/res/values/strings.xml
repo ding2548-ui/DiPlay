@@ -358,7 +358,7 @@
     <string name="saving_report">Saving report…</string>
     <string name="security">Security</string>
     <string name="selecting_carplay_configuration">Selecting CarPlay configuration</string>
-    <string name="sends_precise_android_location_as_carplay_gps_data_when_th">Sends precise Android location as CarPlay GPS data when the iPhone requests it.</string>
+    <string name="sends_precise_android_location_as_carplay_gps_data_when_th">Sends the head unit\'s own GPS position to the iPhone as CarPlay GPS data, never a mix of GPS and cell/Wi-Fi fixes. When the car reports nothing at all the iPhone falls back to its own GPS, which is system behaviour.</string>
     <string name="server_address">Server address</string>
     <string name="set">Set</string>
     <string name="set_up_once_your_details_stay_saved_for_the_next_drive_cha">Set up once. Your details stay saved for the next drive. Changes apply to your next connection.</string>
@@ -557,8 +557,12 @@
     <string name="adb_vehicle_gear_unreadable">Gear cannot be read on this firmware.</string>
     <string name="advanced_vehicle_data">Advanced vehicle data</string>
     <string name="hide_advanced_vehicle_data">Hide advanced vehicle data</string>
-    <string name="advanced_vehicle_data_description">Choose the default DiLink 5.0 data path or detect fields on a legacy head unit. Nothing is written to the car.</string>
+    <string name="advanced_vehicle_data_description">A Leapmotor head unit uses the car\'s own CAN broadcasts (no ADB). A BYD unit can use the default DiLink 5.0 data path or detect fields on a legacy head unit. Nothing is written to the car.</string>
     <string name="vehicle_data_mode">Vehicle data mode</string>
+    <string name="vehicle_data_mode_leapmotor">Leapmotor CAN · car protocol (no ADB)</string>
+    <string name="leapmotor_vehicle_data_waiting">Waiting for CAN signals: the car must be powered and a CarPlay session must have started (the 1 Hz poll runs with the session). A Leapmotor head unit has no adbd; gear, speed and charge all come from the leapmotor.cantoapp.update broadcast.</string>
+    <string name="leapmotor_vehicle_data_reading">CAN signals: gear %1$s · speed %2$s km/h · charge %3$s%%</string>
+    <string name="leapmotor_vehicle_data_hint">In-car video is gated on N (BYD uses P); a Leapmotor car only reports R/N/D and has no P reading.</string>
     <string name="vehicle_data_mode_default">Default mode · verified on DiLink 5.0 head units</string>
     <string name="vehicle_data_mode_legacy">Legacy head-unit detection · tested on controller 13 / DiLink 3.0</string>
     <string name="adb_not_checked">ADB has not been checked.</string>
@@ -588,7 +592,7 @@
     <string name="wheel_speed_for_tunnels">Wheel speed for tunnels</string>
     <string name="wheel_speed_for_tunnels_description">With Report location to iPhone on, DiPlay also sends the car\'s wheel speed and gear, so Apple Maps can keep your position moving in tunnels and car parks. Reconnects CarPlay. Needs ADB over network on the head unit.</string>
     <string name="video_while_parked">Video while parked</string>
-    <string name="video_while_parked_description">iOS 27: a video you send to CarPlay on the iPhone plays on the car screen while the car is in P. The player closes when you shift out of P; without ADB video stays off and the iPhone plays audio only. Plain HTTPS video (for example from Safari) plays; video protected with FairPlay, such as Apple TV+, needs a licensed receiver and does not play here. Reconnects CarPlay. Needs ADB over network on the head unit.</string>
+    <string name="video_while_parked_description">iOS 27: a video you send to CarPlay on the iPhone plays on the car screen while the car is parked. The parked gear depends on the car: BYD uses P (needs ADB over network on the head unit), a Leapmotor unit uses N (read from the CAN broadcast, no ADB). The player closes when you shift out of that gear; when the gear cannot be read video stays off and the iPhone plays audio only. Plain HTTPS video (for example from Safari) plays; video protected with FairPlay, such as Apple TV+, needs a licensed receiver and does not play here. Reconnects CarPlay.</string>
     <string name="cluster_song">Song on the dashboard</string>
     <string name="cluster_song_description">The CarPlay song title and artist appear in the music card on the instrument cluster, with play and pause. The card shows as BYD’s “Other” music source, because the dashboard does not draw CarPlay’s own source. Applies at once. Needs ADB over network on the head unit.</string>
     <string name="video_back_to_carplay">Back to CarPlay</string>
@@ -636,6 +640,7 @@
     <string name="btn_open_overlay_setting">Open System Overlay Settings</string>
     <string name="manual_grant_cmd_hint">Or run this ADB command from your computer:</string>
     <string name="adb_cluster_activity_label">Cluster Map</string>
+    <string name="secondary_screen_label">Secondary screen</string>
     <string name="adb_cluster_activity_mode">DiLink 4 cluster video via ADB (experimental)</string>
     <string name="adb_cluster_activity_description">Launch the map directly on the verified cluster display through internal ADB. Authorize ADB, then reconnect the iPhone.</string>
     <string name="adb_cluster_authorize">Authorize ADB / retry cluster routing</string>
@@ -1111,6 +1116,7 @@
     <string name="settings_ambient_palette">OEM color numbers (multiple selections)</string>
     <string name="settings_ambient_palette_summary">Colors · %1$d selected</string>
     <string name="settings_ambient_select_all">Select all</string>
+    <string name="settings_ambient_deselect_all">Clear all</string>
     <string name="settings_ambient_brightness">Maximum brightness</string>
     <string name="settings_ambient_car_rhythm_feed">Send music data to the car\'s rhythm (older head units)</string>
     <string name="settings_ambient_car_rhythm_feed_description">On some head units (such as a 2023 Han) the car\'s rhythm starts but stays dark, because the car makes no spectrum of its own for CarPlay music. This sends the played music\'s 16 frequency bands to the car\'s lamp controller, so the car\'s own rhythm, including the passenger dash, follows it. Only has an effect when the car\'s own music rhythm above is on, and needs the car\'s network ADB.</string>

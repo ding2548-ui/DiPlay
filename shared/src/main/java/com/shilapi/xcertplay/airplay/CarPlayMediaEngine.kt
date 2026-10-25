@@ -109,6 +109,18 @@ class CarPlayMediaEngine(
             ?.let { bufferedTransition = null }
         return !session.isClosed && session !in retiredBufferedSessions && bufferedTransition == null
     }
+
+    /**
+     * A declined buffered stream is not a soft failure: the iPhone does not fall back to the normal
+     * music stream, it plays on its own speaker, so the car is silent and the feature looks broken.
+     * The reason therefore goes into the exported report (through [AirPlaySession.logDebug]), not
+     * only into logcat, which the report does not include.
+     */
+    private fun decline(session: AirPlaySession, reason: String) {
+        val message = "Buffered audio declined: $reason"
+        Log.w(TAG, message)
+        runCatching { session.logDebug(message) }
+    }
     @Volatile private var nextRemoteControlStreamId = FIRST_REMOTE_CONTROL_STREAM_ID
     @Volatile private var iapTunnelHandler: ((BlockingDuplexByteStream) -> Boolean)? = null
 
@@ -240,29 +252,41 @@ class CarPlayMediaEngine(
     }
 
     override fun onBufferedAudio(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {
-        if (!synchronized(bufferedOwnershipLock) { mayInstallBufferedLocked(session) }) return null
+        if (!synchronized(bufferedOwnershipLock) { mayInstallBufferedLocked(session) }) {
+            decline(session, "another buffered stream is still retiring")
+            return null
+        }
         val type = BufferedAudioStream.STREAM_TYPE
         val streamKey = StreamKey(session, type, "media")
         val key = stream["shk"] as? ByteArray
         if (key == null || key.size != 32) {
-            Log.w(TAG, "buffered audio SETUP without a 32-byte shk; declined")
+            decline(session, "shk missing or not 32 bytes (${(stream["shk"] as? ByteArray)?.size ?: "absent"})")
             return null
         }
-        val format = AudioStreamCodec.fromFormatBits((stream["audioFormat"] as? Number)?.toLong() ?: 0L, type, "media")
+        val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: 0L
+        val format = AudioStreamCodec.fromFormatBits(formatBits, type, "media")
         if (format.codec != AudioCodecKind.AAC_LC) {
-            Log.w(TAG, "buffered audio format ${stream["audioFormat"]} is not AAC-LC; declined")
+            // Declining here is what leaves the iPhone with no music stream at all: it does not fall
+            // back to the normal stream, it plays on its own speaker. The raw fields are logged so a
+            // report shows exactly what was offered.
+            decline(session, "audioFormat=0x${formatBits.toString(16)} decoded=${format.codec} " +
+                "rate=${format.sampleRate} (only AAC-LC is accepted)")
             return null
         }
         if (stream["ct"]?.let { it !is Number || it.toInt() != 4 } == true ||
             stream["spf"]?.let { it !is Number || it.toInt() != 1024 } == true) {
-            Log.w(TAG, "buffered audio requires AAC and 1024 samples per frame; declined")
+            decline(session, "ct=${stream["ct"]} spf=${stream["spf"]} (AAC needs ct=4 spf=1024)")
             return null
         }
-        val peer = session.remoteAddress ?: return null
+        val peer = session.remoteAddress
+        if (peer == null) {
+            decline(session, "the control session has no peer address to accept the TCP sender from")
+            return null
+        }
         val buffered = try {
             BufferedAudioStream(key, format, sink, session::logDebug, expectedPeer = peer)
         } catch (error: Exception) {
-            Log.w(TAG, "buffered audio listener failed", error)
+            decline(session, "listener failed: ${error.javaClass.simpleName}")
             return null
         }
         // Validate before retiring a healthy owner. Detach its registry entries first, but
@@ -282,6 +306,7 @@ class CarPlayMediaEngine(
             }
         }
         if (!accepted) {
+            decline(session, "a concurrent SETUP won the ownership race")
             buffered.close()
             return null
         }
@@ -301,11 +326,15 @@ class CarPlayMediaEngine(
             usable
         }
         if (!installed) {
+            decline(session, "the previous buffered renderer did not finish cleaning up")
             buffered.close()
             return null
         }
         buffered.start()
-        if (bufferedStreams[session] !== candidate) return null
+        if (bufferedStreams[session] !== candidate) {
+            decline(session, "the stream was replaced before it started")
+            return null
+        }
         Log.i(TAG, "buffered audio stream client=${stream["clientID"]} rate=${format.sampleRate} port=${buffered.port}")
         return linkedMapOf(
             "type" to type,

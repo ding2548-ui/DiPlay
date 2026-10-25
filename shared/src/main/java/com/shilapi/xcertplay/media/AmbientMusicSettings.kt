@@ -16,9 +16,11 @@ object AmbientMusicSettings {
         val speed: AmbientColorSpeed = AmbientColorSpeed.STANDARD, val selectedColors: List<Int> = listOf(1), val colorCycle: Boolean = false, val color: Int = 1,
         val flowMode: AmbientFlowMode = AmbientFlowMode.MULTI,
         /**
-         * The BYD "maximum brightness" ceiling (1..6) and the Leapmotor flow-light angle (0..10)
-         * share one user-facing row. [brightness] keeps the BYD path byte-for-byte identical;
-         * [flowBrightness] is what the Leapmotor protocol sends as `lampDeg`.
+         * The BYD "maximum brightness" ceiling (1..6) and the Leapmotor flow-light brightness
+         * (0..10) share one user-facing row. [brightness] keeps the BYD path byte-for-byte
+         * identical; [flowBrightness] is what the Leapmotor protocol sends as `lampDeg`, which is a
+         * brightness level and not an angle — the headlight-levelling angle is a separate channel
+         * (`angledeng`) that this protocol does not carry.
          */
         val brightness: Int = 0, val flowBrightness: Int = FLOW_BRIGHTNESS_DEFAULT,
         val area: Int = 3,

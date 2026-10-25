@@ -12,9 +12,10 @@ internal object AmbientMusicActivityPolicy {
      * The switch alone turns the feature on; playback decides *what* it does, never whether it runs.
      *
      * The old signature took a "brightness" ceiling and mapped `brightness <= 0` onto [LOWEST]. That
-     * was a BYD-only concept leaking into the decision: Leapmotor has no brightness parameter at all,
-     * and on BYD the ceiling must not double as an off switch. Both channels now light as soon as the
-     * feature is enabled, which is why [target] no longer takes brightness.
+     * was a BYD-only concept leaking into the decision: the two channels use their brightness field
+     * for different things (BYD 1..6 "maximum brightness", Leapmotor a 0..10 `lampDeg` level), so on
+     * neither may it double as an off switch. Both channels now light as soon as the feature is
+     * enabled, which is why [target] no longer takes brightness.
      */
     fun target(enabled: Boolean, music: Boolean, rendererActive: Boolean, playing: Boolean): AmbientMusicTarget = when {
         !enabled -> AmbientMusicTarget.RESTORE_OEM

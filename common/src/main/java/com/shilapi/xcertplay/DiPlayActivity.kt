@@ -61,10 +61,12 @@ import com.shilapi.xcertplay.hud.BydFieldSource
 import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.hud.BydVehicleCapabilities
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
+import com.shilapi.xcertplay.hud.BydVehicleDataMode
 import com.shilapi.xcertplay.hud.BydVehicleField
 import com.shilapi.xcertplay.hud.BydVehicleFieldStore
 import com.shilapi.xcertplay.hud.BydVehicleProbeOutcome
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.media.AmbientAlbumPalette
 import com.shilapi.xcertplay.media.AmbientColorMode
 import com.shilapi.xcertplay.media.AmbientColorSpeed
 import com.shilapi.xcertplay.media.AmbientFlowMode
@@ -2089,10 +2091,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveSpeechWithout8And16Khz(this, it)
                 reconnectIfRunning()
             }
-            toggle(card, getString(R.string.settings_car_bluetooth_audio), getString(R.string.settings_car_bluetooth_audio_description),
-                AirPlayPersistence.loadCarBluetoothAudio(this)) {
-                AirPlayPersistence.saveCarBluetoothAudio(this, it)
-                reconnectIfRunning()
+            // Car Bluetooth audio is not offered on a Leapmotor unit. The switch makes the receiver
+            // advertise itself without audio output (no `audioFormats`, audio feature bits cleared)
+            // and expects the iPhone to keep A2DP to the car instead. Measured on this car: the
+            // session came up with no screen stream at all — a grey window with the backlight on.
+            // Upstream also lists it as needing vehicle feedback, and this line keeps its own
+            // wireless core (which owns the Bluetooth link during handoff), so it is hidden here
+            // rather than offered as a switch that breaks CarPlay.
+            if (!lmHeadUnit()) {
+                toggle(card, getString(R.string.settings_car_bluetooth_audio), getString(R.string.settings_car_bluetooth_audio_description),
+                    AirPlayPersistence.loadCarBluetoothAudio(this)) {
+                    AirPlayPersistence.saveCarBluetoothAudio(this, it)
+                    reconnectIfRunning()
+                }
             }
         }
         filteredSection(content, SettingsSection.CAR_BUTTON,
@@ -2180,31 +2191,27 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             if (clusterMapEnabled) {
                 clusterSpeedometerControls(card)
                 clusterMusicControls(card)
-                // PSA line: 内容源/区域/裁切为卡片与仪表盘共用（仪表盘接上即生效），不依赖卡片开关。
+                // PSA line: 内容源与显示区域对副屏、仪表盘、中控卡三处同时生效；
+                // 裁剪画面只在副屏渲染器上成立（卡片与仪表盘用的是 TextureView 变换）。
+                secondaryScreenControls(card)
+                // 对齐 OgleaPlay：先选内容源，唯一的「视频框选预览」编辑器针对当前源操作；
+                // 编辑器内用「显示框 / 保留画面」两态切换（同上游 cropEditing 标志的语义）。
                 val sources = ClusterScreenProfile.Source.entries
+                val selected = ClusterScreenProfile.source(this)
                 choice(card, "内容源", sources.map { it.label },
-                    sources.indexOf(ClusterScreenProfile.source(this)).coerceAtLeast(0), reconnects = false) {
+                    sources.indexOf(selected).coerceAtLeast(0), reconnects = false) {
                     ClusterScreenProfile.setSource(this, sources[it])
+                    syncSecondaryProfile()
                     render()
                 }
-                for (source in sources) {
-                    if (CenterMapOverlay.shown && ClusterScreenProfile.source(this) == source) {
-                        card.addView(button(if (CenterMapOverlay.calibrating) "${source.label} · 完成卡片框选"
-                            else "${source.label} · 在卡片上框选（实况预览）", false) {
-                            if (CenterMapOverlay.calibrating) CenterMapOverlay.exitCalibration(true)
-                            else CenterMapOverlay.enterCalibration(this, source)
-                            render()
-                        }, matchButton(6, 54))
-                    } else {
-                        card.addView(button("${source.label} · 触摸框选区域", false) {
-                            showRegionEditor(source)
-                        }, matchButton(6, 54))
-                    }
-                    val modes = ClusterScreenProfile.ScaleMode.entries
-                    choice(card, "${source.label} · 裁切方式", modes.map { it.label },
-                        modes.indexOf(ClusterScreenProfile.scaleMode(this, source)), reconnects = false) {
-                        ClusterScreenProfile.setScaleMode(this, source, modes[it])
-                    }
+                card.addView(button("${selected.label} · 视频框选预览", false) {
+                    showClusterFrameEditor(selected)
+                }, matchButton(6, 54))
+                val modes = ClusterScreenProfile.ScaleMode.entries
+                choice(card, "裁切方式", modes.map { it.label },
+                    modes.indexOf(ClusterScreenProfile.scaleMode(this, selected)), reconnects = false) {
+                    ClusterScreenProfile.setScaleMode(this, selected, modes[it])
+                    syncSecondaryProfile()
                 }
                 if (CenterMapOverlay.calibrating) {
                     card.addView(label("正在卡片上框选：拖动四条边调整，完成后点卡片上的「保存/取消」。", 14, WARNING))
@@ -4157,24 +4164,67 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     /** True on a Leapmotor head unit, where OEM outputs use broadcasts instead of ADB. */
     private fun lmHeadUnit(): Boolean = BydOutputSettings.leapmotorHeadUnit()
 
+    private fun vehicleDataModeLabel(mode: BydVehicleDataMode): Int = when (mode) {
+        BydVehicleDataMode.DEFAULT -> R.string.vehicle_data_mode_default
+        BydVehicleDataMode.LEGACY -> R.string.vehicle_data_mode_legacy
+        BydVehicleDataMode.LEAPMOTOR -> R.string.vehicle_data_mode_leapmotor
+    }
+
+    /**
+     * The Leapmotor vehicle-data panel: no ADB, no probe, no per-field map.
+     *
+     * Every reading the switches below need arrives in one `leapmotor.cantoapp.update` broadcast, so
+     * the only status worth showing is whether frames are actually coming in. An empty snapshot means
+     * the car is asleep or off — not that the mode is wrong.
+     */
+    private fun leapmotorVehicleData(card: LinearLayout) {
+        val snapshot = LeapmotorVehicleSignals.snapshot()
+        val status = if (snapshot == null) {
+            getString(R.string.leapmotor_vehicle_data_waiting)
+        } else {
+            getString(
+                R.string.leapmotor_vehicle_data_reading,
+                snapshot.gear?.letter?.toString() ?: "-",
+                snapshot.speedKmh?.let { "%.0f".format(it) } ?: "-",
+                snapshot.socPercent?.toString() ?: "-",
+            )
+        }
+        card.addView(label(status, 14, if (snapshot == null) WARNING else MUTED)
+            .apply { setPadding(0, dp(12), 0, 0) })
+        showVehicleDataSettings(card, capabilities = null)
+        card.addView(label(getString(R.string.leapmotor_vehicle_data_hint), 14, MUTED)
+            .apply { setPadding(0, dp(10), 0, 0) })
+    }
+
     private fun advancedVehicleData(card: LinearLayout) {
-        val legacyMode = BydOutputSettings.legacyVehicleProbe(this)
+        // The Leapmotor protocol is not a third DiLink variant: a Leapmotor unit has no adbd, so
+        // offering the two DiLink modes there is offering two modes that can never read anything.
+        // The option only exists on a unit that answers the CAN broadcast, where it is also the
+        // default (see BydOutputSettings.vehicleDataMode).
+        val modes = if (lmHeadUnit()) listOf(
+            BydVehicleDataMode.DEFAULT,
+            BydVehicleDataMode.LEGACY,
+            BydVehicleDataMode.LEAPMOTOR,
+        ) else listOf(BydVehicleDataMode.DEFAULT, BydVehicleDataMode.LEGACY)
+        val stored = BydOutputSettings.vehicleDataMode(this)
+        val mode = if (stored in modes) stored else BydVehicleDataMode.DEFAULT
         card.addView(label(getString(R.string.advanced_vehicle_data_description), 14, MUTED)
             .apply { setPadding(0, dp(12), 0, 0) })
         choice(
             card,
             getString(R.string.vehicle_data_mode),
-            listOf(
-                getString(R.string.vehicle_data_mode_default),
-                getString(R.string.vehicle_data_mode_legacy),
-            ),
-            if (legacyMode) 1 else 0,
+            modes.map { getString(vehicleDataModeLabel(it)) },
+            modes.indexOf(mode),
             reconnects = false,
             announcesReconnect = vehicleDataSwitchesOn(),
             // A switch during ADB work would be dropped by the running step.
             enabled = !adbSwitchChangePending && !vehicleAdbWorkInProgress(),
-        ) { selectVehicleDataMode(it == 1) }
-        if (!legacyMode) {
+        ) { selectVehicleDataMode(modes[it]) }
+        if (mode == BydVehicleDataMode.LEAPMOTOR) {
+            leapmotorVehicleData(card)
+            return
+        }
+        if (mode == BydVehicleDataMode.DEFAULT) {
             defaultVehicleData(card)
             return
         }
@@ -4282,16 +4332,31 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             BydOutputSettings.wheelSpeedToIphone(this) || BydOutputSettings.videoWhileParked(this))
     }
 
-    private fun selectVehicleDataMode(legacyMode: Boolean) {
+    private fun selectVehicleDataMode(mode: BydVehicleDataMode) {
         if (adbSwitchChangePending) return
-        // A stale mode dialog must also invalidate a probe when the Boolean stays the same.
+        // A stale mode dialog must also invalidate a probe when the selection stays the same.
         synchronized(vehicleOperationLock) { vehicleProbeGeneration++ }
         vehicleProbeAuthorizationInProgress = false
         vehicleProbeInProgress = false
-        if (!legacyMode) {
+        if (mode == BydVehicleDataMode.LEAPMOTOR) {
             cancelAutomaticVehicleValidationForUserOperation(resumeAfter = false)
             synchronized(vehicleOperationLock) {
-                BydOutputSettings.setLegacyVehicleProbe(this, false)
+                BydOutputSettings.setVehicleDataMode(this, BydVehicleDataMode.LEAPMOTOR)
+            }
+            vehicleProbeOutcome = null
+            pendingVehicleReplacement = null
+            pendingVehicleLostFields = emptySet()
+            defaultVehicleStatus = null
+            render()
+            // Nothing to probe: the CAN bus needs no authorization. Rebuild the session only if a
+            // vehicle-data switch is on, so the iPhone is told about the new source.
+            if (vehicleDataSwitchesOn()) reconnectForVehicleSetting()
+            return
+        }
+        if (mode == BydVehicleDataMode.DEFAULT) {
+            cancelAutomaticVehicleValidationForUserOperation(resumeAfter = false)
+            synchronized(vehicleOperationLock) {
+                BydOutputSettings.setVehicleDataMode(this, BydVehicleDataMode.DEFAULT)
             }
             vehicleProbeOutcome = null
             pendingVehicleReplacement = null
@@ -4308,7 +4373,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             return
         }
         synchronized(vehicleOperationLock) {
-            BydOutputSettings.setLegacyVehicleProbe(this, true)
+            BydOutputSettings.setVehicleDataMode(this, BydVehicleDataMode.LEGACY)
         }
         vehicleProbeOutcome = null
         pendingVehicleReplacement = null
@@ -4400,18 +4465,24 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun showVehicleDataSettings(card: LinearLayout, capabilities: BydVehicleCapabilities?) {
-        toggle(card, getString(R.string.bt_suspend_during_carplay), getString(R.string.bt_suspend_during_carplay_description),
-            AirPlayPersistence.loadBtSuspendDuringCarplay(this), enabled = !adbSwitchChangePending) {
-            AirPlayPersistence.saveBtSuspendDuringCarplay(this, it)
-            markReconnectNeeded()
-            if (it) checkAdbState(mayAsk = true)
-        }
-        if (AirPlayPersistence.loadBtSuspendDuringCarplay(this)) {
-            val delays = listOf(5, 10, 15, 30)
-            choice(card, getString(R.string.bt_suspend_delay), delays.map { getString(R.string.bt_suspend_delay_option, it) },
-                delays.indexOf(AirPlayPersistence.loadBtSuspendDelaySeconds(this)).coerceAtLeast(0), reconnects = false) {
-                AirPlayPersistence.saveBtSuspendDelaySeconds(this, delays[it])
+        // Pausing the car's Bluetooth radio is `svc bluetooth disable` over the ADB shell. A Leapmotor
+        // head unit has no adbd, and the car exposes no broadcast that turns the radio off (its
+        // `com.leapmotor.bluetooth.BROADCAST` only reports state), so the switch is not offered there
+        // instead of being shown and doing nothing.
+        if (!lmHeadUnit()) {
+            toggle(card, getString(R.string.bt_suspend_during_carplay), getString(R.string.bt_suspend_during_carplay_description),
+                AirPlayPersistence.loadBtSuspendDuringCarplay(this), enabled = !adbSwitchChangePending) {
+                AirPlayPersistence.saveBtSuspendDuringCarplay(this, it)
                 markReconnectNeeded()
+                if (it) checkAdbState(mayAsk = true)
+            }
+            if (AirPlayPersistence.loadBtSuspendDuringCarplay(this)) {
+                val delays = listOf(5, 10, 15, 30)
+                choice(card, getString(R.string.bt_suspend_delay), delays.map { getString(R.string.bt_suspend_delay_option, it) },
+                    delays.indexOf(AirPlayPersistence.loadBtSuspendDelaySeconds(this)).coerceAtLeast(0), reconnects = false) {
+                    AirPlayPersistence.saveBtSuspendDelaySeconds(this, delays[it])
+                    markReconnectNeeded()
+                }
             }
         }
         if (capabilities == null || capabilities.batterySupported) {
@@ -5568,9 +5639,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     appendLine("--- Standalone HUD compatibility ---")
                     appendLine(BydOutputSettings.standaloneHudDiagnosticReport(appContext))
                     appendLine()
-                    appendLine("--- BYD vehicle-data probe ---")
+                    appendLine("--- Vehicle-data source ---")
                     appendLine(
-                        "mode=${if (BydOutputSettings.legacyVehicleProbe(appContext)) "legacy-probe" else "default"} " +
+                        "mode=${BydOutputSettings.vehicleDataMode(appContext).name.lowercase()} " +
+                            "leapmotor=${BydOutputSettings.leapmotorHeadUnit()} " +
                             "switches location=${AirPlayPersistence.loadLocationReportingEnabled(appContext)} " +
                             "battery=${BydOutputSettings.batteryToIphone(appContext)} " +
                             "wheelSpeed=${BydOutputSettings.wheelSpeedToIphone(appContext)} " +
@@ -5902,16 +5974,43 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val paletteButton = button(getString(R.string.settings_ambient_palette_summary, draft.selectedColors.size), false) {}
         paletteButton.setOnClickListener {
             val checked = BooleanArray(31) { it + 1 in draft.selectedColors }
+            // The bare stock numbers say nothing about the colour, so each row carries the OEM
+            // preview swatch plus its hex value — a hex value needs no translation, and it is the
+            // only way to tell "17" from "18" without ticking both and looking at the car.
+            val labels = (1..31).map { index ->
+                val rgb = AmbientAlbumPalette.previewRgb(index) and 0xffffff
+                android.text.SpannableString("██  $index  " + String.format(Locale.US, "#%06X", rgb))
+                    .apply {
+                        setSpan(android.text.style.ForegroundColorSpan((0xff shl 24) or rgb), 0, 2,
+                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+            }.toTypedArray()
+            // AlertDialog has a single neutral slot and "select all" already owns it, so the bulk
+            // button flips to "clear all" as soon as every row is ticked: it always offers the
+            // action that is still useful, instead of forcing 31 taps to undo a select-all.
+            var refreshBulk = {}
             val paletteDialog = AlertDialog.Builder(this).setTitle(getString(R.string.settings_ambient_palette))
-                .setMultiChoiceItems((1..31).map { it.toString() }.toTypedArray(), checked) { _, index, selected -> checked[index] = selected }
+                .setMultiChoiceItems(labels, checked) { _, index, selected ->
+                    checked[index] = selected
+                    refreshBulk()
+                }
                 .setNeutralButton(getString(R.string.settings_ambient_select_all), null)
                 .setPositiveButton(getString(R.string.save), null)
                 .setNegativeButton(getString(R.string.cancel), null).create()
             paletteDialog.setOnShowListener {
-                paletteDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                    checked.fill(true)
-                    for (index in checked.indices) paletteDialog.listView.setItemChecked(index, true)
+                val bulk = paletteDialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                refreshBulk = {
+                    bulk.text = getString(
+                        if (checked.all { it }) R.string.settings_ambient_deselect_all
+                        else R.string.settings_ambient_select_all)
                 }
+                bulk.setOnClickListener {
+                    val select = !checked.all { it }
+                    checked.fill(select)
+                    for (index in checked.indices) paletteDialog.listView.setItemChecked(index, select)
+                    refreshBulk()
+                }
+                refreshBulk()
                 paletteDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                     val selected = checked.indices.filter { checked[it] }.map { it + 1 }
                     if (selected.isEmpty()) toast(getString(R.string.settings_ambient_select_one))
@@ -6224,56 +6323,267 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun rounded(color: Int, stroke: Int) = GradientDrawable().apply { setColor(color); cornerRadius = layoutCornerRadius() * 1.35f; setStroke(dp(1), stroke) }
     private fun matchButton(top: Int = 0, height: Int = 68) = LinearLayout.LayoutParams(-1, dp(height)).apply { topMargin = dp(top) }
 
-    // PSA line: 触摸框选对话框 — SafeAreaEditorView 在与内容源同比例的预览画布上拖动四边，
-    // 实时百分比读数；「保存」写入配置（卡片/仪表盘即时生效），「重置」恢复全画布。
-    private fun showRegionEditor(source: ClusterScreenProfile.Source) {
+    /**
+     * 框选预览按当前屏幕的可用宽高取尺寸：固定 78% 宽会把预览下半截顶出对话框，
+     * 剩下只有顶边够得着。先按宽算，超高就改按高算。
+     */
+    private fun previewSize(aspect: Double): IntArray {
+        val metrics = resources.displayMetrics
+        val maxWidth = (metrics.widthPixels * 0.78f).toInt().coerceAtLeast(1)
+        val maxHeight = (metrics.heightPixels * 0.46f).toInt().coerceAtLeast(1)
+        var width = maxWidth
+        var height = (width / aspect).toInt().coerceAtLeast(1)
+        if (height > maxHeight) {
+            height = maxHeight
+            width = (height * aspect).toInt().coerceAtLeast(1)
+        }
+        return intArrayOf(width, height.coerceAtLeast(1))
+    }
+
+    /** 副屏输出：选屏、输出方式与校准。内容源/显示区域由上面几行统一管理，三处同时生效。 */
+    private fun secondaryScreenControls(card: LinearLayout) {
+        val store = com.shilapi.xcertplay.cluster.ScreenProfileStore
+        val displays = store.secondaryDisplays(this)
+        card.addView(label("副屏 / 多屏显示", 15, MUTED).apply { setPadding(0, dp(14), 0, 0) })
+        if (displays.isEmpty()) {
+            card.addView(label("未检测到副屏（仪表与车机不是同一 Android 实例时不适用）", 14, WARNING))
+            return
+        }
+        val target = store.preferredDisplay(this)
+        choice(card, "目标副屏",
+            listOf("不使用副屏") + displays.map { store.describe(this, it) },
+            if (store.enabled(this))
+                displays.indexOfFirst { it.displayId == target?.displayId } + 1 else 0,
+            reconnects = false) { index ->
+            if (index == 0) {
+                // 取消选择：不再自动发射副屏，输出回到仪表盘与中控卡片。
+                store.setEnabled(this, false)
+                com.shilapi.xcertplay.cluster.SecondaryScreenController.stop(this)
+            } else {
+                store.rememberOutput(this, displays[index - 1])
+                store.setEnabled(this, true)
+            }
+            render()
+        }
+        val modes = com.shilapi.xcertplay.cluster.OutputMode.entries
+        choice(card, "输出方式", modes.map {
+                if (it == com.shilapi.xcertplay.cluster.OutputMode.ACTIVITY) "独立副屏页面（Android 8+）"
+                else "兼容窗口"
+            }, modes.indexOf(store.outputMode(this)).coerceAtLeast(0), reconnects = false) {
+            store.setOutputMode(this, modes[it])
+            store.setEnabled(this, true)
+            render()
+        }
+        if (!store.enabled(this)) {
+            card.addView(label("已关闭副屏输出；选择目标副屏后，会话启动时自动发射。", 14, MUTED))
+            return
+        }
+        val chosen = target ?: return
+        card.addView(button("在副屏上校准（网格 + 拖拽）", false) {
+            store.rememberOutput(this, chosen)
+            store.setEnabled(this, true)
+            val started = runCatching {
+                com.shilapi.xcertplay.cluster.SecondaryScreenController.relaunchOn(this, chosen, grid = true)
+            }.getOrDefault(false)
+            if (!started) toast("副屏启动失败，请检查输出方式")
+        }, matchButton(6, 54))
+        card.addView(button("关闭副屏页面", false) {
+            com.shilapi.xcertplay.cluster.SecondaryScreenController.stop(this)
+            render()
+        }, matchButton(4, 52))
+        card.addView(label("校准：单指拖动移动区域，拖边/角改大小；五指左右滑动切换内容源。" +
+            "内容源、显示区域与裁剪画面同时作用于副屏、仪表盘与中控卡片。", 14, MUTED))
+    }
+
+    /** 把卡片/仪表盘使用的内容源、显示区域与裁切方式同步进副屏的按屏 profile，并热推送。 */
+    private fun syncSecondaryProfile() {
+        val store = com.shilapi.xcertplay.cluster.ScreenProfileStore
+        val display = store.preferredDisplay(this) ?: return
+        store.syncFromClusterProfile(this, display)
+        com.shilapi.xcertplay.cluster.SecondaryScreenController.push(store.load(this, display), force = true)
+    }
+
+    /**
+     * 视频框选预览 · 唯一编辑器（对齐上游 g61 架构）。
+     *
+     * 上游 OgleaPlay 的编辑器用 cropEditing 标志承载两种编辑态，同一个画布、同一个手势：
+     * - 「显示框」(cropEditing=false → ec3.d)：拖动/缩放手柄框，决定内容在输出屏上的位置与大小；
+     * - 「保留画面」(cropEditing=true → ec3.c)：决定源画面保留哪一部分（框外裁掉）。
+     * 两者组合 = 先裁源，再把裁出的内容放进显示框。预览是 [FramePreviewTextureView] 吃
+     * [CropPreviewBridge] 镜像流：显示框态视口跟随手柄框（框外留黑 = 输出屏黑边），保留画面态
+     * 视口铺满画布（所见即输出端将显示的裁剪结果），同一套 applyCropGeometry 几何。
+     * 保存一次性写回两个态并同步副屏热推送；仪表盘与中控卡随 profile 监听即时重排。
+     */
+    private fun showClusterFrameEditor(source: ClusterScreenProfile.Source) {
+        val streamType = source.streamType
         val aspect = when (source) {
             ClusterScreenProfile.Source.MAIN ->
                 resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
-            ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
-            else -> 8.0 / 3
+            ClusterScreenProfile.Source.NAVIGATION -> 1920.0 / 720.0
+            ClusterScreenProfile.Source.MUSIC -> 16.0 / 9.0
         }.coerceIn(0.5, 4.0)
-        val metrics = resources.displayMetrics
-        val previewWidth = (metrics.widthPixels * 0.78f).toInt()
-        val previewHeight = (previewWidth / aspect).toInt().coerceAtLeast(1)
-        val refW = 1000
-        val refH = (1000 / aspect).toInt().coerceAtLeast(1)
-        var pending = ClusterScreenProfile.region(this, source)
+        val size = previewSize(aspect)
+        val canvasW = size[0].toFloat()
+        val canvasH = size[1].toFloat()
+        val fitMode = when (ClusterScreenProfile.scaleMode(this, source)) {
+            ClusterScreenProfile.ScaleMode.FIT -> com.shilapi.xcertplay.cluster.FitMode.FIT
+            ClusterScreenProfile.ScaleMode.CROP -> com.shilapi.xcertplay.cluster.FitMode.CROP
+        }
+        var pendingVideo = ClusterScreenProfile.region(this, source)
+        var pendingCrop = ClusterScreenProfile.crop(this, source)
+        var editingCrop = false
+        // 独立音乐在副屏模型里没有独立裁剪槽（musicVideo 同时是区域与裁剪），只有显示框态。
+        val musicSlot = source == ClusterScreenProfile.Source.MUSIC
+
         val readout = label("", 14, MUTED)
-        readout.text = regionReadout(pending)
-        val editor = SafeAreaEditorView(this).apply {
-            interactive = true
-            dimOutside = false
-            setRect(ClusterScreenProfile.Region.toRect(pending, refW, refH), refW, refH)
-            onRectChanged = { rect ->
-                ClusterScreenProfile.Region.fromRect(rect, refW, refH)?.let {
-                    pending = it
-                    readout.text = regionReadout(it)
+        val hint = label("", 13, MUTED)
+        fun readoutText(r: ClusterScreenProfile.Region) {
+            readout.text = "位置 ${(r.x * 100).toInt()}% ${(r.y * 100).toInt()}% · 尺寸 " +
+                "${(r.width * 100).toInt()}% × ${(r.height * 100).toInt()}%"
+        }
+        fun hintText() {
+            hint.text = when {
+                musicSlot -> "独立音乐：拖动 / 缩放调整音乐卡片在输出屏上的位置与大小。"
+                !com.shilapi.xcertplay.cluster.CropPreviewBridge.available() ->
+                    "未连接 CarPlay，预览暂无画面；仍可编辑并保存。"
+                editingCrop -> "保留画面 · 拖动 / 裁剪：框住的部分被保留，框外裁掉；预览即输出端的裁剪结果。"
+                else -> "显示框 · 拖动 / 缩放：决定内容在输出屏上的位置与大小；框内显示的是保留画面后的内容。"
+            }
+        }
+
+        val previewTexture = com.shilapi.xcertplay.cluster.FramePreviewTextureView(this).apply {
+            bind(streamType)
+        }
+        // 保留画面态 FIT 时内容矩形两侧露相邻画面，与输出端一致地遮黑；显示框态视口=框本身，无需遮。
+        val previewMask = com.shilapi.xcertplay.CropMaskView(this)
+        fun refreshPreview(r: ClusterScreenProfile.Region) {
+            if (editingCrop || musicSlot) {
+                // 视口 = 整块画布（显示框视口），裁剪内容铺满 —— 所见即输出端结果。
+                previewTexture.layoutParams = FrameLayout.LayoutParams(canvasW.toInt(), canvasH.toInt())
+                previewTexture.applyCropGeometry(
+                    com.shilapi.xcertplay.cluster.ScreenRegion(
+                        pendingCrop.x, pendingCrop.y, pendingCrop.width, pendingCrop.height),
+                    fitMode, canvasW, canvasH)
+                val crop = pendingCrop
+                val contentW = crop.width * canvasW * (if (fitMode == com.shilapi.xcertplay.cluster.FitMode.FIT)
+                    minOf(1f / crop.width, 1f / crop.height) else maxOf(1f / crop.width, 1f / crop.height))
+                val contentH = crop.height * canvasH * (if (fitMode == com.shilapi.xcertplay.cluster.FitMode.FIT)
+                    minOf(1f / crop.width, 1f / crop.height) else maxOf(1f / crop.width, 1f / crop.height))
+                previewMask.setGeometry(
+                    (canvasW - contentW) / 2f, (canvasH - contentH) / 2f,
+                    (canvasW + contentW) / 2f, (canvasH + contentH) / 2f)
+            } else {
+                // 视口 = 显示框矩形，框外留黑（输出屏的黑边）；框内 FIT/CROP 的留边同样涂黑——
+                // 预览与输出端一致，不露出裁剪框旁边的相邻画面。遮罩坐标 = 画布坐标，
+                // 内容矩形 = 视口原点 + 视口内内容矩形（与 applyCropGeometry 同一公式）。
+                val left = (r.x * canvasW).toInt()
+                val top = (r.y * canvasH).toInt()
+                val w = (r.width * canvasW).toInt().coerceAtLeast(1)
+                val h = (r.height * canvasH).toInt().coerceAtLeast(1)
+                previewTexture.layoutParams = FrameLayout.LayoutParams(w, h).apply {
+                    leftMargin = left
+                    topMargin = top
+                }
+                previewTexture.applyCropGeometry(
+                    com.shilapi.xcertplay.cluster.ScreenRegion(
+                        pendingCrop.x, pendingCrop.y, pendingCrop.width, pendingCrop.height),
+                    fitMode, w.toFloat(), h.toFloat())
+                val crop = pendingCrop
+                val cw = crop.width * w
+                val ch = crop.height * h
+                if (cw > 0f && ch > 0f) {
+                    val zoom = if (fitMode == com.shilapi.xcertplay.cluster.FitMode.FIT)
+                        minOf(w / cw, h / ch) else maxOf(w / cw, h / ch)
+                    val contentW = cw * zoom
+                    val contentH = ch * zoom
+                    previewMask.setGeometry(
+                        left + (w - contentW) / 2f, top + (h - contentH) / 2f,
+                        left + (w + contentW) / 2f, top + (h + contentH) / 2f)
+                } else {
+                    previewMask.clear()
                 }
             }
         }
-        val preview = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        preview.addView(editor)
-        val column = LinearLayout(this).apply {
+
+        val editor = com.shilapi.xcertplay.cluster.RegionHandleEditorView(this).apply {
+            region = com.shilapi.xcertplay.cluster.ScreenRegion(
+                pendingVideo.x, pendingVideo.y, pendingVideo.width, pendingVideo.height)
+            dimOutside = true
+            onRegionChanged = { region ->
+                val value = ClusterScreenProfile.Region(region.x, region.y, region.width, region.height)
+                if (editingCrop) pendingCrop = value else pendingVideo = value
+                readoutText(value)
+                refreshPreview(value)
+            }
+        }
+        val canvas = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        canvas.addView(previewTexture, FrameLayout.LayoutParams(canvasW.toInt(), canvasH.toInt()))
+        canvas.addView(previewMask, FrameLayout.LayoutParams(-1, -1))
+        canvas.addView(editor, FrameLayout.LayoutParams(-1, -1))
+
+        val videoBtn = button("显示框", false) {}
+        val cropBtn = button("保留画面", false) {}
+        fun refreshModeButtons() {
+            videoBtn.alpha = if (editingCrop) 0.45f else 1f
+            cropBtn.alpha = if (editingCrop || musicSlot) 0.45f else 1f
+        }
+        fun switchMode() {
+            refreshModeButtons()
+            val r = if (editingCrop) pendingCrop else pendingVideo
+            editor.region = com.shilapi.xcertplay.cluster.ScreenRegion(r.x, r.y, r.width, r.height)
+            readoutText(r)
+            hintText()
+            refreshPreview(r)
+        }
+        videoBtn.setOnClickListener {
+            if (!editingCrop) return@setOnClickListener
+            editingCrop = false
+            switchMode()
+        }
+        cropBtn.setOnClickListener {
+            if (editingCrop || musicSlot) return@setOnClickListener
+            editingCrop = true
+            switchMode()
+        }
+
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            addView(videoBtn)
+            if (!musicSlot) addView(cropBtn)
+        }
+        val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(16), dp(24), dp(8))
-            addView(preview, LinearLayout.LayoutParams(previewWidth, previewHeight).apply {
+            addView(modeRow, LinearLayout.LayoutParams(-2, -2).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL })
+            addView(canvas, LinearLayout.LayoutParams(canvasW.toInt(), canvasH.toInt()).apply {
                 gravity = android.view.Gravity.CENTER_HORIZONTAL
+                topMargin = dp(8)
             })
             addView(readout, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+            addView(hint, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
         }
         appDialogBuilder()
-            .setTitle("${source.label} · 框选区域")
-            .setView(column)
-            .setPositiveButton("保存") { _, _ -> ClusterScreenProfile.setRegion(this, source, pending) }
-            .setNeutralButton("重置") { _, _ -> ClusterScreenProfile.setRegion(this, source, ClusterScreenProfile.Region.FULL) }
+            .setTitle("${source.label} · 视频框选预览")
+            .setView(body)
+            .setPositiveButton("保存") { _, _ ->
+                CropDiagLog.log(
+                    "editor save source=$source video=$pendingVideo crop=$pendingCrop mode=$fitMode")
+                ClusterScreenProfile.setRegion(this, source, pendingVideo)
+                if (!musicSlot) ClusterScreenProfile.setCrop(this, source, pendingCrop)
+                syncSecondaryProfile()
+            }
+            .setNeutralButton("恢复完整") { _, _ ->
+                ClusterScreenProfile.setRegion(this, source, ClusterScreenProfile.Region.FULL)
+                if (!musicSlot) ClusterScreenProfile.setCrop(this, source, ClusterScreenProfile.Region.FULL)
+                syncSecondaryProfile()
+            }
             .setNegativeButton("取消", null)
             .show()
+        switchMode()
     }
 
-    private fun regionReadout(region: ClusterScreenProfile.Region): String =
-        "x=${(region.x * 100).toInt()}%  y=${(region.y * 100).toInt()}%  " +
-            "w=${(region.width * 100).toInt()}%  h=${(region.height * 100).toInt()}%"
+
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)); tag = SPACER }
 
     /**
