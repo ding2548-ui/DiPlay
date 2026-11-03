@@ -6,11 +6,9 @@ package com.shilapi.xcertplay.airplay
  * The CarPlay menu can set any other length in its own range.
  */
 enum class CarPlaySize(val label: String, val widthMillimeters: Int) {
-    LARGE("大", 250),
-    MEDIUM("中", 300),
-    SMALL("小", 350),
-    HIDPI_2X("HiDPI 2x", 150),
-    HIDPI_3X("HiDPI 3x", 100);
+    LARGE("Large", 250),
+    MEDIUM("Medium", 300),
+    SMALL("Small", 350);
 
     companion object {
         val DEFAULT = MEDIUM

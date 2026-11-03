@@ -30,6 +30,8 @@ interface AirPlaySessionListener {
     fun onSessionActive(session: AirPlaySession) {}
     fun onSessionEnded(session: AirPlaySession) {}
     fun onVideoFrameRendered(session: AirPlaySession) {}
+    /** Validated downstream; immutable copy of iPhone's top-left grayscale coverage PNG. */
+    fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
     fun onHostUiRequested(session: AirPlaySession) {}
@@ -78,18 +80,6 @@ class AirPlaySession(
     private val mfi: MfiAuthenticator?,
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
-    /**
-     * The lwIP wired path relays the iPhone's connections into this process over the loopback, so
-     * every listener below binds the loopback instead of the wildcard address. The relay dials
-     * InetAddress.getLoopbackAddress(), so the bind resolves through the same call: binding the
-     * IPv4 literal put the two ends in different address families and every relayed connection
-     * died with "Connection refused".
-     */
-    private val loopbackBind: Boolean = false,
-    /** Announces a newly opened TCP port so the lwIP side can relay it to the phone. */
-    private val portNotifier: ((Int) -> Unit)? = null,
-    /** Announces a newly opened UDP port (timing, keepalive) for the same relay. */
-    private val udpPortNotifier: ((Int) -> Unit)? = null,
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
@@ -548,6 +538,15 @@ class AirPlaySession(
     private fun handle(request: RtspMessage.Request): RtspMessage.Response {
         when (request.method) {
             "SETUP" -> return handleSetup(request)
+            "SET_PARAMETER" -> {
+                // iOS can replace the mask when the display changes; never decode PNG on RTSP.
+                if (config.main.useIphoneCornerMask && request.body.size <=
+                    IPhoneCornerMaskWireLimit.MAX_PNG_BYTES + 64 * 1024) {
+                    val value = runCatching { BplistCodec.decode(request.body) }.getOrNull()
+                    findIphoneCornerMask(value)?.let(::notifyCornerMask)
+                }
+                return RtspMessage.Response(status = 200)
+            }
             "RECORD" -> {
                 listener.onSessionActive(this)
                 return RtspMessage.Response(status = 200)
@@ -710,9 +709,10 @@ class AirPlaySession(
                     val port = media.onScreen(this, type, stream)
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
+                        if (type == STREAM_TYPE_MAIN_SCREEN && config.main.useIphoneCornerMask) {
+                            findIphoneCornerMask(stream)?.let(::notifyCornerMask)
+                        }
                         activeStreams.add(type)
-                        // lwIP mode: hand the new data port to the relay so the phone can reach it.
-                        portNotifier?.invoke(port)
                         if (type == STREAM_TYPE_ALT_SCREEN) beginClusterContent()
                         else mainScreenToken = Any()
                         result.add(linkedMapOf("type" to type, "dataPort" to port))
@@ -812,31 +812,26 @@ class AirPlaySession(
         return RtspMessage.Response(status = 200)
     }
 
-    /**
-     * Where the loopback-relayed listeners bind. [loopbackBind] resolves through
-     * InetAddress.getLoopbackAddress(), the same call LwipSessionNetwork dials, so the two ends
-     * cannot end up in different address families.
-     */
-    private fun listenerBindAddress(): InetAddress =
-        if (loopbackBind) InetAddress.getLoopbackAddress() else InetAddress.getByName("::")
+    private fun notifyCornerMask(png: ByteArray) {
+        if (png.size !in 45..IPhoneCornerMaskWireLimit.MAX_PNG_BYTES) return
+        listener.onCornerMask(this, png.copyOf(), config.main.widthPixels)
+    }
 
     private fun openTiming(peerPort: Int): Int {
-        val port = ntp.listen(listenerBindAddress())
+        val port = ntp.listen()
         if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
-        udpPortNotifier?.invoke(port)
         return port
     }
 
     private fun openKeepAlive(): Int {
         val socket = DatagramSocket(null)
         socket.reuseAddress = true
-        socket.bind(InetSocketAddress(listenerBindAddress(), 0))
+        socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
         keepAliveSocket = socket
         keepAliveThread = Thread({ runKeepAlive(socket) }, "airplay-keepalive").apply {
             isDaemon = true
             start()
         }
-        udpPortNotifier?.invoke(socket.localPort)
         return socket.localPort
     }
 
@@ -852,15 +847,10 @@ class AirPlaySession(
     }
 
     private fun openEvent(): Int {
-        // The relay target is 127.0.0.1, so the bind has to match it exactly.
-        val bindAddress = listenerBindAddress()
-        val server = ServerSocket(0, 50, bindAddress)
+        val server = ServerSocket(0, 50, InetAddress.getByName("::"))
         eventServer = server
         spawnEvent("airplay-event-accept") { acceptEvent(server) }
-        val port = server.localPort
-        debugLog("airplay event listener bind=${bindAddress.hostAddress} port=$port")
-        portNotifier?.invoke(port)
-        return port
+        return server.localPort
     }
 
     private fun teardown() {
@@ -1009,12 +999,31 @@ class AirPlaySession(
 /** The session feature the iPhone proposes for main buffered audio. */
 internal const val MAIN_BUFFERED_FEATURE = "mainBuffered"
 
+internal object IPhoneCornerMaskWireLimit {
+    const val MAX_PNG_BYTES = 512 * 1024
+}
+
+/** The mask may arrive inside the screen stream SETUP entry or in a runtime parameter plist. */
+internal fun findIphoneCornerMask(value: Any?, depth: Int = 0): ByteArray? {
+    if (depth > 6) return null
+    return when (value) {
+        is Map<*, *> -> {
+            val candidate = value["topLeftCornerMask"] as? ByteArray
+            if (candidate != null) candidate
+            else value.values.firstNotNullOfOrNull { findIphoneCornerMask(it, depth + 1) }
+        }
+        is List<*> -> value.firstNotNullOfOrNull { findIphoneCornerMask(it, depth + 1) }
+        else -> null
+    }
+}
+
 internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): List<String> {
     val features = mutableListOf<String>()
     if (config.hevc) features.add("hevc")
     features.add("iAPChannel")
     features.add("viewAreas")
     if (config.cluster != null) features.add("altScreen")
+    if (config.main.useIphoneCornerMask && proposed.orEmpty().contains("cornerMasks")) features.add("cornerMasks")
     if (config.videoInCar && proposed.orEmpty().contains(VideoInCar.FEATURE)) features.add(VideoInCar.FEATURE)
     if (config.bufferedAudioOutputEnabled && proposed.orEmpty().contains(MAIN_BUFFERED_FEATURE)) features.add(MAIN_BUFFERED_FEATURE)
     return features

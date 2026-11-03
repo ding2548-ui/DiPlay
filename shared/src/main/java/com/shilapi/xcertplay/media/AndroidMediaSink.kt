@@ -1817,10 +1817,7 @@ private class AudioRenderer(
     private val ambientMedia = AmbientMusicActivityPolicy.acceptsAudio(format.audioType, format.payloadType)
     private val ambientEnvelope = AmbientMusicEnvelope()
     private val ambientBass = AmbientMusicBassAnalyzer(format.sampleRate, pcmChannels)
-    // The Leapmotor flow light maps one lamp channel per spectrum band (low/mid/high). These two
-    // bands are computed alongside the bass band and cost one extra one-pole pass each per write.
-    private val ambientMid = AmbientMusicBandAnalyzer(format.sampleRate, pcmChannels, 180.0, 2_000.0)
-    private val ambientHigh = AmbientMusicBandAnalyzer(format.sampleRate, pcmChannels, 2_000.0, 8_000.0)
+    private val ambientBands = AmbientMusicBandAnalyzer(format.sampleRate, pcmChannels)
     private var ambientRendererToken = 0L
     private var writtenFramesThisWindow = 0L
     private var writeErrorsThisWindow = 0
@@ -2440,8 +2437,7 @@ private class AudioRenderer(
                 ambientEnvelope.append(totalWrittenFrames, framesWritten.toLong(),
                     AmbientMusicEnvelope.pcmRms(data, offset + written, count),
                     ambientBass.rms(data, offset + written, count),
-                    ambientMid.rms(data, offset + written, count),
-                    ambientHigh.rms(data, offset + written, count))
+                    if (AmbientMusicController.wantsBands(ambientRendererToken)) ambientBands.analyze(data, offset + written, count) else null)
             }
             written += count
             totalWrittenFrames += framesWritten
