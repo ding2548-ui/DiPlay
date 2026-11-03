@@ -77,7 +77,11 @@ class Ch341UsbHost(
             }
         }
         val filter = IntentFilter(permissionAction)
-        UsbPermissionBroadcast.register(appContext, receiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            appContext.registerReceiver(receiver, filter)
+        }
         return Closeable { appContext.unregisterReceiver(receiver) }
     }
 

@@ -50,7 +50,7 @@ class PhoneBluetoothReceiverTest {
         receiver.onReceive(context, event(selected))
         assertEquals(1, launches.size)
         assertEquals(DiPlayActivity::class.java.name, launches.single().component?.className)
-        assertEquals(PhoneBluetoothReceiver.launchToken, launches.single().getStringExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT))
+        assertTrue(launches.single().getBooleanExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT, false))
         assertTrue(PhoneWakeDiagnostics.report(app).contains("result=startActivity-returned"))
     }
 }

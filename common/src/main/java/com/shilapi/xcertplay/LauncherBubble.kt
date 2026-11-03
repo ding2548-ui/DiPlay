@@ -17,12 +17,10 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -116,11 +114,10 @@ internal object LauncherBubble {
 
         val params = windowParams(width, height)
         params.gravity = Gravity.TOP or Gravity.START
-        val (areaWidth, areaHeight) = overlayArea(windows, metrics)
         val saved = LauncherBubbleLayout.clamp(
             LauncherBubbleLayout.Box(width, height, prefs.getInt(KEY_X, initial.x), prefs.getInt(KEY_Y, initial.y)),
-            areaWidth,
-            areaHeight,
+            metrics.widthPixels,
+            metrics.heightPixels,
         )
         params.x = saved.x
         params.y = saved.y
@@ -222,11 +219,8 @@ internal object LauncherBubble {
                         stopPress()
                         if (!locked) {
                             dragged = true
-                            val moved = LauncherBubbleLayout.drag(
-                                LauncherBubbleLayout.Box(width, height, originX, originY), dx, dy, areaWidth, areaHeight,
-                            )
-                            params.x = moved.x
-                            params.y = moved.y
+                            params.x = originX + dx
+                            params.y = originY + dy
                             runCatching { windows.updateViewLayout(view, params) }
                         }
                     }
@@ -283,19 +277,6 @@ internal object LauncherBubble {
             PixelFormat.TRANSLUCENT,
         )
 
-    /**
-     * The width and height the window's place counts in. [DisplayMetrics] can still include a bar, such as
-     * a phone's status bar in landscape, so it is used only where the bars cannot be read.
-     */
-    private fun overlayArea(windows: WindowManager, metrics: DisplayMetrics): Pair<Int, Int> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return metrics.widthPixels to metrics.heightPixels
-        val window = windows.currentWindowMetrics
-        val bars = window.windowInsets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-        return LauncherBubbleLayout.area(
-            window.bounds.width(), window.bounds.height(), bars.left, bars.top, bars.right, bars.bottom,
-        )
-    }
-
     // A DiPlay activity in front makes the process foreground; the session service alone does not.
     private fun diPlayInFront(): Boolean {
         val state = ActivityManager.RunningAppProcessInfo()
@@ -306,7 +287,7 @@ internal object LauncherBubble {
     /** CarPlay when a session is up, the settings screen otherwise. */
     private fun openCarPlay(context: Context) {
         val target = if (CarPlayGlance.snapshot().connected) {
-            CarPlayScreen.target(context)
+            CarPlayHostActivity::class.java
         } else {
             DiPlayActivity::class.java
         }
