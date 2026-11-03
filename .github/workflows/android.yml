@@ -152,7 +152,7 @@ jobs:
             if [ -f RELEASE_NOTES.md ]; then
               cat RELEASE_NOTES.md
             else
-              printf "DiPlay 0.2.22（%s）\n' "$GITHUB_RUN_NUMBER"
+              printf 'DiPlay 0.2.22（%s）\n' "$GITHUB_RUN_NUMBER"
             fi
             echo
             echo '---'
