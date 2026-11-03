@@ -411,6 +411,11 @@ internal object CarPlayMediaKeys {
         WheelKeyLog.note("media key $source not used by CarPlay")
     }
 
+    private fun notUsed(source: String) {
+        Log.i(TAG, "media key $source not used by CarPlay")
+        WheelKeyLog.note("media key $source not used by CarPlay")
+    }
+
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
     internal fun onExternalMediaKey(index: Int) = send(index, "geely-wheel")
 
