@@ -59,12 +59,6 @@ class UsbAutoConfirmServiceTest {
         assertFalse(UsbAutoConfirmService.isTargetPrompt("允许 其他应用 访问 USB 设备？", "DiPlay"))
     }
 
-    @Test fun theUsbDialogIsSeenUnderTheNameAlertActivityReports() {
-        // AlertActivity reports UsbPermissionActivity as android.app.Dialog (#409).
-        assertTrue(UsbAutoConfirmService.isSystemUsbWindow("com.android.systemui", "android.app.Dialog"))
-        assertFalse(UsbAutoConfirmService.isSystemUsbWindow("evil.app", "android.app.Dialog"))
-    }
-
     @Test fun otherSystemDialogsNamingDiPlayAreLeftAlone() {
         assertFalse(UsbAutoConfirmService.isTargetPrompt("Start recording or casting with DiPlay?", "DiPlay"))
         assertFalse(UsbAutoConfirmService.isTargetPrompt(

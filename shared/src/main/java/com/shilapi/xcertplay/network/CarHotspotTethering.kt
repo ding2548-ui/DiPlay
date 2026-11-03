@@ -1,28 +1,20 @@
 package com.shilapi.xcertplay.network
 
-import android.annotation.SuppressLint
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.wifi.WifiConfiguration
-import android.net.wifi.WifiManager
-import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
 import android.provider.Settings
+import com.shilapi.xcertplay.adb.AdbKeys
+import com.shilapi.xcertplay.adb.LocalAdb
 import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
-/** Uses the car's saved hotspot configuration. This never stops or reconfigures the hotspot. */
+/** Uses the car's saved hotspot configuration. This never stops a running hotspot and never writes
+ *  the saved configuration; writes happen once from the settings screen, after the driver confirms. */
 object CarHotspotTethering {
-    internal fun describe(error: Throwable): String {
-        val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
-        val reason = cause.javaClass.simpleName + (cause.message?.let { ": ${it.take(100)}" } ?: "")
-        return if (cause === error) reason else "${error.javaClass.simpleName} caused by $reason"
-    }
-
     private val startupLock = ReentrantLock()
     enum class Result(val diagnostic: String) {
         READY("Car hotspot is on"),
@@ -35,6 +27,9 @@ object CarHotspotTethering {
 
     fun permitted(context: Context): Boolean = Settings.System.canWrite(context)
 
+    /** Whether this Android version lets an app with [permitted] access start tethering itself, without ADB. */
+    fun appStartSupported(): Boolean = PlatformTetheringStart.supported()
+
     /** Blocking; serialize startup and connection requests, checking cancellation after acquiring the lock. */
     fun enable(
         context: Context,
@@ -43,61 +38,55 @@ object CarHotspotTethering {
         log: (String) -> Unit,
     ): Result {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
-        // FreeAuto-style primary path: on Android 7.x the classic SoftAP toggle only needs
-        // CHANGE_WIFI_STATE, reuses the car's saved hotspot configuration and is confirmed by
-        // polling the AP state — no ADB, no binder reflection. The startTethering binder
-        // overloads arrived with Android 8 and remain the path on newer firmwares.
-        val start: (ResultReceiver) -> Unit =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                { receiver -> startTetheringByBinder(context, receiver) }
-            } else {
-                { _ -> startLegacySoftAp(context, log) }
+        val observedAdbState = AtomicReference<Boolean?>()
+        val startReflection: (ResultReceiver) -> Unit = { receiver ->
+            try {
+                PlatformTetheringStart.start(context, receiver, log)
+            } catch (error: Exception) {
+                // #616: the report did not say which start path failed.
+                log("car hotspot: Android start request failed ${describe(error)}")
+                throw error
             }
+        }
+        val startAdb: () -> Boolean = {
+            val client = AtomicReference<LocalAdb?>()
+            CarHotspotAdbFallback.bounded(deadline, isCancelled,
+                abort = { client.get()?.cancelPendingOperations() }) {
+                val adb = LocalAdb(AdbKeys.load(context))
+                client.set(adb)
+                adb.use {
+                    val access = if (isCancelled() || Thread.currentThread().isInterrupted || System.nanoTime() >= deadline) null
+                        else adb.connect(mayAsk = false)
+                    if (access != null && access != LocalAdb.Access.READY) log("car hotspot: ADB access=$access")
+                    if (access != LocalAdb.Access.READY) false
+                    else CarHotspotAdbFallback.start(deadline, isCancelled,
+                        state = { CarHotspotStatus.isEnabled(context) }, shell = adb::shell, log = log,
+                        helper = shellTetheringHelper(context))
+                        .also { if (it) observedAdbState.set(true) }
+                }
+            }
+        }
         return enableUntil(
             deadline,
             isCancelled,
             { permitted(context) },
-            { CarHotspotStatus.isEnabled(context) },
-            startFallback = null,
-            start = start,
-        ).also { log("car hotspot auto-enable: ${it.diagnostic}") }
-    }
-
-    private fun startTetheringByBinder(context: Context, receiver: ResultReceiver) {
-        // There is no public API for the car hotspot's startTethering overload on this platform,
-        // so the binder field has to be reached reflectively. The call is already wrapped by the
-        // caller's runCatching, and a missing field surfaces as NoSuchMethodException.
-        @SuppressLint("SoonBlockedPrivateApi")
-        val service = ConnectivityManager::class.java.getDeclaredField("mService")
-            .apply { isAccessible = true }
-            .get(context.getSystemService(ConnectivityManager::class.java))
-            ?: throw NoSuchMethodException("Connectivity service unavailable")
-        // Android 8+ carries the caller package in the binder signature; Android 8.0 does not.
-        try {
-            service.javaClass.getMethod(
-                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                Boolean::class.javaPrimitiveType, String::class.java,
-            ).invoke(service, 0, receiver, false, context.packageName)
-        } catch (error: NoSuchMethodException) {
-            service.javaClass.getMethod(
-                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                Boolean::class.javaPrimitiveType,
-            ).invoke(service, 0, receiver, false)
+            stateWithAdbObservation({ CarHotspotStatus.isEnabled(context) }, observedAdbState),
+            startFallback = startAdb,
+            start = startReflection,
+        ).also {
+            if (it != Result.READY && it != Result.CANCELLED)
+                log("car hotspot: Android state=${CarHotspotStatus.isEnabled(context) ?: "unknown"} writeSettings=${permitted(context)}")
+            log("car hotspot auto-enable: ${it.diagnostic}")
         }
     }
 
-    private fun startLegacySoftAp(context: Context, log: (String) -> Unit) {
-        val wifi = context.getSystemService(WifiManager::class.java)
-            ?: throw NoSuchMethodException("Wi-Fi manager unavailable")
-        // FreeAuto parity: switch the hotspot on with the car's own saved configuration — its
-        // name and password stay exactly as the user set them in the car settings.
-        val saved = runCatching {
-            WifiManager::class.java.getMethod("getWifiApConfiguration").invoke(wifi) as? WifiConfiguration
-        }.getOrNull()
-        log("car hotspot legacy start: saved config ${if (saved != null) "applied (ssid known)" else "unavailable (null)"}")
-        WifiManager::class.java.getMethod(
-            "setWifiApEnabled", WifiConfiguration::class.java, Boolean::class.javaPrimitiveType,
-        ).invoke(wifi, saved, true)
+    /** The shell's own tethering call ([CarHotspotStartMain]), for firmware without a hotspot command. */
+    private fun shellTetheringHelper(context: Context): String = CarHotspotStartMain.command(context.applicationInfo.sourceDir)
+
+    internal fun describe(error: Throwable): String {
+        val cause = (error as? InvocationTargetException)?.targetException ?: error
+        val reason = cause.javaClass.simpleName + (cause.message?.let { ": ${it.take(100)}" } ?: "")
+        return if (cause === error) reason else "${error.javaClass.simpleName} caused by $reason"
     }
 
     /** An ADB observation supplements hidden platform status, but never overrides a current off state. */

@@ -9,7 +9,9 @@ package com.shilapi.xcertplay.transport
  * snd-usb-audio to the iPhone's audio configuration, so every switch failed, the claims landed on
  * the wrong configuration and DiPlay reported "could not claim the NCM interface 3" (#518).
  * Android detaches a kernel driver only through a forced claim, so each interface number is
- * claimed with force and released at once; usbfs does not rebind the driver on release.
+ * claimed with force. Android's releaseInterface() asks the kernel to reattach the driver
+ * (USBDEVFS_CONNECT), which undid the detach before the switch in 0.2.19, so the claims are
+ * dropped by closing the connection instead: usbfs releases them on close without reattaching.
  */
 internal object UsbConfigurationSelection {
     data class Outcome(
@@ -28,8 +30,10 @@ internal object UsbConfigurationSelection {
     }
 
     /**
-     * Returns null when the first [setConfiguration] succeeds. Otherwise detaches drivers from
-     * [interfaceIds] unless [activeConfiguration] already reads [target], and tries once more.
+     * Returns null when the first [setConfiguration] succeeds. Otherwise, unless
+     * [activeConfiguration] already reads [target], detaches drivers from [interfaceIds] with a
+     * claim that stays held, lets [reopen] close and reopen the connection to drop those claims,
+     * and tries once more on the new connection.
      */
     fun select(
         target: Int,
@@ -37,11 +41,13 @@ internal object UsbConfigurationSelection {
         setConfiguration: () -> Boolean,
         activeConfiguration: () -> Int?,
         detach: (Int) -> Boolean,
+        reopen: () -> Unit,
     ): Outcome? {
         if (setConfiguration()) return null
         val before = activeConfiguration()
         if (before == target) return Outcome(target, selected = false, before, before, emptyList())
         val detached = interfaceIds.distinct().sorted().filter(detach)
+        if (detached.isNotEmpty()) reopen()
         val selected = setConfiguration()
         return Outcome(target, selected, before, activeConfiguration(), detached)
     }

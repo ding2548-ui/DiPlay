@@ -93,4 +93,11 @@ internal object BackgroundUpdateScheduler {
             .build()
         manager.enqueueUniqueWork(OPEN_WORK, ExistingWorkPolicy.KEEP, afterOpen)
     }
+
+    /** 撤掉两项检查任务：零跑线的构建用 AppUpdater 查自己的发布，不查原作者仓库。 */
+    fun cancel(context: Context) {
+        val manager = WorkManager.getInstance(context.applicationContext)
+        manager.cancelUniqueWork(PERIODIC_WORK)
+        manager.cancelUniqueWork(OPEN_WORK)
+    }
 }

@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.iap2.catalog.Iap2Endpoints
 import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
 import com.shilapi.xcertplay.transport.Iap2VehicleStatus.electricVehicleComponents
 import java.io.IOException
 import kotlin.math.min
@@ -136,9 +137,14 @@ internal fun Iap2IdentificationConfig.forWirelessLink(
 
 /** Identification failures distinguished from the underlying iAP2 transport failure. */
 sealed class Iap2IdentificationException(message: String) : IOException(message) {
-    class Rejected(parameterIds: Set<Int>) : Iap2IdentificationException(
-        "iAP2 identification rejected parameters ${parameterIds.sorted().joinToString(prefix = "[", postfix = "]") { "0x${it.toString(16).padStart(4, '0')}" }}; " +
-            "this minimal identification profile has no optional components to remove",
+    class Rejected(
+        parameterIds: Set<Int>,
+        val unsupportedMessagesSent: Iap2RejectedMessageList? = null,
+        val unsupportedMessagesReceived: Iap2RejectedMessageList? = null,
+    ) : Iap2IdentificationException(
+        "iAP2 identification rejected before MFi authentication; parameters ${parameterIds.sorted().hexadecimalIds()}; " +
+            "unsupported messages sent=${unsupportedMessagesSent?.diagnostic() ?: "absent"} " +
+            "received=${unsupportedMessagesReceived?.diagnostic() ?: "absent"}",
     ) {
         val parameterIds: Set<Int> = parameterIds.toSet()
     }
@@ -148,6 +154,25 @@ sealed class Iap2IdentificationException(message: String) : IOException(message)
     )
 }
 
+/** Bounded diagnostic values from IdentificationRejected parameter 6 or 7, not negotiated features. */
+data class Iap2RejectedMessageList internal constructor(
+    val messageIds: List<Int>,
+    val payloadCount: Int,
+    val emptyPayloadCount: Int,
+    val malformedPayloadCount: Int,
+    val omittedMessageCount: Int,
+) {
+    internal fun diagnostic(): String =
+        "${messageIds.hexadecimalIds()} " +
+            "payloads=$payloadCount empty=$emptyPayloadCount malformed=$malformedPayloadCount " +
+            "duplicateParameters=${payloadCount > 1} " +
+            "duplicateRetainedIds=${messageIds.size != messageIds.toSet().size} " +
+            "omitted=$omittedMessageCount"
+}
+
+private fun Iterable<Int>.hexadecimalIds(): String =
+    joinToString(prefix = "[", postfix = "]") { "0x${it.toString(16).padStart(4, '0')}" }
+
 /**
  * Synchronous accessory-side wired or wireless identification over an already owned CSM channel.
  *
@@ -155,33 +180,55 @@ sealed class Iap2IdentificationException(message: String) : IOException(message)
  * CarPlay, subscription, power, media, or UI service.
  */
 class Iap2IdentificationClient(private val session: Iap2Session) {
-    /** Waits for link negotiation, then completes the 1D00/1D01/1D02 exchange. */
+    /**
+     * Waits for link negotiation, then completes the 1D00/1D01/1D02 exchange. When the iPhone
+     * rejects only messages it does not know (older iOS rejects the CarPlay 0x4300/0x4301 pair),
+     * identification is sent once more without them, as iAP2 allows after a rejection.
+     */
     @Throws(IphoneUsbException::class, Iap2IdentificationException::class)
-    fun identify(config: Iap2IdentificationConfig, timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS) {
-        require(timeoutMillis in 1..MAXIMUM_TIMEOUT_MILLIS) {
-            "timeoutMillis must be in 1..$MAXIMUM_TIMEOUT_MILLIS"
-        }
-        val deadlineNanos = System.nanoTime() + timeoutMillis * NANOS_PER_MILLISECOND
-        if (!session.awaitReady(remainingMillis(deadlineNanos))) {
-            throw IphoneUsbException.TimedOut("Timed out waiting for iAP2 control session readiness")
-        }
-
-        while (true) {
-            val frame = session.recv(remainingMillis(deadlineNanos))
-                ?: throw IphoneUsbException.TimedOut("Timed out waiting for iAP2 identification")
-            when (frame.messageId) {
-                START_IDENTIFICATION -> session.send(identificationInformation(config), remainingMillis(deadlineNanos))
-                IDENTIFICATION_ACCEPTED -> return
-                IDENTIFICATION_REJECTED -> {
-                    val rejected = Iap2BodyReader.of(frame).list().mapTo(LinkedHashSet()) { it.id }
-                    throw Iap2IdentificationException.Rejected(rejected)
-                }
-                else -> throw Iap2IdentificationException.UnexpectedMessage(frame.messageId)
-            }
-        }
-    }
+    fun identify(
+        config: Iap2IdentificationConfig,
+        timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
+        onProgress: (String) -> Unit = {},
+    ) = exchange(session::awaitReady, session::recv, session::send, config, timeoutMillis, onProgress)
 
     companion object {
+        /** The identification exchange over any message link; [identify] runs it on the session. */
+        internal fun exchange(
+            awaitReady: (Long) -> Boolean,
+            recv: (Long) -> Iap2Frame?,
+            send: (Iap2Frame, Long) -> Unit,
+            config: Iap2IdentificationConfig,
+            timeoutMillis: Long,
+            onProgress: (String) -> Unit,
+        ) {
+            require(timeoutMillis in 1..MAXIMUM_TIMEOUT_MILLIS) {
+                "timeoutMillis must be in 1..$MAXIMUM_TIMEOUT_MILLIS"
+            }
+            val deadlineNanos = System.nanoTime() + timeoutMillis * NANOS_PER_MILLISECOND
+            if (!awaitReady(remainingMillis(deadlineNanos))) {
+                throw IphoneUsbException.TimedOut("Timed out waiting for iAP2 control session readiness")
+            }
+
+            var omitted: Set<Int>? = null
+            while (true) {
+                val frame = recv(remainingMillis(deadlineNanos))
+                    ?: throw IphoneUsbException.TimedOut("Timed out waiting for iAP2 identification")
+                when (frame.messageId) {
+                    START_IDENTIFICATION -> send(identificationInformation(config, omitted.orEmpty()), remainingMillis(deadlineNanos))
+                    IDENTIFICATION_ACCEPTED -> return
+                    IDENTIFICATION_REJECTED -> {
+                        val rejection = identificationRejection(frame)
+                        if (omitted != null) throw rejection
+                        omitted = rejection.omittableMessages() ?: throw rejection
+                        onProgress("iap2 identification retry without unsupported messages ${omitted.sorted().hexadecimalIds()}")
+                        send(identificationInformation(config, omitted), remainingMillis(deadlineNanos))
+                    }
+                    else -> throw Iap2IdentificationException.UnexpectedMessage(frame.messageId)
+                }
+            }
+        }
+
         const val START_IDENTIFICATION = 0x1d00
         const val IDENTIFICATION_INFORMATION = 0x1d01
         const val IDENTIFICATION_ACCEPTED = 0x1d02
@@ -190,9 +237,69 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
         private const val DEFAULT_TIMEOUT_MILLIS = 10_000L
         private const val MAXIMUM_TIMEOUT_MILLIS = 5 * 60 * 1_000L
         private const val NANOS_PER_MILLISECOND = 1_000_000L
+        private const val MAX_REJECTED_MESSAGE_IDS = 32
+
+        internal fun identificationRejection(frame: Iap2Frame): Iap2IdentificationException.Rejected {
+            val parameters = Iap2BodyReader.of(frame).list()
+            return Iap2IdentificationException.Rejected(
+                parameterIds = parameters.mapTo(LinkedHashSet()) { it.id },
+                unsupportedMessagesSent = rejectedMessageList(parameters, 6),
+                unsupportedMessagesReceived = rejectedMessageList(parameters, 7),
+            )
+        }
+
+        private fun rejectedMessageList(parameters: List<Iap2Parameter>, id: Int): Iap2RejectedMessageList? {
+            val payloads = parameters.filter { it.id == id }
+            if (payloads.isEmpty()) return null
+            val messageIds = ArrayList<Int>(MAX_REJECTED_MESSAGE_IDS)
+            var emptyPayloadCount = 0
+            var malformedPayloadCount = 0
+            var omittedMessageCount = 0
+            for (parameter in payloads) {
+                val payload = parameter.payload
+                when {
+                    payload.isEmpty() -> emptyPayloadCount++
+                    payload.size % 2 != 0 -> malformedPayloadCount++
+                    else -> {
+                        // These two rejection parameters contain BE16 message IDs, unlike the
+                        // empty presence markers used by other rejected identification fields.
+                        // Keep repetitions visible and do not guess IDs from an odd-length payload.
+                        for (offset in payload.indices step 2) {
+                            if (messageIds.size < MAX_REJECTED_MESSAGE_IDS) {
+                                messageIds += ((payload[offset].toInt() and 0xff) shl 8) or
+                                    (payload[offset + 1].toInt() and 0xff)
+                            } else {
+                                omittedMessageCount++
+                            }
+                        }
+                    }
+                }
+            }
+            return Iap2RejectedMessageList(
+                messageIds = messageIds.toList(),
+                payloadCount = payloads.size,
+                emptyPayloadCount = emptyPayloadCount,
+                malformedPayloadCount = malformedPayloadCount,
+                omittedMessageCount = omittedMessageCount,
+            )
+        }
+
+        /**
+         * The message IDs a rejection lists as unsupported, when dropping them is all it asks for:
+         * only the two message-list parameters are rejected, their IDs are intact, and none is an
+         * authentication message. Null when identification cannot be corrected this way.
+         */
+        internal fun Iap2IdentificationException.Rejected.omittableMessages(): Set<Int>? {
+            if (parameterIds.isEmpty() || !MESSAGE_LIST_PARAMETERS.containsAll(parameterIds)) return null
+            val lists = listOfNotNull(unsupportedMessagesSent, unsupportedMessagesReceived)
+            if (lists.any { it.malformedPayloadCount > 0 || it.omittedMessageCount > 0 }) return null
+            val ids = lists.flatMap { it.messageIds }.toSet()
+            if (ids.isEmpty() || ids.any { it in AUTHENTICATION_MESSAGES }) return null
+            return ids
+        }
 
         /** Builds the smallest honest LIVI-compatible wired or wireless IdentificationInformation. */
-        fun identificationInformation(config: Iap2IdentificationConfig): Iap2Frame {
+        fun identificationInformation(config: Iap2IdentificationConfig, omitted: Set<Int> = emptySet()): Iap2Frame {
             val wireless = config.wireless
             var sentMessages = if (config.locationInformationEnabled) {
                 MESSAGES_SENT_BY_ACCESSORY + LOCATION_INFORMATION
@@ -225,7 +332,7 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
                     } else {
                         sentMessages.filterNot { it == POWER_SOURCE_UPDATE }.toIntArray().asIterable() +
                             ACCESSORY_WIFI_CONFIGURATION_INFORMATION
-                    },
+                    }.filterNot { it in omitted },
                 )
                 u16List(
                     7,
@@ -233,7 +340,7 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
                         receivedMessages.asIterable()
                     } else {
                         receivedMessages.asIterable() + WIRELESS_PHONE_MESSAGES.asIterable()
-                    },
+                    }.filterNot { it in omitted },
                 )
                 u8(8, if (wireless == null) 2 else 0)
                 u16(9, 20)
@@ -287,6 +394,10 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
                     u16(2, 64) // MaxCurrentRoadNameLength
                     u16(4, 64) // MaxAfterManeuverRoadNameLength
                     u16(6, 8)
+                    // The iPhone only sends 0x5204 lane guidance when the accessory says it can
+                    // store it; without these two it stays silent and no lane data arrives at all.
+                    u16(7, 64) // MaxLaneGuidanceDescriptionLength
+                    u16(8, 8) // MaxLaneGuidanceStorageCapacity
                 }
             }
         }
@@ -324,11 +435,14 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
             0x5001, // NowPlayingUpdate
             0x5201, // RouteGuidanceUpdate
             0x5202, // RouteGuidanceManeuverUpdate
+            0x5204, // LaneGuidanceInfoUpdate
             0xae01, // PowerUpdate
             0x4158, // CommunicationsUpdate
             0x4155, // CallStateUpdate
             0x4300, // CarPlayAvailability
         )
+        private val MESSAGE_LIST_PARAMETERS = setOf(6, 7)
+        private val AUTHENTICATION_MESSAGES = setOf(0xaa00, 0xaa01, 0xaa02, 0xaa03, 0xaa04, 0xaa05)
         private const val POWER_SOURCE_UPDATE = 0xae03
         private const val CARPLAY_AVAILABILITY = 0x4300
         private const val CARPLAY_START_SESSION = 0x4301

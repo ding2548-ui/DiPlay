@@ -3,27 +3,29 @@ package com.shilapi.xcertplay.network
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.shilapi.xcertplay.adb.LocalAdb
 import com.shilapi.xcertplay.hud.BydAdbShell
-import com.shilapi.xcertplay.hud.BydParcel
-import java.lang.reflect.Field
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * Pauses the head unit's automatic Wi-Fi network search while wireless CarPlay runs.
+ * Pauses the head unit's automatic Wi-Fi network search while a Wi-Fi Direct CarPlay session runs.
  *
- * BYD DiLink 3 (Android 10) scans every Wi-Fi band every 10 s whenever the car's own Wi-Fi client is
- * not connected to a network. Each scan takes the single radio off the CarPlay channel for 3-6 s, so
- * the stream stutters unless the car happens to be joined to a hotspot. Through the approved local
- * adb shell, `IWifiManager.enableWifiConnectivityManager(false)` stops those scans (shell holds
- * CONNECTIVITY_INTERNAL). One process-wide worker owns controller leases and restores scans only
- * after the last lease ends. A durable marker precedes every disable; failed restores retry and
- * recover when the app next opens. Nothing happens without adb approval. Same LAN is excluded.
+ * Wi-Fi Direct needs the car's Wi-Fi client switched on. While that client is not joined to a
+ * network, BYD firmware searches every band every 10 s (seen on DiLink 3, 4 and 5). The single radio
+ * leaves the CarPlay channel for each search, and the iPhone's audio packets sent meanwhile are lost,
+ * so music and voice stutter on a 10 s rhythm. The built-in car hotspot runs with the client off and
+ * is not affected, and Same LAN needs the search, so only Wi-Fi Direct sessions pause it.
  *
- * The binder transaction number differs between firmware builds, so it is read from the framework
- * itself instead of being hard-coded; when it cannot be read, scans are left alone.
+ * Android offers apps no way to do this. Through the approved local adb shell, [WifiScanPauseMain]
+ * runs as the shell user and turns off the framework's automatic joining, which stops these scans:
+ * `enableWifiConnectivityManager` on Android 7.1-10 and `allowAutojoinGlobal` on Android 11+. One
+ * process-wide worker owns controller leases and restores the search only after the last lease
+ * ends. A durable marker precedes every disable; failed restores retry and recover when the app
+ * next opens, and the framework resets the setting itself when the car restarts. Nothing happens
+ * without adb approval, and this never asks for it.
  */
 internal class WifiScanPause(
     context: Context,
@@ -51,34 +53,38 @@ internal class WifiScanPause(
 
     internal companion object {
         internal const val TAG = "DiPlayWifiScan"
+        internal const val HEADER = "DIPLAY_WIFI_SCAN_V1"
+
+        /** app_process start-up on a slow head unit plus the helper's own deadline. */
+        internal const val HELPER_TIMEOUT_MS = 15_000
 
         fun eligible(backend: WirelessHotspotBackend, sdk: Int = Build.VERSION.SDK_INT): Boolean =
-            sdk == Build.VERSION_CODES.Q && backend != WirelessHotspotBackend.EXISTING_WIFI
+            backend == WirelessHotspotBackend.WIFI_P2P && sdk >= Build.VERSION_CODES.N_MR1
 
         fun restoreIfNeeded(context: Context) = ProcessWifiScanPause.recover(context.applicationContext)
 
-        fun command(code: Int, enabled: Boolean): String {
-            require(code > 0)
-            return "service call wifi $code i32 ${if (enabled) 1 else 0}"
+        fun command(apk: String, enabled: Boolean): String {
+            val quoted = "'" + apk.replace("'", "'\"'\"'") + "'"
+            val action = if (enabled) WifiScanPauseMain.RESTORE else WifiScanPauseMain.PAUSE
+            return "CLASSPATH=$quoted app_process /system/bin ${WifiScanPauseMain::class.java.name} $action"
         }
 
-        /** `void` replies carry only a zero exception word. */
-        fun accepted(output: String?): Boolean = BydParcel.words(output).firstOrNull() == 0L
+        /** Reads the helper's protocol line; other output, such as runtime warnings, is ignored. */
+        fun parse(output: String?): WifiScanSwitchResult {
+            val prefix = "$HEADER|"
+            val line = output?.lineSequence()?.map(String::trim)?.lastOrNull { it.startsWith(prefix) }
+                ?: return WifiScanSwitchResult.UNKNOWN
+            return WifiScanSwitchResult.entries.firstOrNull { it.name == line.removePrefix(prefix) }
+                ?: WifiScanSwitchResult.UNKNOWN
+        }
 
-        /**
-         * Android 10 blocks direct reflection on this hidden constant but still allows the lookup when
-         * it goes through Class.getDeclaredField itself; later releases close that path, so only Q is
-         * attempted, which is what DiLink 3 runs.
-         */
-        fun enableConnectivityManagerTransaction(): Int? {
-            if (Build.VERSION.SDK_INT != Build.VERSION_CODES.Q) return null
-            return runCatching {
-                val stub = Class.forName("android.net.wifi.IWifiManager\$Stub")
-                val lookup = Class::class.java.getDeclaredMethod("getDeclaredField", String::class.java)
-                val field = lookup.invoke(stub, "TRANSACTION_enableWifiConnectivityManager") as Field
-                field.isAccessible = true
-                field.getInt(null)
-            }.getOrNull()?.takeIf { it > 0 }
+        /** Why the helper did not answer, from what the adb connection reported. */
+        fun unanswered(access: LocalAdb.Access?): WifiScanSwitchResult = when (access) {
+            LocalAdb.Access.NOT_APPROVED -> WifiScanSwitchResult.ADB_NOT_APPROVED
+            LocalAdb.Access.UNREACHABLE -> WifiScanSwitchResult.ADB_OFF
+            LocalAdb.Access.UNSUPPORTED -> WifiScanSwitchResult.ADB_PAIRING_ONLY
+            // Connected, so the helper may have run before the link failed.
+            LocalAdb.Access.READY, null -> WifiScanSwitchResult.UNKNOWN
         }
     }
 }
@@ -100,7 +106,10 @@ private object ProcessWifiScanPause : WifiScanPauseControl {
     private var retry: ScheduledFuture<*>? = null
 
     override fun acquire(app: Context, owner: Any, current: () -> Boolean, log: (String) -> Unit) {
-        enqueue(app) { state -> log("Wi-Fi connectivity scans paused=${state.acquire(owner, current)}") }
+        enqueue(app) { state ->
+            val outcome = state.acquire(owner, current)
+            log("Wi-Fi connectivity scans paused=${outcome.paused} reason=${outcome.reason} api=${Build.VERSION.SDK_INT}")
+        }
     }
 
     override fun release(app: Context, owner: Any, log: (String) -> Unit) {
@@ -139,10 +148,14 @@ private object ProcessWifiScanPause : WifiScanPauseControl {
             edit.commit()
         }
         return WifiScanPauseSession(
-            transactionCode = WifiScanPause::enableConnectivityManagerTransaction,
-            setEnabled = { code, enabled -> WifiScanPause.accepted(adb.run(app, WifiScanPause.command(code, enabled))) },
+            setEnabled = { enabled -> switch(app, enabled) },
             loadJournal = { journal.pending },
             saveJournal = journal::save,
         ).also { session = it }
+    }
+
+    private fun switch(app: Context, enabled: Boolean): WifiScanSwitchResult {
+        val output = adb.run(app, WifiScanPause.command(app.packageCodePath, enabled), WifiScanPause.HELPER_TIMEOUT_MS)
+        return if (output == null) WifiScanPause.unanswered(adb.lastAccess) else WifiScanPause.parse(output)
     }
 }

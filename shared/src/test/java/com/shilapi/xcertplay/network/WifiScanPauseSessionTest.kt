@@ -12,22 +12,29 @@ class WifiScanPauseSessionTest {
     private class Fixture {
         var journal = false
         var enabled = true
-        var code: Int? = 62
         var writesAllowed = true
         var clearAllowed = true
         var restoreAvailable = true
-        val commands = mutableListOf<Pair<Int, Boolean>>()
+        val commands = mutableListOf<Boolean>()
 
-        fun write(code: Int, value: Boolean): Boolean {
+        fun write(value: Boolean): WifiScanSwitchResult {
             assertTrue("Recovery must be durable before any firmware write", journal)
-            commands.add(code to value)
-            if (value && !restoreAvailable) return false
+            commands.add(value)
+            if (value && !restoreAvailable) return WifiScanSwitchResult.ADB_OFF
             enabled = value
-            return true
+            return WifiScanSwitchResult.DONE
         }
 
-        fun session(write: (Int, Boolean) -> Boolean = ::write) = WifiScanPauseSession(
-            transactionCode = { code },
+        /** A reply that reports without touching the firmware. */
+        fun refuse(result: WifiScanSwitchResult): (Boolean) -> WifiScanSwitchResult = { value ->
+            if (value) write(true) else {
+                assertTrue("Recovery must be durable before any firmware write", journal)
+                commands.add(false)
+                result
+            }
+        }
+
+        fun session(write: (Boolean) -> WifiScanSwitchResult = ::write) = WifiScanPauseSession(
             setEnabled = write,
             loadJournal = { journal },
             saveJournal = { pending ->
@@ -46,10 +53,10 @@ class WifiScanPauseSessionTest {
         val session = fixture.session()
         val first = Any()
         val second = Any()
-        assertTrue(session.acquire(first) { true })
-        assertTrue(session.acquire(first) { true })
-        assertTrue(session.acquire(second) { true })
-        assertEquals(listOf(62 to false), fixture.commands)
+        assertTrue(session.acquire(first) { true }.paused)
+        assertTrue(session.acquire(first) { true }.paused)
+        assertTrue(session.acquire(second) { true }.paused)
+        assertEquals(listOf(false), fixture.commands)
         assertTrue(session.release(first))
         assertFalse(fixture.enabled)
         assertTrue(fixture.journal)
@@ -57,7 +64,7 @@ class WifiScanPauseSessionTest {
         assertTrue(session.release(second))
         assertTrue(fixture.enabled)
         assertFalse(fixture.journal)
-        assertEquals(listOf(62 to false, 62 to true), fixture.commands)
+        assertEquals(listOf(false, true), fixture.commands)
     }
 
     @Test
@@ -65,7 +72,7 @@ class WifiScanPauseSessionTest {
         val fixture = Fixture()
         val session = fixture.session()
         val owner = Any()
-        assertTrue(session.acquire(owner) { true })
+        assertTrue(session.acquire(owner) { true }.paused)
         fixture.restoreAvailable = false
         assertFalse(session.release(owner))
         assertFalse(fixture.enabled)
@@ -74,26 +81,27 @@ class WifiScanPauseSessionTest {
         assertTrue(session.recover())
         assertTrue(fixture.enabled)
         assertFalse(fixture.journal)
-        assertEquals(listOf(62 to false, 62 to true, 62 to true), fixture.commands)
+        assertEquals(listOf(false, true, true), fixture.commands)
     }
 
     @Test
-    fun nextProcessRestoresDurableMarkerUsingItsCurrentFrameworkCode() {
+    fun nextProcessRestoresDurableMarker() {
         val fixture = Fixture()
-        assertTrue(fixture.session().acquire(Any()) { true })
-        fixture.code = 73
+        assertTrue(fixture.session().acquire(Any()) { true }.paused)
         val nextProcess = fixture.session()
         assertTrue(nextProcess.recoveryPending())
         assertTrue(nextProcess.recover())
         assertTrue(fixture.enabled)
         assertFalse(fixture.journal)
-        assertEquals(listOf(62 to false, 73 to true), fixture.commands)
+        assertEquals(listOf(false, true), fixture.commands)
     }
 
     @Test
     fun failedJournalWriteNeverDisablesFirmware() {
         val fixture = Fixture().apply { writesAllowed = false }
-        assertFalse(fixture.session().acquire(Any()) { true })
+        val outcome = fixture.session().acquire(Any()) { true }
+        assertFalse(outcome.paused)
+        assertEquals("journal-failed", outcome.reason)
         assertTrue(fixture.enabled)
         assertFalse(fixture.journal)
         assertTrue(fixture.commands.isEmpty())
@@ -104,7 +112,7 @@ class WifiScanPauseSessionTest {
         val fixture = Fixture()
         val session = fixture.session()
         val owner = Any()
-        assertTrue(session.acquire(owner) { true })
+        assertTrue(session.acquire(owner) { true }.paused)
         fixture.clearAllowed = false
         assertFalse(session.release(owner))
         assertTrue(fixture.enabled)
@@ -115,55 +123,107 @@ class WifiScanPauseSessionTest {
     }
 
     @Test
-    fun unknownFrameworkNeverWritesOrDiscardsRecovery() {
-        val fixture = Fixture().apply { code = null }
-        val session = fixture.session()
-        assertFalse(session.acquire(Any()) { true })
-        assertTrue(session.recover())
-        fixture.journal = true
-        assertFalse(session.recover())
+    fun missingAdbChangesNothingAndLeavesNoRestoreToRetry() {
+        for (result in listOf(
+            WifiScanSwitchResult.ADB_OFF,
+            WifiScanSwitchResult.ADB_NOT_APPROVED,
+            WifiScanSwitchResult.ADB_PAIRING_ONLY,
+            WifiScanSwitchResult.UNSUPPORTED,
+            WifiScanSwitchResult.DENIED,
+        )) {
+            val fixture = Fixture()
+            val session = fixture.session(fixture.refuse(result))
+            val outcome = session.acquire(Any()) { true }
+            assertFalse(outcome.paused)
+            assertEquals(result.reason, outcome.reason)
+            assertTrue(fixture.enabled)
+            assertFalse(fixture.journal)
+            assertFalse(session.recoveryPending())
+            assertEquals(listOf(false), fixture.commands)
+        }
+    }
+
+    @Test
+    fun refusedPauseNeverDiscardsAnEarlierProcessRestore() {
+        val fixture = Fixture().apply { journal = true; enabled = false; restoreAvailable = false }
+        val session = fixture.session(fixture.refuse(WifiScanSwitchResult.ADB_OFF))
+        assertFalse(session.acquire(Any()) { true }.paused)
+        assertTrue(fixture.journal)
         assertTrue(session.recoveryPending())
-        assertTrue(fixture.commands.isEmpty())
+        fixture.restoreAvailable = true
+        assertTrue(session.recover())
+        assertTrue(fixture.enabled)
+        assertFalse(fixture.journal)
+    }
+
+    @Test
+    fun searchSomeoneElseTurnedOffIsLeftOff() {
+        val fixture = Fixture().apply { enabled = false }
+        val session = fixture.session(fixture.refuse(WifiScanSwitchResult.ALREADY_OFF))
+        val owner = Any()
+        val outcome = session.acquire(owner) { true }
+        assertFalse(outcome.paused)
+        assertEquals("already-off", outcome.reason)
+        assertFalse(fixture.journal)
+        assertTrue(session.release(owner))
+        assertFalse(fixture.enabled)
+        assertEquals(listOf(false), fixture.commands)
+    }
+
+    @Test
+    fun earlierProcessPauseStillCountsAndIsRestoredLater() {
+        val fixture = Fixture().apply { journal = true; enabled = false }
+        val session = fixture.session(fixture.refuse(WifiScanSwitchResult.ALREADY_OFF))
+        val owner = Any()
+        assertTrue(session.acquire(owner) { true }.paused)
+        assertTrue(fixture.journal)
+        assertTrue(session.release(owner))
+        assertTrue(fixture.enabled)
+        assertFalse(fixture.journal)
     }
 
     @Test
     fun uncertainDisableReplyStillRestoresPossiblyMutatedSystem() {
         val fixture = Fixture()
-        val session = fixture.session { code, value ->
-            fixture.write(code, value)
-            value // The disable happened, but its reply was lost.
+        val session = fixture.session { value ->
+            fixture.write(value)
+            if (value) WifiScanSwitchResult.DONE else WifiScanSwitchResult.UNKNOWN // Reply lost after the change.
         }
-        assertFalse(session.acquire(Any()) { true })
+        val outcome = session.acquire(Any()) { true }
+        assertFalse(outcome.paused)
+        assertEquals("no-reply", outcome.reason)
         assertTrue(fixture.enabled)
         assertFalse(fixture.journal)
-        assertEquals(listOf(62 to false, 62 to true), fixture.commands)
+        assertEquals(listOf(false, true), fixture.commands)
     }
 
     @Test
     fun cancellationBeforeOrDuringAcquireCannotLeaveScansSuppressed() {
         val fixture = Fixture()
         var current = false
-        val session = fixture.session { code, value ->
-            fixture.write(code, value)
+        val session = fixture.session { value ->
+            fixture.write(value)
             current = false
-            true
+            WifiScanSwitchResult.DONE
         }
-        assertFalse(session.acquire(Any()) { current })
+        assertEquals("cancelled", session.acquire(Any()) { current }.reason)
         assertTrue(fixture.commands.isEmpty())
         current = true
-        assertFalse(session.acquire(Any()) { current })
+        val outcome = session.acquire(Any()) { current }
+        assertFalse(outcome.paused)
+        assertEquals("cancelled", outcome.reason)
         assertTrue(fixture.enabled)
         assertFalse(fixture.journal)
-        assertEquals(listOf(62 to false, 62 to true), fixture.commands)
+        assertEquals(listOf(false, true), fixture.commands)
     }
 
     @Test
     fun thrownDisableStillLeavesRecoveryWithoutAStaleOwner() {
         val fixture = Fixture()
-        val session = fixture.session { code, value ->
-            fixture.write(code, value)
+        val session = fixture.session { value ->
+            fixture.write(value)
             if (!value) error("reply failed after mutation")
-            true
+            WifiScanSwitchResult.DONE
         }
         try {
             session.acquire(Any()) { true }
@@ -182,16 +242,16 @@ class WifiScanPauseSessionTest {
         val session = fixture.session()
         val old = Any()
         val current = Any()
-        assertTrue(session.acquire(old) { true })
+        assertTrue(session.acquire(old) { true }.paused)
         fixture.restoreAvailable = false
         assertFalse(session.release(old))
-        assertTrue(session.acquire(current) { true })
+        assertTrue(session.acquire(current) { true }.paused)
         fixture.restoreAvailable = true
         assertTrue(session.recover()) // A scheduled old retry runs after the replacement acquired.
         assertTrue(session.release(old))
         assertFalse(fixture.enabled)
         assertTrue(fixture.journal)
-        assertEquals(listOf(62 to false, 62 to true, 62 to false), fixture.commands)
+        assertEquals(listOf(false, true, false), fixture.commands)
         assertTrue(session.release(current))
         assertTrue(fixture.enabled)
         assertFalse(fixture.journal)
@@ -203,20 +263,20 @@ class WifiScanPauseSessionTest {
         val restoreStarted = CountDownLatch(1)
         val allowRestore = CountDownLatch(1)
         val worker = Executors.newSingleThreadExecutor()
-        val session = fixture.session { code, value ->
+        val session = fixture.session { value ->
             if (value) {
                 restoreStarted.countDown()
                 assertTrue(allowRestore.await(5, TimeUnit.SECONDS))
             }
-            fixture.write(code, value)
+            fixture.write(value)
         }
         val old = Any()
         val replacement = Any()
         try {
-            assertTrue(worker.submit<Boolean> { session.acquire(old) { true } }.get(5, TimeUnit.SECONDS))
+            assertTrue(worker.submit<Boolean> { session.acquire(old) { true }.paused }.get(5, TimeUnit.SECONDS))
             val oldRestore = worker.submit<Boolean> { session.release(old) }
             assertTrue(restoreStarted.await(5, TimeUnit.SECONDS))
-            val replacementPause = worker.submit<Boolean> { session.acquire(replacement) { true } }
+            val replacementPause = worker.submit<Boolean> { session.acquire(replacement) { true }.paused }
             assertFalse(replacementPause.isDone)
             allowRestore.countDown()
             assertTrue(oldRestore.get(5, TimeUnit.SECONDS))
@@ -224,7 +284,7 @@ class WifiScanPauseSessionTest {
             assertFalse(fixture.enabled)
             assertTrue(worker.submit<Boolean> { session.recover() }.get(5, TimeUnit.SECONDS))
             assertFalse(fixture.enabled)
-            assertEquals(listOf(62 to false, 62 to true, 62 to false), fixture.commands)
+            assertEquals(listOf(false, true, false), fixture.commands)
             assertTrue(worker.submit<Boolean> { session.release(replacement) }.get(5, TimeUnit.SECONDS))
             assertTrue(fixture.enabled)
         } finally {

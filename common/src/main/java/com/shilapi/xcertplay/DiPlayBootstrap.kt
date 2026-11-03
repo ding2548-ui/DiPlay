@@ -82,28 +82,6 @@ internal object DiPlayPreferences {
     }
 
     /**
-     * The wired VPN/NCM transport is the default. lwIP has to be switched on by hand: on this head
-     * unit it loses audio (no sound while it renders video), it needs an app restart before it can
-     * reconnect after a manual disconnect, and it is less stable than the VPN path overall.
-     */
-    fun wiredLwip(context: Context): Boolean {
-        val store = prefs(context)
-        // Earlier builds defaulted this to on, so an upgrade would keep lwIP selected without the
-        // user ever choosing it. Move each install onto the VPN default exactly once; the switch in
-        // settings still overrides it afterwards.
-        if (!store.getBoolean(KEY_WIRED_LWIP_DEFAULTED, false)) {
-            store.edit()
-                .putBoolean("wired_lwip", false)
-                .putBoolean(KEY_WIRED_LWIP_DEFAULTED, true)
-                .apply()
-        }
-        return store.getBoolean("wired_lwip", false)
-    }
-    fun saveWiredLwip(context: Context, value: Boolean) {
-        prefs(context).edit().putBoolean("wired_lwip", value).apply()
-    }
-
-    /**
      * Whether CarPlay's audio takeover also drops the phone's Bluetooth audio profiles. On by
      * default: the car's A2DP sink otherwise keeps playing the phone's audio on top of CarPlay.
      * Only A2DP is dropped — see [BluetoothAudioHandoff] for why the headset profiles are left
@@ -114,8 +92,6 @@ internal object DiPlayPreferences {
         prefs(context).edit().putBoolean("a2dp_handoff", value).apply()
     }
 
-    /** Set once the lwIP-default migration has run; see [wiredLwip]. */
-    private const val KEY_WIRED_LWIP_DEFAULTED = "wired_lwip_defaulted_v2"
     fun connectOnPhoneBluetooth(context: Context) = prefs(context).getBoolean("connect_on_phone_bluetooth", false)
     fun saveConnectOnPhoneBluetooth(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("connect_on_phone_bluetooth", value).apply()

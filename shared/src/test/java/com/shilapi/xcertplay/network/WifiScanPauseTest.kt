@@ -1,9 +1,8 @@
 package com.shilapi.xcertplay.network
 
 import android.content.Context
+import com.shilapi.xcertplay.adb.LocalAdb
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,7 +14,6 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29], manifest = Config.NONE)
 class WifiScanPauseTest {
     private val context get() = RuntimeEnvironment.getApplication()
-    private val ok = "Result: Parcel(00000000    '....')"
 
     @Test
     fun controllerCloseInvalidatesQueuedPausesAndReleasesItsOwnLeaseOnce() {
@@ -45,34 +43,48 @@ class WifiScanPauseTest {
     }
 
     @Test
-    fun onlyAndroid10HotspotBackendsAreEligibleSoSameLanKeepsStationScanning() {
+    fun onlyWifiDirectPausesTheSearchOnEverySupportedRelease() {
         for (backend in WirelessHotspotBackend.entries) {
-            assertEquals(backend != WirelessHotspotBackend.EXISTING_WIFI, WifiScanPause.eligible(backend, 29))
-            assertFalse(WifiScanPause.eligible(backend, 28))
-            assertFalse(WifiScanPause.eligible(backend, 30))
+            for (sdk in 24..36) {
+                assertEquals("$backend on API $sdk",
+                    backend == WirelessHotspotBackend.WIFI_P2P && sdk >= 25, WifiScanPause.eligible(backend, sdk))
+            }
         }
     }
 
     @Test
-    fun acceptsOnlyAVoidReplyWithoutException() {
-        assertTrue(WifiScanPause.accepted(ok))
-        assertFalse(WifiScanPause.accepted("Result: Parcel(ffffffec 00000000 '........')"))
-        assertFalse(WifiScanPause.accepted("service: Service wifi does not exist"))
-        assertFalse(WifiScanPause.accepted(null))
+    fun startsTheHelperFromTheInstalledApkAsTheShellUser() {
+        assertEquals(
+            "CLASSPATH='/data/app/~~a/com.shihab.diplay-b/base.apk' app_process /system/bin " +
+                "com.shilapi.xcertplay.network.WifiScanPauseMain pause",
+            WifiScanPause.command("/data/app/~~a/com.shihab.diplay-b/base.apk", enabled = false),
+        )
+        assertEquals(
+            "CLASSPATH='/data/it'\"'\"'s/base.apk' app_process /system/bin " +
+                "com.shilapi.xcertplay.network.WifiScanPauseMain restore",
+            WifiScanPause.command("/data/it's/base.apk", enabled = true),
+        )
     }
 
     @Test
-    fun readsTheTransactionCodeFromTheFramework() {
-        val expected = Class.forName("android.net.wifi.IWifiManager\$Stub")
-            .getDeclaredField("TRANSACTION_enableWifiConnectivityManager")
-            .apply { isAccessible = true }
-            .getInt(null)
-        assertEquals(expected, WifiScanPause.enableConnectivityManagerTransaction())
+    fun readsOnlyTheHelperProtocolLine() {
+        for (result in WifiScanSwitchResult.entries) {
+            assertEquals(result, WifiScanPause.parse("WARNING: linker noise\nDIPLAY_WIFI_SCAN_V1|${result.name}\n"))
+        }
+        assertEquals(WifiScanSwitchResult.UNKNOWN, WifiScanPause.parse(null))
+        assertEquals(WifiScanSwitchResult.UNKNOWN, WifiScanPause.parse(""))
+        assertEquals(WifiScanSwitchResult.UNKNOWN, WifiScanPause.parse("Error: Could not find class"))
+        assertEquals(WifiScanSwitchResult.UNKNOWN, WifiScanPause.parse("DIPLAY_WIFI_SCAN_V1|PAUSED_MAYBE"))
+        assertEquals(WifiScanSwitchResult.UNKNOWN, WifiScanPause.parse("Result: Parcel(00000000    '....')"))
     }
 
     @Test
-    @Config(sdk = [30])
-    fun skipsReleasesAfterAndroid10() {
-        assertNull(WifiScanPause.enableConnectivityManagerTransaction())
+    fun aMissingReplyReportsWhatAdbSaid() {
+        assertEquals(WifiScanSwitchResult.ADB_NOT_APPROVED, WifiScanPause.unanswered(LocalAdb.Access.NOT_APPROVED))
+        assertEquals(WifiScanSwitchResult.ADB_OFF, WifiScanPause.unanswered(LocalAdb.Access.UNREACHABLE))
+        assertEquals(WifiScanSwitchResult.ADB_PAIRING_ONLY, WifiScanPause.unanswered(LocalAdb.Access.UNSUPPORTED))
+        // A connected shell may have run the helper before the link dropped.
+        assertEquals(WifiScanSwitchResult.UNKNOWN, WifiScanPause.unanswered(LocalAdb.Access.READY))
+        assertEquals(WifiScanSwitchResult.UNKNOWN, WifiScanPause.unanswered(null))
     }
 }

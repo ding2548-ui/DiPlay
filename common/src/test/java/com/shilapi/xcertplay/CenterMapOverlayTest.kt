@@ -30,7 +30,7 @@ class CenterMapOverlayTest {
         ShadowSettings.setCanDrawOverlays(true)
         context.getSharedPreferences("diplay_center_map", Context.MODE_PRIVATE).edit()
             .clear().putInt("width", 640).putInt("x", 500).putInt("y", 300).commit()
-        assertTrue(CenterMapOverlay.show(context, 8.0 / 3.0, {}, { taps++ }))
+        assertTrue(CenterMapOverlay.show(context, 8.0 / 3.0, 16.0 / 9.0, {}, { taps++ }))
         card = CenterMapOverlay.javaClass.getDeclaredField("root").apply { isAccessible = true }
             .get(CenterMapOverlay) as View
         card.layout(0, 0, params.width, params.height)
@@ -165,7 +165,7 @@ class CenterMapOverlayTest {
         touch(MotionEvent.ACTION_UP, 0 to 275f)
         val minimum = params.width
         CenterMapOverlay.hide()
-        assertTrue(CenterMapOverlay.show(context, 8.0 / 3.0, {}, { taps++ }))
+        assertTrue(CenterMapOverlay.show(context, 8.0 / 3.0, 16.0 / 9.0, {}, { taps++ }))
         card = CenterMapOverlay.javaClass.getDeclaredField("root").apply { isAccessible = true }
             .get(CenterMapOverlay) as View
         card.layout(0, 0, params.width, params.height)
@@ -184,7 +184,7 @@ class CenterMapOverlayTest {
         CenterMapOverlay.hide()
         context.getSharedPreferences("diplay_center_map", Context.MODE_PRIVATE).edit()
             .clear().putInt("width", 720).commit()
-        assertTrue(CenterMapOverlay.show(context, 16.0 / 9.0, {}, {}))
+        assertTrue(CenterMapOverlay.show(context, 16.0 / 9.0, 16.0 / 9.0, {}, {}))
         card = CenterMapOverlay.javaClass.getDeclaredField("root").apply { isAccessible = true }
             .get(CenterMapOverlay) as View
         assertEquals(720, params.width)
@@ -196,11 +196,11 @@ class CenterMapOverlayTest {
         val prefs = context.getSharedPreferences("diplay_center_map", Context.MODE_PRIVATE)
         prefs.edit().putInt("width", 1000)
             .putLong("aspect", java.lang.Double.doubleToRawLongBits(8.0 / 3)).commit()
-        assertTrue(CenterMapOverlay.show(context, 16.0 / 9, {}, {}))
+        assertTrue(CenterMapOverlay.show(context, 16.0 / 9, 16.0 / 9.0, {}, {}))
         val width = prefs.getInt("width", 0)
         assertTrue(width != 1000)
         CenterMapOverlay.hide()
-        assertTrue(CenterMapOverlay.show(context, 16.0 / 9, {}, {}))
+        assertTrue(CenterMapOverlay.show(context, 16.0 / 9, 16.0 / 9.0, {}, {}))
         card = CenterMapOverlay.javaClass.getDeclaredField("root").apply { isAccessible = true }.get(CenterMapOverlay) as View
         assertEquals(width, params.width)
     }

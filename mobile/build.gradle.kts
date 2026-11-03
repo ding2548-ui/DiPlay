@@ -8,10 +8,10 @@ val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSET
     .orNull?.let { file(it).canonicalFile }
 
 // CI stamps the run number and the short commit sha into versionName, so the first line of a
-// diagnostic report names the exact build that produced it: "0.2.21（186-b815324）". The run
+// diagnostic report names the exact build that produced it: "0.2.22（186-b815324）". The run
 // number alone only says when a build ran, not what was in it.
 // The major version follows the upstream release the source is based on: the tree merged upstream
-// 0.2.21, so the app reports 0.2.21 even though this line's own release tags moved with it.
+// 0.2.22, so the app reports 0.2.22 even though this line's own release tags moved with it.
 val buildNumber = providers.environmentVariable("DIPLAY_BUILD_NUMBER").orNull
 val buildCommit = providers.environmentVariable("DIPLAY_BUILD_COMMIT").orNull
 
@@ -29,13 +29,14 @@ android {
 
     defaultConfig {
         applicationId = "com.shihab.diplay"
-        minSdk = 25
+        minSdk = 24
         targetSdk = 37
-        versionCode = 32
+        // 跟上游 0.2.22 的 41：高于 psa-verify 已发的 32，覆盖安装不会被当成降级
+        versionCode = 41
         versionName = buildNumber?.let { run ->
             val channelTag = if (betaChannel) "-beta" else ""
-            buildCommit?.let { sha -> "0.2.21（$run-$sha）$channelTag" } ?: "0.2.21（$run）$channelTag"
-        } ?: "0.2.21"
+            buildCommit?.let { sha -> "0.2.22（$run-$sha）$channelTag" } ?: "0.2.22（$run）$channelTag"
+        } ?: "0.2.22"
         if (betaChannel) {
             // Coexists with the release build; see the comment on [betaChannel].
             applicationIdSuffix = ".psabeta"
@@ -46,14 +47,6 @@ android {
         val shownName = if (betaChannel) "DiPlay Beta" else "DiPlay"
         resValue("string", "app_name", shownName)
         resValue("string", "diplay", shownName)
-
-        // The ABI is deliberately NOT pinned. Pinning it to armeabi-v7a was done so the v7a-only
-        // libdiplay_lwip.so could load, but it forces the whole process to 32 bits — and the car's
-        // own hotspot stopped accepting the phone as soon as the APK stopped shipping arm64-v8a.
-        // Report 840 (178, 64-bit) and report 402 (194, 32-bit) bring the hotspot up identically
-        // and then differ exactly there: tcpAccepted=1 against tcpAccepted=0. lwIP is not wanted
-        // anyway, and attachLwip() already falls back to the VPN transport when
-        // LwipNative.available is false, so ship every ABI and let the head unit install arm64.
     }
 
 
@@ -73,9 +66,8 @@ android {
 
     buildTypes {
         debug {
-            // No applicationIdSuffix and no versionNameSuffix: the car unit installs the release
-            // identity, and a debug-flavoured package name or label would ship the wrong app.
-            // Keep applicationId/versionName identical to release so an in-place update works.
+            applicationIdSuffix = ".hudtest"
+            versionNameSuffix = "-hud-test"
         }
         release {
             optimization {
@@ -87,13 +79,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // Supplies java.time and java.util.Base64 on Android 7/7.1 (API 24/25).
-        isCoreLibraryDesugaringEnabled = true
-    }
-    // Android 7 cannot reliably dlopen libs that stay uncompressed inside the APK
-    // (extractNativeLibs=false, the AGP default): extract at install time instead.
-    packaging {
-        jniLibs.useLegacyPackaging = true
     }
     buildFeatures {
         compose = true
@@ -103,7 +88,6 @@ android {
 }
 
 dependencies {
-    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(platform(libs.androidx.compose.bom))
     implementation(project(":common"))
     implementation(project(":shared"))

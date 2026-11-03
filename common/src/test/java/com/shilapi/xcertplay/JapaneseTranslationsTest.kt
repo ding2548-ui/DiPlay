@@ -9,8 +9,10 @@ class JapaneseTranslationsTest {
     private val placeholder = Regex("%(?:\\d+\\$)?[dsf]")
 
     @Test fun everyEnglishStringHasAJapaneseTranslationWithMatchingArguments() {
-        val english = load("values")
-        val japanese = load("values-ja")
+        // 零跑专用文案标为 translatable="false"，只有英文和简体中文
+        val skipped = untranslatable("values")
+        val english = load("values") - skipped
+        val japanese = load("values-ja") - skipped
         assertEquals("Japanese resource keys", english.keys, japanese.keys)
         for ((name, source) in english) {
             assertEquals(name, placeholders(source), placeholders(japanese.getValue(name)))
@@ -18,6 +20,15 @@ class JapaneseTranslationsTest {
     }
 
     private fun placeholders(value: String) = placeholder.findAll(value).map { it.value }.toList().sorted()
+
+    private fun untranslatable(locale: String): Set<String> = File("src/main/res/$locale")
+        .listFiles { file -> file.extension == "xml" }.orEmpty()
+        .flatMap { file ->
+            val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file).getElementsByTagName("string")
+            (0 until nodes.length).map { nodes.item(it) }
+                .filter { it.attributes.getNamedItem("translatable")?.nodeValue == "false" }
+                .map { it.attributes.getNamedItem("name").nodeValue }
+        }.toSet()
 
     private fun load(locale: String): Map<String, String> {
         // Strings are spread across several files, not just strings.xml.

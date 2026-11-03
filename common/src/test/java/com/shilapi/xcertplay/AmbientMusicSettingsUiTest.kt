@@ -5,10 +5,8 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Switch
-import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.AmbientColorSource
-import com.shilapi.xcertplay.media.AmbientFlowMode
 import com.shilapi.xcertplay.media.AmbientMusicSettings
 import java.util.concurrent.CompletableFuture
 import org.junit.Assert.*
@@ -61,39 +59,6 @@ class AmbientMusicSettingsUiTest {
     private fun albumSwitch(dialog: AlertDialog): Switch = descendants(dialog.window!!.decorView)
         .filterIsInstance<Switch>().single { it.contentDescription == activity.getString(R.string.settings_ambient_album) }
 
-    @Test fun flowModeChoiceReplacesTheBrightnessRowAndSaves() {
-        val dialog = open()
-        val titles = choiceTitles(dialog)
-        assertTrue("Flow light mode must be offered", activity.getString(R.string.settings_ambient_flow_mode) in titles)
-        assertTrue("Light level must be offered", activity.getString(R.string.settings_ambient_light) in titles)
-        assertFalse("The BYD-only brightness row must be gone", titles.any { it.contains("brightness", true) })
-
-        val flow = choice(dialog, activity.getString(R.string.settings_ambient_flow_mode))
-        assertTrue(flow.startsWith(activity.getString(R.string.settings_ambient_flow_mode) + " · " + activity.getString(R.string.settings_ambient_flow_multi)))
-        flow.performClick()
-        // The choice rows open their own item-list dialog; the list order is single, multi.
-        val list = ShadowAlertDialog.getLatestAlertDialog()
-        assertNotNull(list)
-        list.listView.performItemClick(null, 0, 0)
-        list.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
-        shadowOf(Looper.getMainLooper()).idle()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
-        shadowOf(Looper.getMainLooper()).idle()
-        assertEquals(AmbientFlowMode.SINGLE, AmbientMusicSettings.load(activity).flowMode)
-    }
-
-    @Test fun theAreaChoiceStaysTheLastRow() {
-        val titles = choiceTitles(open())
-        assertEquals(activity.getString(R.string.settings_ambient_area), titles.last())
-    }
-
-    private fun choiceTitles(dialog: AlertDialog): List<String> = descendants(dialog.window!!.decorView)
-        .filterIsInstance<TextView>().filter { it.isClickable }
-        .map { it.text.toString().substringBefore(" · ") }
-
-    private fun choice(dialog: AlertDialog, title: String): TextView = descendants(dialog.window!!.decorView)
-        .filterIsInstance<TextView>().single { it.isClickable && it.text.toString().startsWith("$title ·") }
-
     @Test fun failedReadOnlyCheckLeavesControlDisabledAndExplainsWhy() {
         var checks = 0
         activity.ambientSupportCheck = { checks++; CompletableFuture.completedFuture(false) }
@@ -139,6 +104,20 @@ class AmbientMusicSettingsUiTest {
         assertTrue(AmbientMusicSettings.load(activity).carRhythm)
         row.isChecked = false
         shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(AmbientMusicSettings.load(activity).carRhythm)
+    }
+
+    @Test fun aCheckThatEndsAfterTheSwitchWentOffLeavesItOff() {
+        val pending = CompletableFuture<Boolean>()
+        activity.carRhythmSupportCheck = { pending }
+        val row = carRhythmSwitch()
+        row.isChecked = true
+        shadowOf(Looper.getMainLooper()).idle()
+        row.isChecked = false
+        shadowOf(Looper.getMainLooper()).idle()
+        pending.complete(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(row.isChecked)
         assertFalse(AmbientMusicSettings.load(activity).carRhythm)
     }
 

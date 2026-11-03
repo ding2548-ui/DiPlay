@@ -27,4 +27,15 @@ class Iap2WiredControlClientTest {
         assertEquals(0, addresses.single().id)
         assertArrayEquals("fe80::2\u0000".encodeToByteArray(), addresses.single().payload)
     }
+
+    @Test
+    fun powerSourceUpdateOffersTheConfiguredChargingCurrent() {
+        listOf(2400, 1500, 500).forEach { milliAmps ->
+            val frame = Iap2WiredControlClient.powerSourceUpdate(milliAmps)
+
+            assertEquals(0xae03, frame.messageId)
+            val current = Iap2BodyReader.of(frame).list().single { it.id == 0 }.payload
+            assertArrayEquals(byteArrayOf((milliAmps shr 8).toByte(), milliAmps.toByte()), current)
+        }
+    }
 }

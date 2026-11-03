@@ -24,7 +24,8 @@ class NtpClock : Closeable {
     private var socket: DatagramSocket? = null
     private var receiver: Thread? = null
     private var sender: Thread? = null
-    private var peer: InetSocketAddress? = null
+    // Written by the session thread, read by the receive thread.
+    @Volatile private var peer: InetSocketAddress? = null
 
     private var clockOffsetNs = wallClockNtpOffsetNs(System.nanoTime())
     private val delays = DoubleArray(DELAY_WINDOW) { Double.POSITIVE_INFINITY }
@@ -35,12 +36,11 @@ class NtpClock : Closeable {
     private var pendingT1: BigInteger? = null
     private var synced = false
 
-    /** [bindAddress] is the loopback literal in lwIP mode, where the relay connects over it. */
-    fun listen(bindAddress: InetAddress = InetAddress.getByName("::")): Int {
+    fun listen(): Int {
         check(!running.getAndSet(true)) { "NtpClock is already running" }
         val bound = DatagramSocket(null)
         bound.reuseAddress = true
-        bound.bind(InetSocketAddress(bindAddress, 0))
+        bound.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
         synchronized(socketLock) { socket = bound }
         receiver = Thread(::runReceiver, "airplay-ntp-rx").apply { isDaemon = true; start() }
         return bound.localPort
@@ -117,7 +117,7 @@ class NtpClock : Closeable {
     private fun handleMessage(message: ByteArray, source: InetSocketAddress) {
         when (message[1].toInt() and 0xff) {
             PT_REQUEST -> respondToRequest(message, source)
-            PT_RESPONSE -> handleResponse(message)
+            PT_RESPONSE -> if (source.address == peer?.address) handleResponse(message)
         }
     }
 
