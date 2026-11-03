@@ -22,6 +22,8 @@ public abstract class MapSurfaceEndpoint extends Service {
     protected abstract boolean streamActive();
     protected abstract boolean navigating();
     protected abstract double streamAspect();
+    /** Optional turn-by-turn fields added to every STATE; absent keys mean no active maneuver. */
+    protected void guidance(Bundle out) { }
 
     @Override public IBinder onBind(Intent intent) { return endpoint.getBinder(); }
     private boolean allowed(int uid) {
@@ -79,7 +81,9 @@ public abstract class MapSurfaceEndpoint extends Service {
     private void send(Client c, int what) {
         Message m = Message.obtain(null, what); Bundle b = new Bundle();
         b.putInt("version", VERSION); b.putBoolean("active", streamActive());
-        b.putBoolean("navigating", navigating()); b.putDouble("aspect", streamAspect()); m.setData(b);
+        b.putBoolean("navigating", navigating()); b.putDouble("aspect", streamAspect());
+        try { guidance(b); } catch (RuntimeException ignored) { }
+        m.setData(b);
         try { c.replies.send(m); } catch (RemoteException e) { remove(c.replies.getBinder()); }
     }
     /** Call immediately when consent or stream state changes; heartbeat also checks expiry. */
