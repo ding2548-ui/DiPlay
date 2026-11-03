@@ -4,18 +4,29 @@ import kotlin.math.sqrt
 
 /** Stores levels, never PCM. Frame intervals follow successful AudioTrack writes. */
 internal class AmbientMusicEnvelope {
-    private data class Segment(val start: Long, val end: Long, val rms: Double, val bassRms: Double, val bands: IntArray? = null)
-    data class Energy(val rms: Double, val bassRms: Double)
+    private data class Segment(val start: Long, val end: Long, val rms: Double, val bassRms: Double,
+        val midRms: Double, val highRms: Double)
+
+    /**
+     * [rms]/[bassRms] drive the BYD lamp path; [midRms]/[highRms] exist only so the Leapmotor
+     * three-channel flow light can follow the spectrum the way `VehicleControlService$6` does.
+     */
+    data class Energy(val rms: Double, val bassRms: Double, val midRms: Double = 0.0, val highRms: Double = 0.0)
+
     private val segments = ArrayDeque<Segment>()
     private var headEpoch = 0L
     private var previousHead = 0L
     private var playedPeak = 0.0
     private var playedBassPeak = 0.0
-    private var playedBandPeak: IntArray? = null
+    private var playedMidPeak = 0.0
+    private var playedHighPeak = 0.0
 
-    @Synchronized fun append(start: Long, frames: Long, rms: Double, bassRms: Double = 0.0, bands: IntArray? = null) {
+    @Synchronized fun append(start: Long, frames: Long, rms: Double, bassRms: Double = 0.0,
+        midRms: Double = 0.0, highRms: Double = 0.0) {
         if (frames <= 0 || !rms.isFinite()) return
-        segments.addLast(Segment(start, start + frames, rms.coerceIn(0.0, 1.0), if (bassRms.isFinite()) bassRms.coerceIn(0.0, 1.0) else 0.0, bands))
+        fun band(value: Double) = if (value.isFinite()) value.coerceIn(0.0, 1.0) else 0.0
+        segments.addLast(Segment(start, start + frames, rms.coerceIn(0.0, 1.0), band(bassRms),
+            band(midRms), band(highRms)))
         while (segments.size > 512) segments.removeFirst()
     }
 
@@ -28,38 +39,27 @@ internal class AmbientMusicEnvelope {
             val played = segments.removeFirst()
             playedPeak = maxOf(playedPeak, played.rms)
             playedBassPeak = maxOf(playedBassPeak, played.bassRms)
-            played.bands?.let { playedBandPeak = elementwiseMax(playedBandPeak, it) }
+            playedMidPeak = maxOf(playedMidPeak, played.midRms)
+            playedHighPeak = maxOf(playedHighPeak, played.highRms)
         }
         val segment = segments.firstOrNull()
         return if (playing && segment != null && position >= segment.start) segment.rms else 0.0
     }
 
-    /**
-     * The band magnitudes of what has played since the last call, the loudest of each band, so a short onset between
-     * two lamp updates is kept. Null when nothing played or no bands were stored.
-     */
-    @Synchronized fun playedBands(rawPlaybackHead: Int, playing: Boolean): IntArray? {
-        rms(rawPlaybackHead, playing)
-        val current = segments.firstOrNull()?.takeIf { headEpoch + previousHead >= it.start }?.bands
-        val peak = playedBandPeak
-        playedBandPeak = null
-        return if (!playing) null else elementwiseMax(peak, current)
-    }
-
-    private fun elementwiseMax(first: IntArray?, second: IntArray?): IntArray? = when {
-        first == null -> second?.copyOf()
-        second == null -> first
-        else -> IntArray(minOf(first.size, second.size)) { maxOf(first[it], second[it]) }
-    }
-
     /** Preserve already-played short onsets between the 200ms lamp updates. */
     @Synchronized fun playedWindow(rawPlaybackHead: Int, playing: Boolean): Energy {
         val current = rms(rawPlaybackHead, playing)
-        val currentBass = segments.firstOrNull()?.takeIf { headEpoch + previousHead >= it.start }?.bassRms ?: 0.0
+        val head = segments.firstOrNull()?.takeIf { headEpoch + previousHead >= it.start }
+        val currentBass = head?.bassRms ?: 0.0
+        val currentMid = head?.midRms ?: 0.0
+        val currentHigh = head?.highRms ?: 0.0
         val peak = playedPeak
         val bassPeak = playedBassPeak
-        playedPeak = 0.0; playedBassPeak = 0.0
-        return if (playing) Energy(maxOf(current, peak), maxOf(currentBass, bassPeak)) else Energy(0.0, 0.0)
+        val midPeak = playedMidPeak
+        val highPeak = playedHighPeak
+        playedPeak = 0.0; playedBassPeak = 0.0; playedMidPeak = 0.0; playedHighPeak = 0.0
+        return if (playing) Energy(maxOf(current, peak), maxOf(currentBass, bassPeak),
+            maxOf(currentMid, midPeak), maxOf(currentHigh, highPeak)) else Energy(0.0, 0.0)
     }
     fun playedWindowRms(rawPlaybackHead: Int, playing: Boolean): Double = playedWindow(rawPlaybackHead, playing).rms
 

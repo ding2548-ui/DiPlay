@@ -86,11 +86,8 @@ object BydNavigationOutputs {
         if (com.shilapi.xcertplay.LmCarProbe.isLeapmotor()) LeapmotorParkedState.videoAllowed()
         else BydParkedState.parked(context.applicationContext)
 
-    @Volatile private var appContext: Context? = null
-
     fun start(context: Context) {
         val app = context.applicationContext
-        appContext = app
         useStandalone = BydStandaloneHudOutput.available(app)
         if (useStandalone) standalone.start { BydStandaloneNavigationBridge.initialize(app) }
         else {
@@ -173,11 +170,8 @@ object BydNavigationOutputs {
     }
 
     /** A CarPlay session became active; ready the call card so calls show without the watcher's start delay. */
-    fun carPlaySessionStarted(context: Context? = null) {
-        // Upstream 0.2.22 calls this without a context; the Leapmotor call-card path needs one,
-        // so the context captured at start() is used as a fallback.
-        val app = context ?: appContext
-        if (leapmotorCalls()) app?.let { LeapmotorCarPlayCallOutput.sessionStarted(it) }
+    fun carPlaySessionStarted(context: Context) {
+        if (leapmotorCalls()) LeapmotorCarPlayCallOutput.sessionStarted(context)
         else BydCarPlayCall.sessionStarted()
     }
 

@@ -1023,7 +1023,7 @@
     <string name="cluster_projection_shape_description">半屏会在仪表盘地图旁保留仪表原本的车速与状态信息；全屏则让地图占满整个仪表盘。CarPlay 地图出现时 DiPlay 会设置该形态，否则会覆盖你在车机上选好的导航模式。需要车机已授权网络 ADB。</string>
     <string name="settings_cluster_speedometer_album_color">速度表背景使用专辑颜色</string>
     <string name="settings_cluster_speedometer_album_color_description">平滑过渡到专辑边框的颜色，并保留所选的不透明度。</string>
-    <string name="auto_car_hotspot_setup_description">连接时自动打开已保存的车载热点。需要「修改系统设置」权限，DiPlay 会引导你在系统设置中授权。保留热点名称和密码，连接结束后不会关闭热点。</string>
+<string name="auto_car_hotspot_setup_description">连接时自动打开已保存的车载热点。需要「修改系统设置」权限，DiPlay 会引导你在系统设置中授权。保留热点名称和密码，连接结束后不会关闭热点。</string>
 <string name="auto_car_hotspot_needs_permission">自动开启热点需要「修改系统设置」权限，接下来请在系统设置中允许。</string>
 <string name="auto_car_hotspot_usage_hint">首次使用：先在车机设置里手动开一次热点，之后自动打开的热点才有网络。之后若在车机设置里手动关过热点，需要再手动开一次，自动开启才会恢复有网。</string>
 <string name="auto_start_bluetooth_title">蓝牙自动启动</string>

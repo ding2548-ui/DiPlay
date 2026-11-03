@@ -480,7 +480,7 @@
     <string name="option_size_small">Small</string>
     <string name="option_size_custom">Custom</string>
     <string name="size_option_millimeters">%1$s · %2$d mm</string>
-        <string name="option_size_hidpi_2x">HiDPI 2x</string>
+    <string name="option_size_hidpi_2x">HiDPI 2x</string>
     <string name="option_size_hidpi_3x">HiDPI 3x</string>
     <string name="option_theme_scenario">Scenario · side map</string>
     <string name="option_theme_map">Map · full map</string>
@@ -1067,7 +1067,7 @@
     <string name="cluster_projection_shape_description">Half screen keeps the speed and status readouts the cluster normally shows beside the map; full screen lets the map fill the cluster. DiPlay sets the shape whenever the CarPlay map appears, which otherwise overrides the shape picked on the car. Needs ADB over network on the head unit.</string>
     <string name="settings_cluster_speedometer_album_color">Use album color for speedometer background</string>
     <string name="settings_cluster_speedometer_album_color_description">Match the album frame color with smooth transitions. Keeps the selected opacity.</string>
-    <string name="auto_car_hotspot_setup_description">Turns the saved car hotspot on by itself when connecting. DiPlay asks once for the “Modify system settings” permission it needs. The hotspot name and password are left as they are, and the hotspot is not turned off afterwards.</string>
+<string name="auto_car_hotspot_setup_description">Turns the saved car hotspot on by itself when connecting. DiPlay asks once for the “Modify system settings” permission it needs. The hotspot name and password are left as they are, and the hotspot is not turned off afterwards.</string>
 <string name="auto_car_hotspot_needs_permission">To turn the hotspot on automatically, allow “Modify system settings” for DiPlay in the next screen.</string>
 <string name="auto_car_hotspot_usage_hint">First use: switch the hotspot on once in the car settings — only then do automatically started hotspots get a network. If you turn the hotspot off in the car settings later, switch it on there once more before automatic starts have a network again.</string>
 <string name="auto_start_bluetooth_title">Bluetooth auto-start</string>

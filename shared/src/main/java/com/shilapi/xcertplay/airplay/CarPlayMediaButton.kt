@@ -44,10 +44,6 @@ object CarPlayMediaButton {
     fun opensSiriWhileCarPlay(keyCode: Int): Boolean =
         keyCode == KEYCODE_BYD_CARPLAY_VOICE || keyCode == KEYCODE_BYD_CARPLAY_VOICE_LONG
 
-    /** The two voice keys the wheel sends for a short press of its voice button. */
-    fun isShortVoiceKey(keyCode: Int): Boolean =
-        keyCode == KEYCODE_BYD_CARPLAY_VOICE || keyCode == KEYCODE_BYD_AUTO_MEDIA_VOICE
-
     /** The CarPlay press for [keyCode], or null when the key is not a media key CarPlay handles. */
     fun forKeyCode(keyCode: Int, experimentalDiLink3Keys: Boolean = false): Int? = when (keyCode) {
         KeyEvent.KEYCODE_MEDIA_NEXT -> NEXT
@@ -58,6 +54,39 @@ object CarPlayMediaButton {
         KeyEvent.KEYCODE_HEADSETHOOK,
         KEYCODE_BYD_AUTO_MEDIA_PLAY_PAUSE -> PLAY_PAUSE
         KEYCODE_BYD_AUTO_MEDIA_PLAY_PAUSE_DILINK3 -> if (experimentalDiLink3Keys) PLAY_PAUSE else null
+        else -> null
+    }
+
+    /**
+     * Whether [action] is a press of a physical wheel key. The car re-uses its media bus for
+     * housekeeping commands and echoes; those must never reach CarPlay as key presses.
+     * (Ported from the Leapmotor fork's CarPlayButton.)
+     *
+     * The vocabulary includes the stock player's own ICU spellings (`play_pause`) because the T03
+     * channel-B decoder forwards that literal, not the JSON one.
+     */
+    fun isWheelAction(action: String?): Boolean = when (action?.trim()?.lowercase()) {
+        "nextone", "next", "nexttrack" -> true
+        "preone", "previous", "prev", "previoustrack" -> true
+        "playpause", "pauseplay", "toggleplay", "toggleplaypause",
+        "play_pause" -> true
+        else -> false
+    }
+
+    /**
+     * Leapmotor steering-wheel commands from the car's `car.meter.music.BROADCAST` JSON payload
+     * (`data.action`), mapped to the CarPlay press. Unknown commands return null.
+     *
+     * Accepts the ICU spellings as well: the T03 channel-B decoder hands us `previous` / `next` /
+     * `play_pause` for the same physical keys.
+     */
+    fun forLeapmotorAction(action: String?): Int? = when (action?.trim()?.lowercase()) {
+        "nextone", "next", "nexttrack" -> NEXT
+        "preone", "previous", "prev", "previoustrack" -> PREVIOUS
+        "playpause", "pauseplay", "toggleplay", "toggleplaypause",
+        "play_pause" -> PLAY_PAUSE
+        "play" -> PLAY
+        "pause", "stop" -> PAUSE
         else -> null
     }
 

@@ -46,7 +46,6 @@ internal object CenterMapOverlay {
     // a per-source normalized region inside the card, and a FIT/CROP frame mapping.
     private var contentLayer: FrameLayout? = null
     private var video: TextureView? = null
-    private var cropMask: CropMaskView? = null
     private var musicView: ClusterMusicView? = null
     private var appContext: Context? = null
     private var mainAspect = 16.0 / 9
@@ -86,9 +85,9 @@ internal object CenterMapOverlay {
     fun show(
         context: Context,
         aspect: Double,
+        mainAspect: Double,
         onSurface: (Surface?) -> Unit,
         onTap: () -> Unit,
-        mainAspect: Double = aspect,
     ): Boolean {
         if (root != null) return true
         if (!aspect.isFinite() || aspect <= 0) return false
@@ -163,14 +162,10 @@ internal object CenterMapOverlay {
             }
         }
         video = videoView
-        val mask = CropMaskView(context)
-        cropMask = mask
         val music = ClusterMusicView(context)
         musicView = music
         val layer = FrameLayout(context).apply {
             addView(videoView, FrameLayout.LayoutParams(-1, -1))
-            // FIT+裁剪时内容矩形两侧露出相邻画面，黑遮罩盖住内容矩形之外（音乐卡片在其上）。
-            addView(mask, FrameLayout.LayoutParams(-1, -1))
             addView(music, FrameLayout.LayoutParams(-1, -1))
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 applyRegions()
@@ -334,10 +329,7 @@ internal object CenterMapOverlay {
         val context = appContext ?: return
         if (layer.width <= 0 || layer.height <= 0) return
         val source = ClusterScreenProfile.source(context)
-        val regionValue = ClusterScreenProfile.region(context, source)
-        ClusterProfileLayout.applyRegion(video, regionValue, layer)
-        // 遮罩与 video 视图同区域定位：内容矩形是 video 视图坐标，显示框不是全屏时两者必须共坐标系。
-        cropMask?.let { ClusterProfileLayout.applyRegion(it, regionValue, layer) }
+        ClusterProfileLayout.applyRegion(video, ClusterScreenProfile.region(context, source), layer)
         ClusterProfileLayout.applyRegion(musicView, ClusterScreenProfile.region(context, ClusterScreenProfile.Source.MUSIC), layer)
     }
 
@@ -350,10 +342,9 @@ internal object CenterMapOverlay {
         val frameAspect = when (source) {
             ClusterScreenProfile.Source.MAIN -> mainAspect
             ClusterScreenProfile.Source.NAVIGATION -> MapMirrors.STREAM_ASPECT
-            else -> { cropMask?.clear(); return }
+            else -> return
         }
-        ClusterProfileLayout.applyTransform(view, frameAspect, ClusterScreenProfile.scaleMode(context, source),
-            ClusterScreenProfile.crop(context, source), cropMask)
+        ClusterProfileLayout.applyTransform(view, frameAspect, ClusterScreenProfile.scaleMode(context, source))
     }
 
     // PSA line: in-place region calibration on the live card — an edge editor overlays the card and

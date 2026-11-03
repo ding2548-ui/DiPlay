@@ -5,7 +5,7 @@ internal object LegacyHotspotRadio {
     data class Reading(val frequencyMHz: Int?, val error: String?)
 
     fun read(interfaceName: String, band: String?): Reading {
-        if (!interfaceName.matches(Regex("(?:ap|wlan|swlan|softap)[0-9]+")))
+        if (!interfaceName.matches(Regex("(?:ap|wlan|swlan|softap|p2p)[0-9]+|p2p-[A-Za-z0-9]+-[0-9]+")))
             return Reading(null, "invalid AP interface")
         val raw = try { LegacyHotspotNative.query(interfaceName) }
         catch (_: LinkageError) { return Reading(null, "driver reader unavailable") }
