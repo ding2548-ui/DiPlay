@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="carapp_hw_status_title"> État du matériel xcertplay</string>
+  <string name="carapp_hw_not_configured">Transport matériel non configuré. I2C nécessite un chemin /dev/i2c-N et les autorisations système/SELinux ; CH341 nécessite une configuration VID/PID.</string>
+</resources>

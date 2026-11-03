@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="settings_force_full_settings">Forcer l’affichage complet des réglages</string>
+  <string name="settings_force_full_settings_hint">Utilise les réglages complets avec une barre latérale des catégories en paysage et un affichage automatique en portrait. Ne modifie ni l’accueil ni CarPlay.</string>
+</resources>
