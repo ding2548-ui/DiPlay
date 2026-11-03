@@ -53,6 +53,26 @@ class CarPlayGlanceTest {
     }
 
     @Test
+    fun theAppSayingItHasNoGuidanceIsKeptUntilTheSessionEnds() {
+        CarPlayGlance.setConnected(true)
+        assertNull(CarPlayGlance.snapshot().guidanceSupported)
+
+        // AMap with its CarPlay-dashboard switch off: only SourceName (0x13) and SourceSupportsRouteGuidance (0x14).
+        CarPlayGlance.onFrame(frame(0x5201) { string(0x13, "高德地图"); bool(0x14, false) })
+        assertEquals(false, CarPlayGlance.snapshot().guidanceSupported)
+        assertNull(CarPlayGlance.snapshot().maneuverType)
+
+        CarPlayGlance.onFrame(frame(0x5201) { bool(0x14, true); u8(1, 1) })
+        assertEquals(true, CarPlayGlance.snapshot().guidanceSupported)
+        // A route ending does not forget what the app said.
+        CarPlayGlance.onFrame(frame(0x5201) { u8(1, 0) })
+        assertEquals(true, CarPlayGlance.snapshot().guidanceSupported)
+
+        CarPlayGlance.setConnected(false)
+        assertNull(CarPlayGlance.snapshot().guidanceSupported)
+    }
+
+    @Test
     fun routeEndAndSessionEnd() {
         CarPlayGlance.setConnected(true)
         CarPlayGlance.onFrame(frame(0x5202) { u16(1, 1); u8(3, 1) })

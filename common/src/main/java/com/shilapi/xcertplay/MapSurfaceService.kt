@@ -20,10 +20,12 @@ class MapSurfaceService : MapSurfaceEndpoint() {
     override fun navigating(): Boolean = CarPlayGlance.snapshot().let { it.connected && it.maneuverType != null }
     /**
      * Raw iAP2 guidance for clients that draw their own turn card (Xiaoling's native cluster card).
-     * Keys: maneuver (Apple RouteGuidanceManeuverType), side, dist (m), road, rdist (m), rtime (s), arrival (epoch s).
+     * Keys: maneuver (Apple RouteGuidanceManeuverType), side, dist (m), road, rdist (m), rtime (s), arrival (epoch s);
+     * supported (boolean) whenever the navigation app has declared SourceSupportsRouteGuidance.
      */
     override fun guidance(out: Bundle) {
         val s = CarPlayGlance.snapshot()
+        if (s.connected) s.guidanceSupported?.let { out.putBoolean("supported", it) }
         val type = s.maneuverType
         if (!s.connected || type == null) return
         out.putInt("maneuver", type)

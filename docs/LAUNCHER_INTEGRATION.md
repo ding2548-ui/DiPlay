@@ -257,7 +257,7 @@ Every Messenger message must carry `replyTo`:
 | --- | --- | --- |
 | Client → DiPlay | 1 ATTACH | `version` int = 1, `surface` Parcelable Surface |
 | Client → DiPlay | 3 DETACH | none |
-| DiPlay → client | 101 ATTACHED / 102 STATE | `version` int, `active` boolean, `navigating` boolean, `aspect` double |
+| DiPlay → client | 101 ATTACHED / 102 STATE | `version` int, `active` boolean, `navigating` boolean, `aspect` double, optional guidance keys (below) |
 | DiPlay → client | 199 ERROR | `version` int, `error` string |
 
 Errors: `forbidden`, `disabled`, `version`, `bad_surface`, `busy`, `bad_request`,
@@ -271,7 +271,17 @@ pictures when inactive or when the heartbeat times out.
 DETACH, client death, service destruction, or consent revocation removes the
 mirror and releases the service's received Surface reference. The client owns
 its original reference. Consent restoration requires a new ATTACH. The v1
-bridge exports no turn-card fields, audio or input events.
+bridge exports no audio or input events.
+
+ATTACHED and STATE may also carry the raw iAP2 route guidance for clients that draw their own
+turn card: `maneuver` (Apple RouteGuidanceManeuverType), `side`, `dist` (m), `road`,
+and when the phone sends them `rdist` (m), `rtime` (s), `arrival` (epoch s). Without a
+current maneuver these keys are absent. `supported` (boolean) is present once the
+navigation app has declared SourceSupportsRouteGuidance in this session; AMap declares
+false until its "CarPlay dashboard" switch (更多 → CarPlay仪表盘投屏) is on.
+
+The Xiaoling build uses the package `com.shihab.diplay.xl` so it installs beside the
+official app; build it with `scripts/build-xiaoling.sh`.
 
 The Xiaoling repository contains `tools/test-diplay-android.sh`: on a dedicated
 API 25 emulator it compiles the actual `MapSurfaceEndpoint` with a test-only

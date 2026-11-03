@@ -24,6 +24,8 @@ object CarPlayGlance {
         val remainingMeters: Long? = null,
         val song: String? = null,
         val playing: Boolean = false,
+        /** The navigation app's SourceSupportsRouteGuidance; null until it says. */
+        val guidanceSupported: Boolean? = null,
     )
 
     private const val LANE_GUIDANCE_UPDATE = 0x5204
@@ -80,6 +82,7 @@ object CarPlayGlance {
             connected = next
             if (!next) {
                 route.clear()
+                route.forgetSource()
                 song.clear()
             }
             publishLocked()
@@ -115,6 +118,7 @@ object CarPlayGlance {
             remainingMeters = maneuver?.remainingMeters,
             song = current?.text,
             playing = current?.playing ?: false,
+            guidanceSupported = route.sourceSupportsGuidance,
         )
         if (next == last) return null
         last = next
