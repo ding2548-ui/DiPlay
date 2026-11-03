@@ -288,8 +288,24 @@ object AmbientMusicController {
         }
     }
 
-    private fun restoreOriginal() {
-        sink?.restore(settings.flowBrightness
-            .coerceIn(LmAmbientLightProtocol.DEG_MIN, LmAmbientLightProtocol.DEG_MAX))
+    // The car's own rhythm follows CarPlay music while it plays; DiPlay does not set the lamps meanwhile. On head
+    // units whose audio service makes no spectrum of its own, the feed option sends the played music's 16 bands.
+    private var lastBandsMillis = 0L
+    private fun carRhythm() {
+        restoreOriginal()
+        val app = context ?: return
+        val rendererActive = activeRenderer.get() != 0L && playback != null
+        val playbackState = if (rendererActive) playback?.invoke() else null
+        val playing = carRhythmPlaying(rendererActive, playbackState?.second, phonePlayback.current())
+        BydCarMusicRhythm.setPlaying(app, playing)
+        if (!settings.carRhythmFeed) return
+        val (head, headPlaying) = playbackState ?: return
+        val now = android.os.SystemClock.uptimeMillis()
+        // Not read between two sends: what plays then stays in the envelope's peak for the next send.
+        if (playing && now - lastBandsMillis < BAND_INTERVAL_MILLIS) return
+        val bands = envelope?.playedBands(head, playing && headPlaying)
+        if (!playing || bands == null) return
+        lastBandsMillis = now
+        BydCarMusicRhythm.sendBands(app, bands)
     }
 }

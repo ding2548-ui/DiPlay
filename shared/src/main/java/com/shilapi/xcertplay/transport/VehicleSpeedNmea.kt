@@ -18,6 +18,9 @@ interface VehicleSpeedSource {
 
     /** Readings since the previous call, or null when there are none. */
     fun drain(): VehicleSpeedReading?
+
+    /** What the reads returned, for a report minute that sent no speed; null when there is nothing to say. */
+    fun status(): String? = null
 }
 
 /**

@@ -143,7 +143,7 @@ class IphoneUsbHost(
 
     /** Register once for this host instance and close the returned handle to unregister it. */
     fun registerPermissionReceiver(onResult: (PermissionResult) -> Unit): Closeable =
-        registerReceiver(IntentFilter(permissionAction)) { parsePermissionResult(it)?.let(onResult) }
+        registerReceiver(IntentFilter(permissionAction), guarded = true) { parsePermissionResult(it)?.let(onResult) }
 
     /** Register once for this host instance and close the returned handle to unregister it. */
     fun registerAttachReceiver(onAttached: (UsbDevice) -> Unit): Closeable =
@@ -306,11 +306,13 @@ class IphoneUsbHost(
         )
     }
 
-    private fun registerReceiver(filter: IntentFilter, onReceive: (Intent) -> Unit): Closeable {
+    private fun registerReceiver(filter: IntentFilter, guarded: Boolean = false, onReceive: (Intent) -> Unit): Closeable {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) = onReceive(intent)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (guarded) {
+            UsbPermissionBroadcast.register(appContext, receiver, filter)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             appContext.registerReceiver(receiver, filter)

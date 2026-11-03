@@ -34,8 +34,8 @@ android {
         versionCode = 32
         versionName = buildNumber?.let { run ->
             val channelTag = if (betaChannel) "-beta" else ""
-            buildCommit?.let { sha -> "0.2.21（$run-$sha）$channelTag" } ?: "0.2.21（$run）$channelTag"
-        } ?: "0.2.21"
+            buildCommit?.let { sha -> "0.2.22（$run-$sha）$channelTag" } ?: "0.2.22（$run）$channelTag"
+        } ?: "0.2.22"
         if (betaChannel) {
             // Coexists with the release build; see the comment on [betaChannel].
             applicationIdSuffix = ".psabeta"

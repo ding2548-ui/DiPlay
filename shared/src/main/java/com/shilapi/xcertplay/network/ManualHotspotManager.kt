@@ -8,6 +8,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Looper
 import android.util.Log
+import com.shilapi.xcertplay.orchestration.ConnectionFailureCause
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
@@ -95,6 +96,7 @@ class ManualHotspotManager(
             cancelled = { closed || isCancelled() },
             pause = { millis -> synchronized(waitLock) { if (!closed && !isCancelled()) waitLock.wait(millis) } },
             log = {},
+            configuredInterface = preferredInterface,
         ).await(timeoutMillis)
         confirmed = selected
         onDiagnostic("hotspot interface confirmed iface=${selected.name} index=${selected.index} atNs=${System.nanoTime()}")
@@ -185,7 +187,7 @@ class ManualHotspotManager(
         if (expectedChannel > 0 && configuration.channel > 0 &&
             configuration.channel != expectedChannel
         ) {
-            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
+            throw detailsDiffer(
                 "Manual hotspot channel ${configuration.channel} does not match configured " +
                 "channel $expectedChannel",
             )
@@ -198,7 +200,7 @@ class ManualHotspotManager(
         if (actualBand != null && expectedBand != ManualHotspotBand.AUTO &&
             actualBand != expectedBand
         ) {
-            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
+            throw detailsDiffer(
                 "Manual hotspot band ${wifiBandLabel(configuration.band)} does not match " +
                     "configured band ${wifiBandLabel(if (expectedBand == ManualHotspotBand.GHZ_2_4) 1 else 2)}",
             )
@@ -206,7 +208,7 @@ class ManualHotspotManager(
         // WPA2 vs WPA3 variants are fine: the live security is what the iPhone is told (see start()).
         // Only an open/secured mismatch means the saved password cannot be right.
         if ((configuration.security == Iap2WirelessSecurity.NONE) != (expectedSecurity == Iap2WirelessSecurity.NONE)) {
-            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
+            throw detailsDiffer(
                 "Manual hotspot security ${configuration.security} does not match configured " +
                     "security $expectedSecurity",
             )
@@ -398,6 +400,10 @@ class ManualHotspotManager(
 
     }
 }
+
+private fun detailsDiffer(message: String) = WirelessStartupException(
+    WirelessStartupFailure.HOTSPOT_CONFIGURATION, message, ConnectionFailureCause.CAR_HOTSPOT_DETAILS_DIFFER,
+)
 
 private fun ManualHotspotSecurity.toIap2Security(): Iap2WirelessSecurity = when (this) {
     ManualHotspotSecurity.OPEN -> Iap2WirelessSecurity.NONE

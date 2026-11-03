@@ -127,6 +127,7 @@ sealed class CarPlayStatus {
     data object WirelessActiveFallback : CarPlayStatus()
     data object DiscoveringIphone : CarPlayStatus()
     data object WaitingForIphone : CarPlayStatus()
+    data class IphoneNotListed(val nonHubDeviceListed: Boolean) : CarPlayStatus()
     data object RequestingIphonePermission : CarPlayStatus()
     data object WaitingForReenumeration : CarPlayStatus()
     data object SelectingConfiguration : CarPlayStatus()
@@ -137,7 +138,7 @@ sealed class CarPlayStatus {
     data object RunningControl : CarPlayStatus()
     data object ControlEnded : CarPlayStatus()
     data class Failed(val message: String, val wifiResetRequired: Boolean = false,
-        val startupFailure: WirelessStartupFailure? = null) : CarPlayStatus()
+        val startupFailure: WirelessStartupFailure? = null, val knownCause: ConnectionFailureCause? = null) : CarPlayStatus()
 }
 
 internal fun isWirelessHandoffInProgress(
@@ -481,11 +482,46 @@ class CarPlayController(
         }
     }
 
+    /** A queued move that a newer move of the same fingers may still overwrite. */
+    private class PendingMove(val session: AirPlaySession, var contacts: List<AirPlayContact>)
+
+    private val touchLock = Any()
+    private var lastTouch: List<AirPlayContact>? = null
+    private var pendingMove: PendingMove? = null
+
+    /**
+     * A move keeps the same fingers down. Behind a slow write it replaces the move still waiting in
+     * the queue, so only the newest position is sent. Presses and releases are never merged.
+     */
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
         if (closed) return false
         val session = activeSession ?: return false
         return try {
-            touchExecutor.execute { session.sendTouch(contacts) }
+            synchronized(touchLock) {
+                val isMove = contacts.isNotEmpty() && contacts.all { it.down } &&
+                    lastTouch?.filter { it.down }?.map { it.id }?.toSet() == contacts.map { it.id }.toSet()
+                lastTouch = contacts
+                val pending = pendingMove
+                if (isMove && pending != null && pending.session === session) {
+                    pending.contacts = contacts
+                    return true
+                }
+                if (!isMove) {
+                    pendingMove = null
+                    touchExecutor.execute { session.sendTouch(contacts) }
+                } else {
+                    val move = PendingMove(session, contacts)
+                    touchExecutor.execute {
+                        val latest = synchronized(touchLock) {
+                            if (pendingMove === move) pendingMove = null
+                            move.contacts
+                        }
+                        session.sendTouch(latest)
+                    }
+                    // Set only after execute() accepted the task, and still under touchLock, which the task needs to start.
+                    pendingMove = move
+                }
+            }
             true
         } catch (_: Exception) {
             false
@@ -1747,6 +1783,7 @@ class CarPlayController(
         availabilityPollGeneration.incrementAndGet()
         phase = Phase.IPHONE
         reenumerationAttempts = 0
+        iphoneWaitStartedAt = null
         onStatus(CarPlayStatus.DiscoveringIphone)
         checkIphoneAvailability()
     }
@@ -2174,7 +2211,14 @@ class CarPlayController(
                     if (result == com.shilapi.xcertplay.network.CarHotspotTethering.Result.TIMED_OUT ||
                         result == com.shilapi.xcertplay.network.CarHotspotTethering.Result.FAILED)
                         WirelessStartupFailure.HOTSPOT_NOT_READY else WirelessStartupFailure.HOTSPOT_CONFIGURATION,
-                    "${result.diagnostic}. Open the car hotspot settings and connect again.")
+                    "${result.diagnostic}. Open the car hotspot settings and connect again.",
+                    when (result) {
+                        com.shilapi.xcertplay.network.CarHotspotTethering.Result.TIMED_OUT ->
+                            ConnectionFailureCause.CAR_HOTSPOT_START_TIMED_OUT
+                        com.shilapi.xcertplay.network.CarHotspotTethering.Result.FAILED ->
+                            ConnectionFailureCause.CAR_HOTSPOT_START_FAILED
+                        else -> null
+                    })
             }
         }
         if (hotspotMode == WirelessHotspotMode.MANUAL &&
@@ -2196,6 +2240,7 @@ class CarPlayController(
             WirelessHotspotMode.EXISTING_WIFI -> ExistingWifiManager(
                 appContext, config.existingWifiSsid, config.existingWifiPassphrase, ::debugLog,
                 onNetworkChanged = { if (!isStaleWirelessRun(generation)) restartWireless() },
+                preferredInterface = config.existingWifiInterface,
             )
             WirelessHotspotMode.MANUAL -> ManualHotspotManager(
                 context = appContext,
@@ -2254,7 +2299,8 @@ class CarPlayController(
         val bonded = adapter.bondedDevices.orEmpty()
         config.wirelessBluetoothDeviceAddress?.let { selected ->
             return bonded.firstOrNull { it.address.equals(selected, ignoreCase = true) }
-                ?: throw IOException("The selected iPhone is no longer paired. Choose it again in DiPlay.")
+                ?: throw ConnectionFailureException(ConnectionFailureCause.CHOSEN_IPHONE_NOT_PAIRED,
+                    "The selected iPhone is no longer paired. Choose it again in DiPlay.")
         }
         val iPhones = bonded.filter { device ->
             device.name?.contains("iPhone", ignoreCase = true) == true
@@ -2275,20 +2321,21 @@ class CarPlayController(
         }
         if (connectedIPhones.size == 1) return connectedIPhones.single()
         if (connectedIPhones.size > 1) {
-            throw IOException(
+            throw ConnectionFailureException(ConnectionFailureCause.IPHONE_NOT_CHOSEN,
                 "Multiple connected iPhones found: " +
                     connectedIPhones.joinToString { "${it.name ?: "iPhone"} (${it.address})" },
             )
         }
         if (iPhones.size == 1) return iPhones.single()
         if (iPhones.size > 1) {
-            throw IOException(
+            throw ConnectionFailureException(ConnectionFailureCause.IPHONE_NOT_CHOSEN,
                 "Multiple bonded iPhones found and none is currently connected; " +
                     "connect one iPhone and retry",
             )
         }
         if (bonded.size == 1) return bonded.single()
-        throw IOException(
+        throw ConnectionFailureException(
+            if (bonded.isEmpty()) ConnectionFailureCause.NO_PAIRED_IPHONE else ConnectionFailureCause.IPHONE_NOT_CHOSEN,
             "No unambiguous bonded iPhone found; pair one iPhone and retry",
         )
     }
@@ -2705,7 +2752,10 @@ class CarPlayController(
             val causes = generateSequence(error) { it.cause }.toList()
             onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName,
                 causes.any { it is com.shilapi.xcertplay.network.P2pResetRequiredException },
-                causes.filterIsInstance<WirelessStartupException>().firstOrNull()?.reason),
+                causes.filterIsInstance<WirelessStartupException>().firstOrNull()?.reason,
+                causes.firstNotNullOfOrNull {
+                    (it as? ConnectionFailureException)?.reason ?: (it as? WirelessStartupException)?.knownCause
+                }),
                 if (wireless) wirelessGeneration.get() else null)
         }
     }
@@ -2786,6 +2836,9 @@ class CarPlayController(
             "STEP usb/discover: searching for an iPhone USB device"
         CarPlayStatus.WaitingForIphone ->
             "STEP usb/wait: iPhone USB device not present; polling"
+        is CarPlayStatus.IphoneNotListed ->
+            "STEP usb/wait: wired iPhone not listed after ${IPHONE_NOT_LISTED_AFTER_MILLIS / 1_000} s; " +
+                "other USB devices=$nonHubDeviceListed"
         CarPlayStatus.RequestingIphonePermission ->
             "STEP usb/permission: requesting USB access to the iPhone"
         CarPlayStatus.WaitingForReenumeration ->
@@ -2810,6 +2863,7 @@ class CarPlayController(
 
     companion object {
         const val CONNECTION_DIAGNOSTIC_PREFIX = "CONNECTION_DIAGNOSTIC"
+        private const val TRACE_LOG_TAG = "DiPlayTrace"
         // Indices in the telephony HID report (AirPlayHid.telephonyDescriptor).
         private const val TELEPHONY_HOOK_SWITCH = 1
         private const val TELEPHONY_DROP = 3

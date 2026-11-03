@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.orchestration.ConnectionFailureCause
 import java.io.IOException
 
 object WirelessStartupPolicy {
@@ -21,4 +22,8 @@ enum class WirelessStartupFailure {
     val retryable: Boolean get() = this != HOTSPOT_CONFIGURATION && this != BLUETOOTH_UNUSABLE
 }
 
-class WirelessStartupException(val reason: WirelessStartupFailure, message: String) : IOException(message)
+class WirelessStartupException(
+    val reason: WirelessStartupFailure,
+    message: String,
+    val knownCause: ConnectionFailureCause? = null,
+) : IOException(message)
