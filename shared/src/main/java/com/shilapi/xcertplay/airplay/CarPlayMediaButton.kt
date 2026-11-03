@@ -44,6 +44,10 @@ object CarPlayMediaButton {
     fun opensSiriWhileCarPlay(keyCode: Int): Boolean =
         keyCode == KEYCODE_BYD_CARPLAY_VOICE || keyCode == KEYCODE_BYD_CARPLAY_VOICE_LONG
 
+    /** The two voice keys the wheel sends for a short press of its voice button. */
+    fun isShortVoiceKey(keyCode: Int): Boolean =
+        keyCode == KEYCODE_BYD_CARPLAY_VOICE || keyCode == KEYCODE_BYD_AUTO_MEDIA_VOICE
+
     /** The CarPlay press for [keyCode], or null when the key is not a media key CarPlay handles. */
     fun forKeyCode(keyCode: Int, experimentalDiLink3Keys: Boolean = false): Int? = when (keyCode) {
         KeyEvent.KEYCODE_MEDIA_NEXT -> NEXT
@@ -58,35 +62,28 @@ object CarPlayMediaButton {
     }
 
     /**
-     * Whether [action] is a press of a physical wheel key. The car re-uses its media bus for
-     * housekeeping commands and echoes; those must never reach CarPlay as key presses.
-     * (Ported from the Leapmotor fork's CarPlayButton.)
+     * The CarPlay press the CarPlay screen itself should claim for [keyCode], or null to let the key
+     * go on to the car.
      *
-     * The vocabulary includes the stock player's own ICU spellings (`play_pause`) because the T03
-     * channel-B decoder forwards that literal, not the JSON one.
-     */
-    fun isWheelAction(action: String?): Boolean = when (action?.trim()?.lowercase()) {
-        "nextone", "next", "nexttrack" -> true
-        "preone", "previous", "prev", "previoustrack" -> true
-        "playpause", "pauseplay", "toggleplay", "toggleplaypause",
-        "play_pause" -> true
-        else -> false
-    }
-
-    /**
-     * Leapmotor steering-wheel commands from the car's `car.meter.music.BROADCAST` JSON payload
-     * (`data.action`), mapped to the CarPlay press. Unknown commands return null.
+     * BYD hands the steering wheel's next/previous keys to whichever window is in front, and DiPlay's
+     * CarPlay screen is that window whenever the driver is looking at it. Claiming them here is what
+     * makes the wheel change tracks without the accessibility service, which a head unit with no ADB
+     * cannot turn on.
      *
-     * Accepts the ICU spellings as well: the T03 channel-B decoder hands us `previous` / `next` /
-     * `play_pause` for the same physical keys.
+     * Only next and previous are claimed. Play/pause is left alone: BYD acts on it itself, and the
+     * wheel key service owns it for DiLink 3. Nothing is claimed outside a CarPlay session, or during
+     * a call, where the car's own call handling is what the driver expects from these keys.
      */
-    fun forLeapmotorAction(action: String?): Int? = when (action?.trim()?.lowercase()) {
-        "nextone", "next", "nexttrack" -> NEXT
-        "preone", "previous", "prev", "previoustrack" -> PREVIOUS
-        "playpause", "pauseplay", "toggleplay", "toggleplaypause",
-        "play_pause" -> PLAY_PAUSE
-        "play" -> PLAY
-        "pause", "stop" -> PAUSE
-        else -> null
+    fun forCarPlayWindow(
+        keyCode: Int,
+        sessionActive: Boolean,
+        inCall: Boolean,
+    ): Int? {
+        if (!sessionActive || inCall) return null
+        return when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_NEXT -> NEXT
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> PREVIOUS
+            else -> null
+        }
     }
 }

@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
-import android.util.Log
+import com.shilapi.xcertplay.AmbientDiagnostics
 import com.shilapi.xcertplay.adb.AdbKeys
 import com.shilapi.xcertplay.adb.LocalAdb
 import java.security.SecureRandom
@@ -207,7 +207,7 @@ internal class BydAmbientLightClient(context: Context) : AutoCloseable {
         keepAlive?.cancel(false); keepAlive = null
         status = Status(Phase.FAILED, ticket, reason)
         runCatching { closeTransport() }
-        Log.w("DiPlay-Ambient", "worker failed: $reason")
+        AmbientDiagnostics.warn("ambient worker failed: $reason")
     }
 
     private fun closeTransport() {

@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.setup
 
 import android.content.Context
 
-/** Which features the setup guide offers for each DiLink generation, and how well each is proven. */
+/** Which features the setup guide offers for each car, and how well each is proven. */
 object SetupGuide {
     const val STEP_CAR = 0
     const val STEP_CONNECTION = 1
@@ -18,9 +18,16 @@ object SetupGuide {
 
     data class Entry(val feature: Feature, val status: Status, val needsAdb: Boolean)
 
-    /** Claims follow docs/COMPATIBILITY.md: community reports, not a certified support list. */
+    /**
+     * The features offered for a car. A Leapmotor head unit runs the car's broadcast protocols
+     * instead of BYD's ADB shell, so every feature it can drive is offered as tested and none needs
+     * ADB; a BYD unit keeps the generation-specific table it always had.
+     *
+     * Claims follow docs/COMPATIBILITY.md: community reports, not a certified support list.
+     */
     fun features(generation: DiLinkGeneration): List<Entry> {
         fun entry(feature: Feature, status: Status, needsAdb: Boolean = false) = Entry(feature, status, needsAdb)
+        if (generation.isLeapmotor) return leapmotorFeatures(::entry)
         val dilink3 = generation == DiLinkGeneration.DILINK_3
         val dilink4 = generation == DiLinkGeneration.DILINK_4
         return listOf(
@@ -34,6 +41,20 @@ object SetupGuide {
             entry(Feature.CALL_KEYS, if (dilink3) Status.EXPERIMENTAL else Status.HIDDEN, needsAdb = true),
         ).filter { it.status != Status.HIDDEN }
     }
+
+    /**
+     * 零跑 S01/T03: the car answers broadcasts, not ADB, so the whole verified set is offered with no
+     * ADB requirement. The BYD-only rows (DiLink 4 cluster route, "BYD navigation") are omitted
+     * because that hardware is not present, and the cluster map is proven on the meter channel.
+     */
+    private fun leapmotorFeatures(entry: (Feature, Status, Boolean) -> Entry): List<Entry> = listOf(
+        entry(Feature.AUTO_CONNECT, Status.TESTED, false),
+        entry(Feature.LOCATION, Status.TESTED, false),
+        entry(Feature.CLUSTER_MAP, Status.TESTED, false),
+        entry(Feature.BYD_NAVIGATION, Status.TESTED, false),
+        entry(Feature.CALLS_ON_DASHBOARD, Status.TESTED, false),
+        entry(Feature.CALL_KEYS, Status.TESTED, false),
+    )
 
     /** A DiLink 3 car with the DiLink 4 route on never sends the DiLink 3 dashboard commands. */
     fun hasConflictingClusterRoute(generation: DiLinkGeneration, adbClusterEnabled: Boolean): Boolean =

@@ -104,6 +104,23 @@ class AppLocaleTest {
         assertEquals("應用程式語言", wrapped.getString(R.string.language_app_language))
     }
 
+    @Test fun japaneseIsSelectableOnAndroid13() {
+        AppLocale.save(context, AppLocale.JAPANESE)
+        assertEquals("ja", manager.applicationLocales.toLanguageTags())
+        assertEquals(AppLocale.JAPANESE, AppLocale.preference(context))
+        assertEquals("日本語", AppLocale.displayName(context, AppLocale.JAPANESE))
+        assertSame(context, AppLocale.wrap(context))
+    }
+
+    @Test @Config(sdk = [28, 32])
+    fun japaneseWorksOnOlderAndroidAndUsesTranslatedResources() {
+        AppLocale.save(context, AppLocale.JAPANESE)
+        val wrapped = AppLocale.wrap(context)
+        assertEquals("ja", wrapped.resources.configuration.locales.toLanguageTags())
+        assertEquals("アプリの言語", wrapped.getString(R.string.language_app_language))
+        assertEquals(View.LAYOUT_DIRECTION_LTR, wrapped.resources.configuration.layoutDirection)
+    }
+
     @Test @Config(sdk = [28, 32])
     fun systemTraditionalRegionsResolveTraditionalResourcesWithoutAnOverride() {
         AppLocale.save(context, AppLocale.SYSTEM)
@@ -116,5 +133,35 @@ class AppLocaleTest {
             assertSame(systemContext, AppLocale.wrap(systemContext))
             assertEquals(tag, "應用程式語言", systemContext.getString(R.string.language_app_language))
         }
+    }
+
+    @Test fun koreanIsSelectableOnAndroid13() {
+        AppLocale.save(context, AppLocale.KOREAN)
+        assertEquals("ko", manager.applicationLocales.toLanguageTags())
+        assertEquals(AppLocale.KOREAN, AppLocale.preference(context))
+        assertEquals("한국어", AppLocale.displayName(context, AppLocale.KOREAN))
+        assertSame(context, AppLocale.wrap(context))
+        AppLocale.save(context, AppLocale.SYSTEM)
+        assertTrue(manager.applicationLocales.isEmpty)
+    }
+
+    @Test @Config(sdk = [28, 32])
+    fun koreanWorksOnOlderAndroidAndUsesTranslatedResources() {
+        AppLocale.save(context, AppLocale.KOREAN)
+        val wrapped = AppLocale.wrap(context)
+        assertEquals("ko", wrapped.resources.configuration.locales.toLanguageTags())
+        assertEquals("앱 언어", wrapped.getString(R.string.language_app_language))
+        assertEquals(View.LAYOUT_DIRECTION_LTR, wrapped.resources.configuration.layoutDirection)
+        assertEquals(AppLocale.KOREAN, AppLocale.preference(context))
+    }
+
+    @Test fun turkishIsSelectableOnAndroid13() {
+        AppLocale.save(context, AppLocale.TURKISH)
+        assertEquals("tr", manager.applicationLocales.toLanguageTags())
+        assertEquals(AppLocale.TURKISH, AppLocale.preference(context))
+        assertEquals("Türkçe", AppLocale.displayName(context, AppLocale.TURKISH))
+        assertSame(context, AppLocale.wrap(context))
+        AppLocale.save(context, AppLocale.SYSTEM)
+        assertTrue(manager.applicationLocales.isEmpty)
     }
 }

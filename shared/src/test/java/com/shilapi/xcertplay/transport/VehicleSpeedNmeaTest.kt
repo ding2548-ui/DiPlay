@@ -61,6 +61,46 @@ class VehicleSpeedNmeaTest {
         assertTrue(provider.latestNmea()!!.startsWith("\$PASCD,"))
     }
 
+    // #807: in a tunnel the speed went after about two minutes, and the report could not say why.
+    @Test
+    fun summarisesWhatReachedTheIphoneOnceAMinute() {
+        var now = 1_000L
+        val logs = mutableListOf<String>()
+        val fixes = mutableListOf<String?>("\$GPGGA\r\n", "\$GPGGA\r\n", null, null)
+        val position = object : Iap2LocationProvider {
+            override fun start() = true
+            override fun stop() = Unit
+            override fun latestNmea() = fixes.removeAt(0)
+        }
+        val provider = VehicleSpeedLocationProvider(position, FakeSpeed(), logs::add, { now })
+        provider.onRequested(setOf(Iap2LocationMessages.VEHICLE_SPEED_DATA))
+        repeat(3) { provider.latestNmea(); now += 20_000L }
+        assertTrue(logs.isEmpty())
+        provider.latestNmea()
+        assertEquals(listOf("Location: last 60 s updates=4 withPosition=2 withWheelSpeed=4 wheelSpeedSamples=4 " +
+            "lastWheelSpeed=50.0 km/h speedRequested=true"), logs)
+    }
+
+    // #807: a DiLink 4.0 sent no wheel speed for a whole drive, and the report could not say which read failed.
+    @Test
+    fun aMinuteWithoutWheelSpeedSaysWhatTheReadsReturned() {
+        var now = 1_000L
+        val logs = mutableListOf<String>()
+        val speed = object : VehicleSpeedSource {
+            override fun start() = Unit
+            override fun stop() = Unit
+            override fun drain(): VehicleSpeedReading? = null
+            override fun status() = "adb=READY speed=0/240 gear=none"
+        }
+        val provider = VehicleSpeedLocationProvider(FakePosition("\$GPGGA\r\n"), speed, logs::add, { now })
+        provider.onRequested(setOf(Iap2LocationMessages.VEHICLE_SPEED_DATA))
+        provider.latestNmea()
+        now += 60_000L
+        provider.latestNmea()
+        assertEquals(listOf("Location: last 60 s updates=2 withPosition=2 withWheelSpeed=0 wheelSpeedSamples=0 " +
+            "lastWheelSpeed=none speedRequested=true wheelSpeedReads=[adb=READY speed=0/240 gear=none]"), logs)
+    }
+
     @Test
     fun readsTheRequestedSentenceTypes() {
         val request = Iap2Messages.buildRaw(Iap2LocationMessages.START_LOCATION_INFORMATION) {
@@ -112,5 +152,7 @@ class VehicleSpeedNmeaTest {
         override fun start() { started = true }
         override fun stop() { started = false }
         override fun drain() = VehicleSpeedReading(VehicleGear.DRIVE, listOf(VehicleSpeedSample(5_000, 13.9)))
+        // Never shown: a minute with speed in it needs no explanation.
+        override fun status() = "adb=READY speed=4/4 gear=D"
     }
 }

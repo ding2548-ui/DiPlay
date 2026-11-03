@@ -18,6 +18,11 @@
             android:name="android.allow_multiple_resumed_activities"
             android:value="true" />
 
+        <!-- Based on the split-screen metadata declared by DiLink system apps. (0.2.21) -->
+        <meta-data
+            android:name="BYD_SUPPORT_SPLIT_ACTIVITY"
+            android:value="1" />
+
         <receiver
             android:name="com.shilapi.xcertplay.BootReceiver"
             android:enabled="true"
@@ -29,6 +34,26 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- PSA line: the auto-start triggers. Both are system broadcasts, so the receivers are
+             exported; the manifest deliverable is what lets them fire while no activity is up. -->
+        <receiver
+            android:name="com.shilapi.xcertplay.AutoStartBluetoothReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="com.shilapi.xcertplay.AutoStartWifiReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.net.wifi.STATE_CHANGE" />
             </intent-filter>
         </receiver>
 

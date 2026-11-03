@@ -20,11 +20,12 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * iOS 27 video in car (see [VideoInCar]). The iPhone hands the car a media URL (insertPlayQueueItem)
  * and drives it (setRate, seek, stop); the car plays it in [CarPlayVideoActivity], which opens as soon
- * as the iPhone starts the item (or sends requestUI "videoplayback:") and only while the car is in N
- * (Leapmotor has no P gear reading).
+ * as the iPhone starts the item (or sends requestUI "videoplayback:") and only while the car is
+ * parked.
  *
- * The video-allowed state comes from [LeapmotorGearMonitor] (the Leapmotor CAN broadcast), replacing
- * the upstream BYD parked source; Leapmotor gates on N instead of P.
+ * "Parked" is per car line: BYD reports P and it is read over ADB, a Leapmotor head unit reports only
+ * R/N/D on the CAN broadcast and the car allows video in N. [readParked] asks
+ * `BydNavigationOutputs.parked()`, which owns that choice.
  */
 internal object CarPlayVideo : CarPlayVideoListener {
     private const val TAG = "DiPlay-Video"
@@ -71,8 +72,11 @@ internal object CarPlayVideo : CarPlayVideoListener {
         stop()
     }
 
-    // Leapmotor gates in-car video on N (the CAN broadcast has no P reading).
-    override fun readParked(): Boolean? = com.shilapi.xcertplay.LeapmotorGearMonitor.videoAllowed()
+    // The parked gear differs by car line: BYD reports P (read over ADB), a Leapmotor unit reports
+    // only R/N/D on the CAN bus and allows video in N. BydNavigationOutputs.parked() picks the right
+    // one; reading the Leapmotor gear unconditionally left BYD with no gate reading at all.
+    override fun readParked(): Boolean? =
+        appContext?.let { com.shilapi.xcertplay.hud.BydNavigationOutputs.parked(it) }
 
     override fun onVideoAllowedChanged(allowed: Boolean) {
         if (!allowed) main.post { closePlayer("the car left N") }

@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaRecorder
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
@@ -44,6 +45,22 @@ class MicrophoneCaptureStatsTest {
         assertTrue(final.contains("captureBytes=0 reads=1 zeroReads=0 readErrors=1 readMaxMs=8"))
         assertTrue(final.contains("encodedFrames=0 emptyEncodedFrames=0 udpSent=0 sendErrors=0"))
         assertTrue(final.endsWith("ended=true"))
+    }
+
+    @Test fun reportsTheLoudestSampleSoSilentCaptureStandsOut() {
+        // #647: a silent microphone and a discarded uplink looked the same in a report.
+        var now = 0L
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config, reports::add) { now }
+        stats.level(ByteArray(960))
+        now = 5_000_000_000
+        stats.flush()
+        assertTrue(reports.last().contains("peakDbfs=silent"))
+        // -16384 little-endian is half of full scale: -6 dBFS.
+        stats.level(byteArrayOf(0, 0, 0x00, 0xc0.toByte(), 0x10, 0x00))
+        stats.flush(ended = true)
+        assertTrue(reports.last().contains("peakDbfs=-6 ended=true"))
+        assertEquals("0", MicrophoneCaptureStats.peakDbfs(32768))
     }
 
     @Test fun reportingIsBoundedAndRouteQueriesRunOnlyWhenDue() {
@@ -91,11 +108,31 @@ class MicrophoneCaptureStatsTest {
         assertTrue(reports.single().contains("routedDeviceType=unknown"))
     }
 
+    @Test fun onlyASilentWindowAsksWhatElseIsRecording() {
+        var now = 0L
+        var asked = 0
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config, reports::add) { now }
+        stats.level(byteArrayOf(0x00, 0xc0.toByte()))
+        now = 5_000_000_000
+        stats.flush(silence = { asked++; "audioMode=3 otherRecordings=none" })
+        assertEquals(0, asked)
+        assertTrue(reports.last().endsWith("peakDbfs=-6 ended=false"))
+        stats.level(ByteArray(960))
+        now += 5_000_000_000
+        stats.flush(silence = { asked++; "audioMode=3 otherRecordings=none" })
+        assertEquals(1, asked)
+        assertTrue(reports.last().endsWith("peakDbfs=silent audioMode=3 otherRecordings=none ended=false"))
+        stats.flush(ended = true, silence = { throw SecurityException("audio service refused") })
+        assertTrue(reports.last().endsWith("peakDbfs=silent ended=true"))
+    }
+
     @Test fun fallbackSourceIsReportedAfterTheRefusedSource() {
         val reports = mutableListOf<String>()
         val stats = MicrophoneCaptureStats(config.copy(audioType = "speechrecognition"), reports::add) { 0 }
+        stats.useSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
         stats.failure(MicrophoneFailureStage.RECORDER_CREATION, UnsupportedOperationException())
-        stats.useVoiceCommunicationSource()
+        stats.useSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
         stats.started(15)
         stats.flush(ended = true)
         assertTrue(reports[0].contains("type=speechrecognition source=VOICE_RECOGNITION"))

@@ -16,4 +16,13 @@ class BydHudProtocolTest {
             assertFalse("event=$code", BydHudProtocol.eventAccepted(code))
         }
     }
+
+    @Test fun aRefusedGatewayBindBacksOffToAMinute() {
+        assertEquals(0L, BydHudProtocol.bindRetryMillis(0))
+        assertEquals(300L, BydHudProtocol.bindRetryMillis(1))
+        assertEquals(600L, BydHudProtocol.bindRetryMillis(2))
+        assertEquals(38_400L, BydHudProtocol.bindRetryMillis(8))
+        assertEquals(60_000L, BydHudProtocol.bindRetryMillis(9))
+        assertEquals(60_000L, BydHudProtocol.bindRetryMillis(1_000))
+    }
 }

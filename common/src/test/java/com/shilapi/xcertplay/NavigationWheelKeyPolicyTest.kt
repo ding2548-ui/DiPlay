@@ -15,6 +15,12 @@ class NavigationWheelKeyPolicyTest {
         assertNull(navigationWheelTarget(0, 0, -1, 1))
     }
 
+    @Test fun onlyTheSixVolumeKeysHaveAStep() {
+        assertEquals(listOf(24, 291, 307), (0..400).filter { NavigationWheelKeyPolicy.volumeStep(it) == 1 })
+        assertEquals(listOf(25, 292, 308), (0..400).filter { NavigationWheelKeyPolicy.volumeStep(it) == -1 })
+        assertNull(NavigationWheelKeyPolicy.volumeStep(GeelyWheelKeyCodes.KEY_VOICE_ASSIST))
+    }
+
     @Test fun handlesConfirmedDirectionsAndEachRepeatOnce() {
         for ((key, delta) in listOf(24 to 1, 291 to 1, 307 to 1, 25 to -1, 292 to -1, 308 to -1)) {
             val policy = NavigationWheelKeyPolicy()

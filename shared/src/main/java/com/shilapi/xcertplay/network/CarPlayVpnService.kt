@@ -4,26 +4,27 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Binder
-import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.shilapi.xcertplay.airplay.AirPlayListenerIdentity
+import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
+import com.shilapi.xcertplay.airplay.isInternalAirPlayPeer
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
-import com.shilapi.xcertplay.airplay.AirPlayListenerIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
-import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
 import com.shilapi.xcertplay.airplay.PairingStore
-import com.shilapi.xcertplay.airplay.isInternalAirPlayPeer
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -53,15 +54,6 @@ class CarPlayVpnService : VpnService() {
         val media: AirPlayMediaHandler,
         val additionalAddresses: List<InetAddress> = emptyList(),
         val listenerIdentity: AirPlayListenerIdentity? = null,
-        // The lwIP wired path relays the iPhone's TCP streams into this server over 127.0.0.1;
-        // without this flag acceptLoop would drop every relayed connection as a "self-test"
-        // (isLocalSource matches the loopback interface) and the session could never start.
-        val loopbackRelay: Boolean = false,
-        // lwIP mode: the session announces extra ports as it progresses (eventPort, timing, stream
-        // data ports). Each announcement opens its lwIP relay listener here.
-        val portNotifier: ((Int) -> Unit)? = null,
-        /** lwIP mode: announced UDP ports (timing, keepalive) open their datagram relay here. */
-        val udpPortNotifier: ((Int) -> Unit)? = null,
     )
 
     private val binder = LocalBinder()
@@ -75,20 +67,11 @@ class CarPlayVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var attachGeneration = 0
 
+    /** The exception chain behind the latest [AttachResult.Failed], for the diagnostic log. */
+    @Volatile var lastAttachFailure: String? = null
+        private set
+
     override fun onBind(intent: Intent?): IBinder = binder
-
-    /**
-     * Which part of [attach] is running, so a failure names the step instead of only the platform
-     * message. Held per thread because attach runs on a caller thread while the bridge runs on its
-     * own, and cleared at the start of every attempt.
-     */
-    private val attachStage = ThreadLocal<String>()
-
-    private fun stage(name: String) {
-        attachStage.set(name)
-    }
-
-    private fun currentStage(): String = attachStage.get() ?: "unknown"
 
     @Synchronized
     fun attach(
@@ -108,7 +91,6 @@ class CarPlayVpnService : VpnService() {
         }
         active.set(true)
         val generation = ++attachGeneration
-        attachStage.set("builder")
         return try {
             val address = InetAddress.getByName(linkLocal)
             if (address !is Inet6Address || !address.isLinkLocalAddress) {
@@ -116,123 +98,35 @@ class CarPlayVpnService : VpnService() {
             }
             require(hostMac.size == 6) { "hostMac must be 6 bytes" }
 
-            stage("tun")
-            val tunFd = establishTun(linkLocal, listener)
+            val tunFd = Builder()
+                .addAddress(linkLocal, LINK_PREFIX)
+                .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+                .setSession(SESSION_NAME)
+                .setMtu(TUN_MTU)
+                .setBlocking(true)
+                // An empty app list routes every UID through this VPN. Scope it before establish;
+                // rejection must reach the existing attachment cleanup, never an unscoped retry.
+                .addAllowedApplication(packageName)
+                .establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
 
-            // Stage markers: the failure below used to reach the caller as a bare message such as
-            // "Invalid argument", which is indistinguishable from an errno string and sent the
-            // investigation after establish() when the real throw was further down.
-            stage("bridge")
             val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
                 onTransportError(generation, listener, error)
             }
             ipv6Bridge.start()
             bridge = ipv6Bridge
 
-            stage("listener")
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(address, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(scopedToTunnel(address, listener), config, identity, pairings, mfi, listener, media),
             )
             AttachResult.Started
         } catch (error: Exception) {
-            val detail = "attach failed stage=${currentStage()} ${error.javaClass.simpleName}: ${error.message}"
-            Log.w(TAG, detail, error)
-            // Log.w never reaches the exported report, which is the only place this is read from,
-            // so the stage would be invisible exactly when it is needed.
-            runCatching { listener.onDebugLog(detail) }
             releaseLocked()
+            lastAttachFailure = attachFailure(error)
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
         }
-    }
-
-    /**
-     * Brings the tun up, trying the builder configurations in [TUN_VARIANTS] in order.
-     *
-     * Android 7 rejects a configuration this line sends with a bare EINVAL, which reaches the user
-     * as "attach result=failed Invalid argument" — while the very same APK attaches cleanly on
-     * Android 16 (report 876, 20:28:42: `attach result=started` 48 ms after the service bound).
-     * The message names neither the knob nor the step, so the variants are walked and each outcome
-     * is recorded: the report then says which knob Android 7 dislikes, and if a later variant is
-     * accepted the wired path comes up instead of the whole attach failing.
-     */
-    private fun establishTun(linkLocal: String, listener: AirPlaySessionListener): ParcelFileDescriptor? {
-        var lastError: Exception? = null
-        for (variant in TUN_VARIANTS) {
-            val builder = Builder().addAddress(linkLocal, LINK_PREFIX)
-            when (variant) {
-                // What this line has always sent. allowFamily(AF_INET) is there so the platform does
-                // not treat IPv4 as an unconfigured family while apps are covered; setMtu and
-                // setBlocking are the upstream defaults.
-                TUN_FULL -> builder
-                    .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
-                    .allowFamily(AF_INET)
-                    .setSession(SESSION_NAME)
-                    .setMtu(TUN_MTU)
-                    .setBlocking(true)
-                TUN_NO_ALLOW_FAMILY -> builder
-                    .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
-                    .setSession(SESSION_NAME)
-                    .setMtu(TUN_MTU)
-                    .setBlocking(true)
-                else -> builder
-                    .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
-                    .setSession(SESSION_NAME)
-            }
-            applyAllowlist(builder)?.let { throw it }
-            try {
-                val tun = builder.establish()
-                if (tun == null) {
-                    lastError = IOException("VpnService.establish returned null")
-                    reportTo(listener, "vpn establish variant=$variant result=null")
-                    continue
-                }
-                reportTo(listener, "vpn tun established variant=$variant address=$linkLocal")
-                return tun
-            } catch (error: Exception) {
-                lastError = error
-                reportTo(
-                    listener,
-                    "vpn establish variant=$variant rejected " +
-                        "${error.javaClass.simpleName}: ${error.message}",
-                )
-            }
-        }
-        lastError?.let { throw it }
-        return null
-    }
-
-    /**
-     * Restricts the VPN to this package. Covering every app swallowed other apps' link-local IPv6
-     * whenever the wired VPN was up. The API was renamed between SDK levels — the Android 7 head
-     * unit only has addAllowedPackage, the SDK this module compiles against only carries
-     * addAllowedApplication — so neither name can be called directly. Returns the failure to throw,
-     * or null on success.
-     */
-    private fun applyAllowlist(builder: Builder): Exception? {
-        val allowlisted = runCatching {
-            Builder::class.java.getMethod("addAllowedPackage", String::class.java)
-                .invoke(builder, packageName)
-        }.recoverCatching {
-            try {
-                Builder::class.java.getMethod("addAllowedApplication", String::class.java)
-                    .invoke(builder, packageName)
-            } catch (application: java.lang.reflect.InvocationTargetException) {
-                throw application.cause ?: application
-            }
-        }
-        val cause = allowlisted.exceptionOrNull() ?: return null
-        // A missing method on both sides would leave the VPN scoped to every app, which is exactly
-        // what this allowlist exists to prevent, so refuse instead of continuing.
-        if (cause is NoSuchMethodException) return IOException("VPN allowlist is unavailable", cause)
-        return cause as? Exception ?: IOException("VPN allowlist failed", cause)
-    }
-
-    private fun reportTo(listener: AirPlaySessionListener, message: String) {
-        Log.i(TAG, message)
-        runCatching { listener.onDebugLog(message) }
     }
 
     /**
@@ -250,15 +144,6 @@ class CarPlayVpnService : VpnService() {
         media: AirPlayMediaHandler,
         additionalBindAddresses: List<InetAddress> = emptyList(),
         listenerIdentity: AirPlayListenerIdentity? = null,
-        // The lwIP wired path relays the iPhone's TCP streams into this server over 127.0.0.1;
-        // without this flag acceptLoop would drop every relayed connection as a "self-test"
-        // (isLocalSource matches the loopback interface) and the session could never start.
-        loopbackRelay: Boolean = false,
-        // lwIP mode: the session announces extra ports as it progresses (eventPort, timing, stream
-        // data ports). Each announcement opens its lwIP relay listener here.
-        portNotifier: ((Int) -> Unit)? = null,
-        /** lwIP mode: announced UDP ports (timing, keepalive) open their datagram relay here. */
-        udpPortNotifier: ((Int) -> Unit)? = null,
     ): AttachResult {
         if (active.get()) {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
@@ -270,12 +155,12 @@ class CarPlayVpnService : VpnService() {
             startAirPlayServer(
                 generation,
                 AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media,
-                    additionalBindAddresses, listenerIdentity,
-                    loopbackRelay, portNotifier, udpPortNotifier),
+                    additionalBindAddresses, listenerIdentity),
             )
             AttachResult.Started
         } catch (error: Exception) {
             releaseLocked()
+            lastAttachFailure = attachFailure(error)
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
         }
     }
@@ -301,29 +186,45 @@ class CarPlayVpnService : VpnService() {
         super.onDestroy()
     }
 
+    /**
+     * Linux rejects bind() to a link-local IPv6 address without a scope id (EINVAL). Android 8+
+     * IoBridge.bind looks the scope up itself, but Android 7.x binds natively in
+     * PlainSocketImpl.socketBind and never derives one, so the unscoped wired listener failed with
+     * "Invalid argument". Scope it to the tunnel that owns the address on every version; when no
+     * interface owns it, keep the unscoped address and the platform's own behavior.
+     */
+    private fun scopedToTunnel(address: Inet6Address, listener: AirPlaySessionListener): InetAddress {
+        if (address.scopeId != 0) return address
+        var interfaces = emptyList<TunnelCandidate>()
+        repeat(TUN_LOOKUP_ATTEMPTS) { attempt ->
+            if (attempt > 0) Thread.sleep(TUN_LOOKUP_DELAY_MILLIS)
+            interfaces = tunnelCandidates()
+            selectTunnelInterface(address, interfaces)?.let { owner ->
+                runCatching { listener.onDebugLog("wired AirPlay listener scope iface=${owner.name} index=${owner.index}") }
+                return Inet6Address.getByAddress(null, address.address, owner.index)
+            }
+        }
+        val tunnels = interfaces.filter { it.name.startsWith("tun") }.joinToString(",") { it.name }.ifEmpty { "none" }
+        runCatching { listener.onDebugLog("wired AirPlay listener scope iface=not_found tun=$tunnels; binding unscoped") }
+        return address
+    }
+
+    private fun tunnelCandidates(): List<TunnelCandidate> = runCatching {
+        NetworkInterface.getNetworkInterfaces()?.let { Collections.list(it) }.orEmpty().map { networkInterface ->
+            TunnelCandidate(networkInterface.name, networkInterface.index, Collections.list(networkInterface.inetAddresses))
+        }
+    }.getOrDefault(emptyList())
+
     private fun startAirPlayServer(
         generation: Int,
         replacement: AirPlayAttachment,
     ) {
-        // A bare link-local IPv6 literal carries no scope id, and bind() on a scoped address without
-        // one fails with EINVAL. The wired VPN path hands us exactly that: fe80::2 out of the
-        // runtime config, which surfaced as "attach result=failed Invalid argument" only after the
-        // port selector had walked every fallback port.
-        //
-        // The substitution is only safe when this is the ONLY address. bindAll has to put every
-        // address on one port, and the IPv6 wildcard overlaps all of them, so a set containing it
-        // can never be satisfied: run 193 applied the wildcard across the multi-address branch too
-        // and every wireless attempt died with "No common AirPlay port available for the selected
-        // interface addresses" (the wireless host addresses always include a link-local IPv6).
         val servers = if (replacement.additionalAddresses.isEmpty()) {
-            listOf(
-                AirPlayPortSelector.bind(replacement.address.wildcardWhenScoped(), replacement.config.port) { busy, bound ->
-                    Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
-                },
-            )
+            listOf(AirPlayPortSelector.bind(replacement.address, replacement.config.port) { busy, bound ->
+                Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
+            })
         } else {
-            AirPlayPortSelector.bindAll(
-                listOf(replacement.address) + replacement.additionalAddresses,
+            AirPlayPortSelector.bindAll(listOf(replacement.address) + replacement.additionalAddresses,
                 replacement.config.port) { busy, bound ->
                 Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
             }
@@ -334,8 +235,7 @@ class CarPlayVpnService : VpnService() {
         additionalServers = servers.drop(1)
         servers.forEach { bound ->
             runCatching { replacement.listener.onDebugLog(
-                "airplay listener ready family=${if (bound.inetAddress is Inet6Address) "IPv6" else "IPv4"} " +
-                    "port=${bound.localPort} bind=${bound.inetAddress.hostAddress}",
+                "airplay listener ready family=${if (bound.inetAddress is Inet6Address) "IPv6" else "IPv4"} port=${bound.localPort}",
             ) }
             Thread(
                 { acceptLoop(generation, bound) },
@@ -370,11 +270,7 @@ class CarPlayVpnService : VpnService() {
                         socket.close()
                         return
                     }
-                    // In lwIP relay mode every connection arrives from 127.0.0.1 (the relay
-                    // itself), which isInternalAirPlayPeer would classify as one of our own
-                    // probes, so the classification is skipped for that attachment.
-                    val internalPeer = !current.loopbackRelay &&
-                        isInternalAirPlayPeer(socket.inetAddress, socket.localAddress)
+                    val internalPeer = isInternalAirPlayPeer(socket.inetAddress, socket.localAddress)
                     current.listenerIdentity?.let { owner ->
                         current.listener.onTcpAccepted(AirPlayTcpAccepted(
                             owner, internalPeer, acceptedAtNanos,
@@ -412,9 +308,6 @@ class CarPlayVpnService : VpnService() {
                             }
                         },
                         media = current.media,
-                        loopbackBind = current.loopbackRelay,
-                        portNotifier = current.portNotifier,
-                        udpPortNotifier = current.udpPortNotifier,
                     ).also(::addSession)
                 }
                 session.start()
@@ -496,28 +389,38 @@ class CarPlayVpnService : VpnService() {
         private const val LINK_LOCAL_ROUTE = "fe80::"
         private const val SESSION_NAME = "xcertplay CarPlay"
         private const val TUN_MTU = 1500
-        /** IPv4 address family for [android.net.VpnService.Builder.allowFamily]. */
-        private const val AF_INET = 2 // OsConstants.AF_INET
+        private const val TUN_LOOKUP_ATTEMPTS = 10
+        private const val TUN_LOOKUP_DELAY_MILLIS = 50L
 
-        /** Builder configurations tried in order by [establishTun]; see there for the reasoning. */
-        private val TUN_VARIANTS = listOf(TUN_FULL, TUN_NO_ALLOW_FAMILY, TUN_MINIMAL)
-        private const val TUN_FULL = "full"
-        private const val TUN_NO_ALLOW_FAMILY = "no-allow-family"
-        private const val TUN_MINIMAL = "minimal"
+        internal data class TunnelCandidate(val name: String, val index: Int, val addresses: List<InetAddress>)
 
-        /** The IPv6 wildcard, substituted for scoped addresses that cannot be bound directly. */
-        private val WILDCARD_IPV6: InetAddress = InetAddress.getByName("::")
+        /**
+         * Picks the interface that owns [address]. A tun interface wins when another interface
+         * happens to carry the same link-local address.
+         */
+        internal fun selectTunnelInterface(address: Inet6Address, interfaces: List<TunnelCandidate>): TunnelCandidate? {
+            val owners = interfaces.filter { candidate ->
+                candidate.index > 0 && candidate.addresses.any { owned ->
+                    owned is Inet6Address && owned.address.contentEquals(address.address)
+                }
+            }
+            return owners.firstOrNull { it.name.startsWith("tun") } ?: owners.firstOrNull()
+        }
 
         /** Returns the VPN consent intent, or null when consent is already granted. */
         fun prepare(context: Context): Intent? = VpnService.prepare(context)
-    }
 
-    /**
-     * A link-local IPv6 literal parsed from a string has no scope id, and the kernel rejects
-     * `bind()` on a scoped address without one with EINVAL. The VPN path's listener address comes
-     * straight from the runtime config ("fe80::2"), so it always hits that; the wildcard covers
-     * the address without needing to resolve its interface first.
-     */
-    private fun InetAddress.wildcardWhenScoped(): InetAddress =
-        if (this is Inet6Address && isLinkLocalAddress) WILDCARD_IPV6 else this
+        /**
+         * Android 7.1 reported only "Invalid argument" when establish failed (#557); name the
+         * exception chain and the frame that threw, so the rejected VPN setting can be identified.
+         */
+        internal fun attachFailure(error: Throwable): String {
+            val chain = generateSequence(error) { it.cause }.take(4).joinToString(" <- ") { failure ->
+                "${failure.javaClass.simpleName}: ${failure.message ?: "no message"}"
+            }
+            val origin = error.stackTrace.firstOrNull()
+                ?.let { " at ${it.className.substringAfterLast('.')}.${it.methodName}" }.orEmpty()
+            return chain + origin
+        }
+    }
 }

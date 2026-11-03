@@ -15,6 +15,7 @@ internal class ClusterVideoTexture(context: Context, private val onPresented: ()
         isOpaque = false
         surfaceTextureListener = object : SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                CropDiagLog.log("cluster surface view=${width}x${height} buffer=1920x720")
                 releaseOutput()
                 texture.setDefaultBufferSize(1920, 720)
                 output = Surface(texture).also(onSurface)

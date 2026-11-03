@@ -16,6 +16,7 @@ import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.media.CarPlayVideoLayout
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
+import com.shilapi.xcertplay.orchestration.CarPlayStatus
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
@@ -48,6 +49,7 @@ class CarPlayHostDisplaySizeTest {
     @Before fun setUp() {
         activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         AirPlayPersistence.saveAdaptPipResolution(activity, false)
+        AirPlayPersistence.saveHarmanFullscreen(activity, false)
         // Source-only tests have no provisioned local authentication identity.
         AirPlayPersistence.saveMfiTarget(activity, MfiTarget.USB_CH341)
         // Exercise host startup without launching vendor-service workers or real transports.
@@ -234,6 +236,7 @@ class CarPlayHostDisplaySizeTest {
     @Test fun fullscreenApplicationSupportsAllFourBarCombinations() {
         for (hideTop in listOf(false, true)) {
             for (hideBottom in listOf(false, true)) {
+                setField("harmanFullscreenEnabled", false)
                 setField("hideTopBar", hideTop)
                 setField("hideBottomBar", hideBottom)
 
@@ -242,6 +245,86 @@ class CarPlayHostDisplaySizeTest {
                 assertWindowBars(hideTop, hideBottom)
             }
         }
+    }
+
+    @Test fun optionalTemporaryBarsRevealAndRestoreAfterFiveSecondsWithoutRenegotiatingCarPlay() {
+        val display = startSession()
+        setField("temporarySystemBarsEnabled", true)
+        setField("gestureFingerCount", 3)
+        setField("hideTopBar", true)
+        setField("hideBottomBar", true)
+        invoke("applyFullscreenMode")
+        assertWindowBars(true, true)
+
+        assertEquals(true, invoke("showTemporarySystemBars"))
+        assertWindowBars(false, false)
+        assertEquals(display, getField("sessionDisplay"))
+        assertEquals(0, getField("restartGeneration"))
+        // Transient visibility must not change the persistent CarPlay fullscreen selection.
+        assertTrue(getField("hideTopBar") as Boolean)
+        assertTrue(getField("hideBottomBar") as Boolean)
+        assertTrue(AirPlayPersistence.loadHideTopBar(activity))
+        assertTrue(AirPlayPersistence.loadHideBottomBar(activity))
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(4_999))
+        assertWindowBars(false, false)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1))
+        assertWindowBars(true, true)
+        assertEquals(false, getField("temporarySystemBarsVisible"))
+        assertEquals(display, getField("sessionDisplay"))
+    }
+
+    @Test fun revealingAgainExtendsTheExpiryAndBackgroundCancelsIt() {
+        setField("temporarySystemBarsEnabled", true)
+        invoke("applyFullscreenMode")
+        assertEquals(true, invoke("showTemporarySystemBars"))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertEquals(true, invoke("showTemporarySystemBars"))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertWindowBars(false, false)
+        invoke("onPause")
+        assertWindowBars(true, true)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        assertWindowBars(true, true)
+    }
+
+    @Test fun temporarySystemBarsRequireOptInHiddenBarsAndCompatibleMode() {
+        assertEquals(false, invoke("showTemporarySystemBars"))
+        setField("temporarySystemBarsEnabled", true)
+        setField("hideTopBar", false)
+        setField("hideBottomBar", false)
+        assertEquals(false, invoke("showTemporarySystemBars"))
+        setField("hideTopBar", true)
+        setField("harmanFullscreenEnabled", true)
+        assertEquals(false, invoke("showTemporarySystemBars"))
+        setField("harmanFullscreenEnabled", false)
+        setField("gestureFingerCount", 0)
+        assertEquals(false, invoke("showTemporarySystemBars"))
+    }
+
+    @Suppress("DEPRECATION")
+    @Test fun harmanFullscreenUsesTheVerifiedLegacyFlags() {
+        setField("harmanFullscreenEnabled", true)
+        setField("hideTopBar", false)
+        setField("hideBottomBar", false)
+
+        invoke("applyFullscreenMode")
+
+        assertEquals(0x080e, activity.window.decorView.systemUiVisibility)
+    }
+
+    @Suppress("DEPRECATION")
+    @Test fun disablingHarmanFullscreenRestoresStandardBars() {
+        setField("harmanFullscreenEnabled", true)
+        invoke("applyFullscreenMode")
+        setField("harmanFullscreenEnabled", false)
+        setField("hideTopBar", false)
+        setField("hideBottomBar", false)
+
+        invoke("applyFullscreenMode")
+
+        assertEquals(0, activity.window.decorView.systemUiVisibility and HarmanFullscreenCompat.OEM_FULLSCREEN_BIT)
+        assertWindowBars(false, false)
     }
 
     @Test fun menuBarChangesPreviewWithoutSavingAndCancelRestoresTheSavedValues() {
@@ -408,6 +491,39 @@ class CarPlayHostDisplaySizeTest {
         assertEquals(false, getField("touchOutsideContent"))
     }
 
+    // Galaxy Note20: after a language change, or Back and then Open CarPlay, the quick menu's connection
+    // page said only "Wireless hotspot: active". The new host never saw the session's HotspotReady.
+    @Test fun aHostThatAdoptsTheSessionStillNamesItsHotspot() {
+        val display = CarPlaySessionDisplay(1920, 990, Surface.ROTATION_0, true, true, 1920, 990)
+        val sink = AndroidMediaSink()
+        val controller = CarPlayController(activity,
+            CarPlayRuntimeConfig(mfiTarget = MfiTarget.LOCAL, identification = Iap2IdentificationConfig(
+                name = "test", modelIdentifier = "test", manufacturer = "test", serialNumber = "test",
+                firmwareVersion = "1", hardwareVersion = "1", carPlayUsbInterfaceNumber = 3)),
+            AirPlayConfig(deviceName = "test", deviceId = "02:00:00:00:00:02", btMac = "02:00:00:00:00:01",
+                sourceVersion = "1", main = AirPlayDisplayConfig(widthPixels = 1920, heightPixels = 990)),
+            AirPlayIdentity.generate(), PairingStore(), object : AirPlaySessionListener {},
+            object : AirPlayMediaHandler {}, {})
+        try {
+            CarPlayBackgroundSession.store(controller, sink, 1920, 990, Any(), display) {}
+            val starter = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+            starter.javaClass.getDeclaredField("wirelessEnabled").apply { isAccessible = true }.set(starter, true)
+            starter.javaClass.getDeclaredMethod("updateHotspotStatus", CarPlayStatus::class.java)
+                .apply { isAccessible = true }
+                .invoke(starter, CarPlayStatus.HotspotReady("DIRECT-dp-test", "5 GHz", 36, "", "192.168.49.1", "Wi-Fi P2P"))
+            val adopted = activity.javaClass.getDeclaredMethod("adoptBackgroundSession")
+                .apply { isAccessible = true }.invoke(activity)
+            assertEquals(true, adopted)
+            val status = getField("hotspotStatus").toString()
+            assertTrue(status, status.contains("ssid=DIRECT-dp-test") && status.contains("band=5 GHz") &&
+                status.contains("channel=36") && status.contains("backend=Wi-Fi P2P"))
+        } finally {
+            controller.close()
+            CarPlayBackgroundSession.clear()
+        }
+        assertNull(CarPlayBackgroundSession.hotspotReady)
+    }
+
     @Test fun adoptingABackgroundSessionPreservesItsCanvasOnResize() {
         val display = CarPlaySessionDisplay(1536, 792, Surface.ROTATION_0, true, true, 1920, 990)
         val sink = AndroidMediaSink()
@@ -460,6 +576,28 @@ class CarPlayHostDisplaySizeTest {
             }
         } finally {
             AirPlayPersistence.saveAdbClusterEnabled(activity, false)
+            sink.close()
+        }
+    }
+
+    @Test fun anAdoptedSessionStillGetsDayAndNight() {
+        // A recreated host (for example after a change of the app language) adopts the running stream and
+        // gets no session-active callback; day/night must still reach the iPhone.
+        val session = org.mockito.Mockito.mock(AirPlaySession::class.java)
+        val controller = org.mockito.Mockito.mock(CarPlayController::class.java)
+        org.mockito.Mockito.`when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
+        org.mockito.Mockito.`when`(controller.activeAirPlaySession()).thenReturn(session)
+        val sink = AndroidMediaSink()
+        try {
+            CarPlayBackgroundSession.store(controller, sink, 1920, 990, Any(),
+                CarPlaySessionDisplay(1920, 990, Surface.ROTATION_0, true, true, 1920, 990)) {}
+            assertEquals(true, invoke("adoptBackgroundSession"))
+            assertSame(session, getField("activeAirPlaySession"))
+            setField("darkMode", true)
+            activity.javaClass.getDeclaredMethod("syncAirPlayDarkMode", ThemeModeDiagnostics.Source::class.java)
+                .apply { isAccessible = true }.invoke(activity, ThemeModeDiagnostics.Source.CARPLAY_MODE)
+            org.mockito.Mockito.verify(session, org.mockito.Mockito.timeout(2_000)).setNightMode(true)
+        } finally {
             sink.close()
         }
     }

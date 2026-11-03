@@ -66,4 +66,16 @@ class DiLink4ClusterDisplayTest {
         assertFalse(DiLink4ClusterDisplay.accepts(DiLink4ClusterDisplay.NAME, -1280, -480))
         assertFalse(DiLink4ClusterDisplay.accepts(DiLink4ClusterDisplay.NAME, Int.MAX_VALUE, Int.MAX_VALUE))
     }
+
+    @Test fun controller13And17ClusterSurfacesAreTheSameFullPanel() {
+        // #552: controller 13 lists the cluster as fission_magicsentry (1920x720, presentation display 8).
+        for (name in listOf("fission_bg_xdjaVirtualSurface", "fission_magicsentry", "sission_magicsentry")) {
+            assertTrue(name, DiLink4ClusterDisplay.matches(name, 1920, 720))
+            assertTrue(name, DiLink4ClusterDisplay.accepts(name, 1920, 720))
+        }
+        assertFalse(DiLink4ClusterDisplay.accepts("fission_magicsentry", 1280, 480))
+        assertTrue(DiLink4ClusterDisplay.accepts("fission_bg_xdjaVirtualSurface", 1280, 480))
+        assertFalse(DiLink4ClusterDisplay.accepts("fse", 1920, 720))
+        assertFalse(DiLink4ClusterDisplay.accepts("fission_magicsentry", 1920, 1080))
+    }
 }

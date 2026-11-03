@@ -8,6 +8,8 @@
     <string name="settings_navigation">Навігація</string>
     <string name="settings_vehicle">Автомобіль</string>
     <string name="settings_advanced">Додатково</string>
+    <string name="settings_more">Більше</string>
+    <string name="settings_swipe_advanced">Додатково (експериментально)</string>
     <string name="settings_advanced_subtitle">Експериментальні та залежні від автомобіля параметри для досвідчених користувачів</string>
     <string name="settings_advanced_caution_title">Змінюйте обережно</string>
     <string name="settings_advanced_caution_description">Ці функції можуть залежати від прошивки автомобіля, доступу ADB або експериментальної поведінки CarPlay. Повсякденні налаштування розміщено в категоріях вище.</string>

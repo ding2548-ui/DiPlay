@@ -12,6 +12,14 @@ Normal route end, disconnect, disabling navigation output and stale guidance tri
 
 Enable BYD navigation in settings. In DiAuto it is opt-in under Navigation; in DiPlay it is enabled by default when available. Debug-only receivers/demos require Android's DUMP permission and are absent from release manifests. Development starter and vendor-access experiments are not part of the production navigation path.
 
+## Cluster guidance on FCE head units (needs no ADB)
+
+Some head units built on the FCE/Coagent T7 platform have an instrument cluster with a CAN navigation view. The stock head-unit service sends that view only navigation start and stop and drops each guidance update, so it stays empty. When the head unit has the stock `fce_misc_service_hal_property` service, DiPlay writes the guidance there as its normal Android UID through `ICarProperty.setProperty` (transaction 5): navigation status 2 (`0x214000a5`), the next-turn glyph (`0x21400099`), and the distance in metres (`0x21400098`). The cluster formats kilometres itself. The second icon set (`0x2140009a`) is held at 0, because a leftover value blanks the U-turn and roundabout glyphs.
+
+The output is off by default. It needs **Navigation on HUD and dashboard** and its own switch, **Guidance in the FCE cluster (experimental)**, in the same card: the property IDs were confirmed on one car, and another head unit with the same service could give them other meanings. On these head units, that card appears even without a BYD receiver. Apple maneuvers map to the cluster's AutoNavi glyphs: turns, slight and sharp turns, U-turns by driving side, roundabout exits 1–10, arrival and straight. The view is unlocked as soon as the iPhone reports an active route or names a navigation app (RouteGuidanceUpdate state or source name), even when that app sends no maneuvers, as Google Maps did on an older iPhone. Arrows and distance appear only with a maneuver. An unknown maneuver shows no arrow, never a wrong one. Distance is rounded to 10 m below 1 km and to 100 m above. Arrival, no route set, an empty source name, turning the switch off and the end of the session clear the view with the stock end sequence (icon 0, distance 0, status 1 then 0). A force-stopped DiPlay can leave the last arrow until navigation runs again.
+
+Basis: on a car with this head unit and cluster, the property sequence, the glyph codes and the no-root Binder path were confirmed by another app that fed it Android Auto guidance; 2,500 m showed as "2.5 km". The CarPlay integration has not yet run in a car. Street names, lanes, the speed-limit sign and switching the cluster to its navigation page are not available on this path. The driver selects that page once, and the cluster remembers it. Left-hand-traffic roundabout glyphs are unknown.
+
 ## DiLink 3.0 cluster guidance and map (experimental, needs ADB)
 
 DiLink 3.0 head units (Android 10, Qualcomm 6125, "1for2" cluster) have no SOME/IP service and ship the stock AMap adapter as `com.example.amapservice` instead of `com.byd.amapservice`. DiPlay sends it the same navigation broadcasts. That adapter shows preformatted text rather than the numeric extras, so DiPlay also sends `SEG_REMAIN_DIS_AUTO` ("250 m"), `ROUTE_REMAIN_DIS_AUTO` ("5.4 km"), `ROUTE_REMAIN_TIME_AUTO` ("10 min") and `ETA_TEXT` ("15:55"); without them the cluster shows -1. The cluster keeps its stock view until it is switched, so DiPlay also runs, through its adb shell, the calls the stock ClusterDebug app uses (`service call AutoContainer 2 i32 1000 i32 <command> s16 ""`):
@@ -53,7 +61,7 @@ The optional centre-screen map card mirrors that same dashboard stream. **Keep t
 
 ### DiLink 5.1 theme profile
 
-The exact Android 13 firmware `BYD-AUTO/IVI/IVI:13/TP1A.220624.014/eng.build20260722.221155:user/release-keys` has a separate profile for its measured 1920×720 cluster. Other firmware retains the original PR display selection, renderer and settings.
+The exact Android 13 firmware `BYD-AUTO/IVI/IVI:13/TP1A.220624.014/eng.build20260722.221155:user/release-keys` has a separate profile for its measured 1920×720 cluster. The Leopard 5 Ultra firmware `…/eng.build20260705.021352` uses it unchanged, and the Denza N9 firmware `…/eng.build20260705.011226` uses it on a 2560×720 cluster with every position below scaled by 4/3 across and a 2560×720 stream (inferred from photos, not measured; see [compatibility](COMPATIBILITY.md)). Other firmware retains the original PR display selection, renderer and settings.
 
 - Map uses shared display `_0`, with a 1920×480 viewport at y=144 and contrast bands behind the instrument readouts.
 - Scenario and Simple use shared display `_1`, with a 600×720 side viewport at x=1320. Everything outside the side map is transparent. No white mini-map shading is added.
@@ -99,6 +107,8 @@ On the Tang the console's volume control sends exactly the same codes, scan code
 
 BYD's settings have no accessibility page. The "Turn on the wheel key service · ADB" button adds DiPlay's service to `enabled_accessibility_services` through the head unit's own adbd (the car asks once to allow DiPlay's key) and keeps services already listed. The service only receives key events; it declares no window-content access.
 
+The diagnostic report shows what the service was given. After the `Wheel key service:` line, `Wheel keys since DiPlay started:` counts the presses, how many DiPlay kept and how many it left to the head unit, and up to 40 `Wheel keys:` lines follow with the time, `key <code>/<scan code>`, the input device number and the outcome. A volume key that navigation volume left alone carries the reason. `presses=0` with the service bound means the head unit handles its wheel keys before Android sees them, so DiPlay cannot use them. The lines are kept in memory and start again when DiPlay's process does. A key that writes text is counted (`textKeysNotListed`) and never listed.
+
 ### CarPlay joystick on the steering wheel (optional)
 
 DiPlay already declares a rotary knob for CarPlay's main screen (HID `xcertplay Knob`). Checked with Apple Maps and lists on a Tang: only the knob's turn moves CarPlay's focus (the first turn opens the Maps side panel with search, pinned places and recents), select activates the focused item and back closes the screen; the knob's x/y nudges only pan a focused map, so the joystick does not use them.
@@ -123,14 +133,18 @@ BYD's own CarPlay app (`com.byd.carplay.ui`) answers CarPlay calls from the whee
 - the CarPlay voice keys (327 short, 328 long) reach the wheel key service before BYD's window manager keeps them.
 
 DiPlay follows the iPhone's calls from iAP2 CallStateUpdate (0x4155, already subscribed). The separate
-**CarPlay call keys (experimental)** setting is disabled by default and requires explicit opt-in.
-With that setting enabled, during a CarPlay call:
+**CarPlay call, Siri and media keys (experimental)** setting is disabled by default and requires explicit opt-in.
 
-- the call key answers a ringing call with CarPlay's telephony HID Hook Switch, and is kept during a connected call. It works through the wheel key service and on the CarPlay screen; since BYD has already opened its phone screen by then, DiPlay brings CarPlay back to the front;
-- the hang-up and menu keys end or decline the call (telephony HID Drop), through BYD's broadcast; no setting or service is needed;
-- with a CarPlay session, the CarPlay voice keys open Siri through the wheel key service. DiLink 3's play/pause key (331) toggles CarPlay playback.
+With that setting enabled and a CarPlay session active:
 
-With the experimental controls disabled, all new call/voice/play-pause key behavior passes through.
+- the phone key (313) answers a ringing call with CarPlay's telephony HID Hook Switch, and is consumed without hanging up during a connected call. It reaches DiPlay through the focused CarPlay screen or the wheel key service; outside the CarPlay screen, the service is needed. Since BYD has already opened its phone screen by the key's release, DiPlay brings CarPlay back to the front;
+- the hang-up key (314) and multifunction mode/menu key (309) end or decline the call (telephony HID Drop), through BYD's broadcast. This path requires the call-key setting to be enabled, but does not depend on the wheel key service;
+- next track answers and previous track declines only while a call rings. Neither track key ends a connected call;
+- with a CarPlay session, the CarPlay voice keys open Siri through the wheel key service. **Siri on long press only** (Settings, wheel keys) makes a short press of the voice button do nothing in DiPlay; only the long press (328, or 312 on the CarPlay screen) opens Siri. It is off by default. DiLink 3's play/pause key (331) toggles CarPlay playback. One press of the wheel's voice key also sends the generic voice key (304 short, 312 long) about half a second later, which the CarPlay screen would turn into a second Siri request that ends the first; only the first key within 1.5 s opens Siri. Without the wheel key service, BYD's window manager treats CarPlay as not connected (DiPlay does not set `sys.carplay.connected`) and opens its Bluetooth page on the long press (328).
+
+The Siri and media support above applies specifically to DiLink 3 keys 327/328 and 331. This setting
+does not control ordinary media-key mappings or the separate configurable wheel-key settings.
+With this setting disabled, these experimental call-key and dedicated Siri/play-pause mappings are not applied.
 Outside a CarPlay call every call key keeps BYD's action. The exported hang-up receiver requires
 the sender's `android.permission.DUMP`; BYD's system-server window manager can send it, while an
 ordinary third-party app cannot. Actual sender/key behavior still requires vehicle acceptance.
@@ -168,6 +182,25 @@ Both experimental settings default off. The opt-in feature is included for relea
 physical acceptance still needs confirmation on each target firmware: answering/ending a real call
 from the wheel, caller card and timer on cluster/HUD, microphone routing, cancellation/disable and
 process-death cleanup. The reported live key codes alone do not prove these behaviors.
+
+### Car phone audio (experimental)
+
+Two more settings under **Settings → Advanced → Video and audio**, off by default, let the car's own call processing handle the echo instead of DiPlay's canceller. On a GCC Han (DiLink 3, Android 10) the car's audio layer has a phone state that BYD's Telecom enters for any call (`AudioManager.setCallState(CALL_CLIENT_BT, MODE_IN_CALL)` in the Telecom log). Measured with a test app, not yet with a real CarPlay call:
+
+- Outside that state the `VOICE_COMMUNICATION` microphone has an always-on automatic gain of about +14 to +27 dB and clips, so the echo comes back loud and no software canceller can model it (SpeexDSP removed 0.7 dB).
+- Inside it the same microphone returned digital silence for the far end's echo (100% of 609 frames with the cabin quiet) and still passed a voice, but clipped it hard (13 to 23% of samples in 8 to 14 s counts at about -4.5 dBFS, against under 1% outside it). The plain `MIC` source is muted in the state.
+- The other call-capable sources do not have that problem in the state. On the same Han, with the voice counted aloud, `VOICE_RECOGNITION`, `UNPROCESSED`, `CAMCORDER` and `VOICE_PERFORMANCE` gave about -16 to -20 dBFS with no clipping, passed the voice while the far end was playing (double talk), and left only a brief low-level burst of the far end's echo (about -44 dBFS over 8 s with the voice silent) where `VOICE_COMMUNICATION` leaked a loud, clipping burst. The second capture channel is muted in the state (it carries a separate microphone outside it).
+
+Any app may register a self-managed Telecom call with the normal permission `MANAGE_OWN_CALLS`, so DiPlay holds one while a call needs the state:
+
+- **Car phone audio for CarPlay calls** holds the call from the iPhone's first call frame until the call ends, plus two seconds so back-to-back calls do not leave the state. While it is on, DiPlay's own echo canceller and the platform effects stay out of the CarPlay call microphone. If Telecom refuses the call, DiPlay's canceller is used again for five minutes (`Telecom refused the call that selects the car's phone audio state` in the log). Applies at the next call.
+- **Car phone audio for VoIP calls in other apps** does the same while another app both records from `VOICE_COMMUNICATION` and plays with the matching usage, which is how WhatsApp, Telegram, Teams, Zoom and similar apps hold a call. A recording alone is not enough: while the state lasts BYD's own audio layer keeps `VOICE_RECOGNITION` and `VOICE_COMMUNICATION` recorders open, so they never end on their own. Voice notes, video, assistants and any other recording use other sources and are never routed, because the car mutes the plain microphone in the state. It needs DiPlay running outside a CarPlay session as well, so turning it on also enables the wheel-key accessibility service, and it only watches while that service, the app or a CarPlay session keeps DiPlay alive.
+
+Log tag `DiPlay-PhoneAudio` shows when the state is entered and left. If the car's hands-free link is connected, Telecom already holds a managed call for the iPhone and may refuse a second one; pausing the car's Bluetooth radio during CarPlay avoids that.
+
+While the CarPlay call holds the state, DiPlay records the call from `VOICE_RECOGNITION` instead of `VOICE_COMMUNICATION`, which clipped. The stock CarPlay service opens its microphone stream without an input preset, which AAudio treats as `VOICE_RECOGNITION`. Geely/Lynk head units, where that source records silence, keep `VOICE_COMMUNICATION`. One Han owner described the call voice with `VOICE_COMMUNICATION` as very bassy with far too much gain; after listening to recordings of each source on a PC, they preferred `VOICE_RECOGNITION`, which they described as clear and natural.
+
+**Calls at the call's own rate** (Settings → Advanced, experimental, off by default, applies at the next connection) changes what DiPlay offers for the call stream. On the same Han the iPhone's SETUP for a call reported `vocoderInfo={sampleRate=8000.0}`, a narrowband call, and DiPlay still chose `audioFormat=0x40000000`, 48 kHz Opus, so the call was decoded and played at 48 kHz. The stock CarPlay service sets up its audio processing for the vocoder rate (8, 16, 24 or 32 kHz) and applies receive-side tuning for it. With the setting on, the call's output and microphone offers are both PCM mono at those four rates only, so the iPhone picks the call's own rate; every other stream is unchanged. The microphone offer has to be restricted too: on the call stream the iPhone chooses one `audioFormat` for both directions, so a 48 kHz microphone offer let it keep choosing 48 kHz. On a Geely Monjaro (ECARX KX11, Android 9, wired CarPlay) with the output restricted alone, a WhatsApp call still arrived as 48 kHz (`audioFormat=16384`) and was torn down and set up again every 3.5 to 4 s; restricting both gave one stable 32 kHz call (`formatBits=0x100`) that the other person could hear (reported and tested by kuanysh-baltagarayev, #898). Whether a wireless iPhone accepts a PCM-only call offer is not established; if a call has no sound, turn the setting off.
 
 ## ADB vehicle-data settings and firmware scope
 

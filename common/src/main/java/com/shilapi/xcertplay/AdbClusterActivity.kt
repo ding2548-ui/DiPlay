@@ -21,10 +21,13 @@ class AdbClusterActivity : Activity() {
     private var waiting: TextView? = null
     private var surface: Surface? = null
     private var videoTexture: ClusterVideoTexture? = null
+    private var cropMask: CropMaskView? = null
     private var turnCard: ClusterTurnCardView? = null
     private var safeAreaPreview: SafeAreaEditorView? = null
     internal var routeStatus = ""
         private set
+    private var videoRegion: FrameLayout? = null
+    private var musicView: ClusterMusicView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,15 +49,19 @@ class AdbClusterActivity : Activity() {
                 ClusterActivityOutput.attach(this, next)
         }.also { videoTexture = it }
         val legacy = AirPlayPersistence.loadLegacyClusterEnabled(this)
-        val videoRegion = FrameLayout(this)
-        videoRegion.addView(video, FrameLayout.LayoutParams(-1, -1))
-        root.addView(videoRegion, FrameLayout.LayoutParams(-1, -1))
+        val region = FrameLayout(this).also { videoRegion = it }
+        region.addView(video, FrameLayout.LayoutParams(-1, -1))
+        // FIT+裁剪时内容矩形两侧露出相邻画面，黑遮罩盖住内容矩形之外（音乐卡片在其上，不受影响）。
+        val mask = CropMaskView(this)
+        region.addView(mask, FrameLayout.LayoutParams(-1, -1))
+        cropMask = mask
+        root.addView(region, FrameLayout.LayoutParams(-1, -1))
         if (legacy) root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             LegacyClusterLayout.plan(root.width, root.height)?.let { plan ->
-                val current = videoRegion.layoutParams as FrameLayout.LayoutParams
+                val current = region.layoutParams as FrameLayout.LayoutParams
                 if (current.width != plan.width || current.height != plan.height ||
                     current.leftMargin != plan.left || current.topMargin != plan.top) {
-                    videoRegion.layoutParams = FrameLayout.LayoutParams(plan.width, plan.height).apply {
+                    region.layoutParams = FrameLayout.LayoutParams(plan.width, plan.height).apply {
                         leftMargin = plan.left; topMargin = plan.top
                     }
                 }
@@ -67,9 +74,13 @@ class AdbClusterActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(24, 24, 24, 24)
         }
-        videoRegion.addView(waiting, FrameLayout.LayoutParams(-1, -1))
+        region.addView(waiting, FrameLayout.LayoutParams(-1, -1))
         turnCard = ClusterTurnCardView(this).apply { visibility = View.GONE }
         root.addView(turnCard, FrameLayout.LayoutParams(-1, -1))
+        val music = ClusterMusicView(this)
+        musicView = music
+        root.addView(music, FrameLayout.LayoutParams(-1, -1))
+        root.addView(ClusterSpeedometerView(this), FrameLayout.LayoutParams(-1, -1))
         safeAreaPreview = SafeAreaEditorView(this).apply {
             visibility = View.GONE
             interactive = false
@@ -85,11 +96,56 @@ class AdbClusterActivity : Activity() {
                 runOnUiThread { confirmDisplay(token, verified ?: -1) }
             }, "cluster-display-check").start()
         }
+        ClusterScreenProfile.addOnChangedListener(clusterProfileChanged)
+        applyClusterProfile()
+        updateStream()
+    }
+
+    // PSA line: the dashboard content follows the cluster-screen profile — source visibility,
+    // the per-source region inside the video area, and the FIT/CROP frame mapping.
+    private val clusterProfileChanged: () -> Unit = { applyClusterProfile() }
+
+    internal fun applyClusterProfile() {
+        val source = ClusterScreenProfile.source(this)
+        musicView?.setForcedVisible(source == ClusterScreenProfile.Source.MUSIC)
+        val texture = videoTexture
+        val region = videoRegion
+        if (texture == null || region == null) return
+        if (source == ClusterScreenProfile.Source.MUSIC) {
+            texture.visibility = View.GONE
+            waiting?.visibility = View.GONE
+            cropMask?.clear()
+            return
+        }
+        texture.visibility = View.VISIBLE
+        val regionValue = ClusterScreenProfile.region(this, source)
+        val cropValue = ClusterScreenProfile.crop(this, source)
+        CropDiagLog.log(
+            "dashboard apply source=$source container=${region.width}x${region.height} " +
+                "region=$regionValue crop=$cropValue mode=${ClusterScreenProfile.scaleMode(this, source)} " +
+                "texture=${texture.width}x${texture.height}")
+        ClusterProfileLayout.applyRegion(texture, regionValue, region)
+        // 遮罩与 video 视图同区域定位：applyTransform 的内容矩形是 video 视图坐标，
+        // 显示框不是全屏时两者必须共坐标系，否则遮罩整体错位、留边方向露出相邻画面。
+        cropMask?.let { ClusterProfileLayout.applyRegion(it, regionValue, region) }
+        val frameAspect = when (source) {
+            ClusterScreenProfile.Source.MAIN ->
+                resources.displayMetrics.widthPixels.toDouble() / resources.displayMetrics.heightPixels
+            else -> 1920.0 / 720.0
+        }
+        ClusterProfileLayout.applyTransform(texture, frameAspect, ClusterScreenProfile.scaleMode(this, source),
+            cropValue, cropMask)
         updateStream()
     }
 
     internal fun updateStream() {
-        waiting?.visibility = if (ClusterActivityOutput.streamActive) View.GONE else View.VISIBLE
+        // PSA line: the waiting hint describes the NAVIGATION stream only; MAIN mirrors start
+        // rendering right after registration, and MUSIC shows no video at all.
+        waiting?.visibility = when (ClusterScreenProfile.source(this)) {
+            ClusterScreenProfile.Source.NAVIGATION ->
+                if (ClusterActivityOutput.streamActive) View.GONE else View.VISIBLE
+            else -> View.GONE
+        }
         waiting?.text = ""
         updateTurnCard()
     }
@@ -125,8 +181,11 @@ class AdbClusterActivity : Activity() {
 
     // Losing focus must not detach stream 111. The texture owns the rendering lifetime.
     override fun onDestroy() {
+        ClusterScreenProfile.removeOnChangedListener(clusterProfileChanged)
         videoTexture?.close()
         videoTexture = null
+        musicView = null
+        videoRegion = null
         if (ClusterActivityOutput.activity.get() === this) {
             intent.getStringExtra("cluster_launch_token")?.let {
                 com.shilapi.xcertplay.hud.BydOemClusterNavi.release(this, it)
@@ -167,6 +226,8 @@ internal object ClusterActivityOutput {
     fun acceptsToken(token: String?): Boolean = token != null && token == launchToken && (hostOwner != null || previewHost.get() != null)
     fun hasConfirmedRoute(): Boolean = activity.get()?.let { !it.isFinishing && !it.isDestroyed } == true &&
         expectedDisplay > 0
+    /** A launch is running, or the shell accepted it and the window has not confirmed its display yet. */
+    fun routeSettling(): Boolean = !hasConfirmedRoute() && (launchPending || (launchToken != null && expectedDisplay > 0))
     fun confirm(window: AdbClusterActivity, token: String?, display: Int): Boolean {
         if (!acceptsToken(token) || display <= 0 || display != expectedDisplay ||
             !AdbClusterRouter.enabled(window)) return false

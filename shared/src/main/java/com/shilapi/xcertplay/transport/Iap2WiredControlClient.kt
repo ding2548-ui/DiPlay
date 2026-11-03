@@ -29,6 +29,7 @@ class Iap2WiredControlClient(
         vehicleStatusProvider: VehicleStatusProvider? = null,
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
+        startSessionAgain: () -> StartAgain = { StartAgain.DONE },
     ): Iap2WiredControlResult {
         require(availableCurrentMilliAmps in 0..0xffff) {
             "availableCurrentMilliAmps must be in 0..65535"
@@ -42,7 +43,7 @@ class Iap2WiredControlClient(
         if (identified.vehicleStatusEnabled != identification.vehicleStatusEnabled) {
             onProgress("iap2 no battery reading: not declaring an electric vehicle")
         }
-        Iap2IdentificationClient(session).identify(identified, requireRemaining(deadlineNanos))
+        Iap2IdentificationClient(session).identify(identified, requireRemaining(deadlineNanos), onProgress)
         onProgress("iap2 identification accepted")
         var stage = Iap2WiredControlStage.IDENTIFIED
         mfi.run(session, requireRemaining(deadlineNanos), onProgress)
@@ -53,10 +54,12 @@ class Iap2WiredControlClient(
         send(powerSourceUpdate(availableCurrentMilliAmps), deadlineNanos)
         for (subscription in subscriptions()) send(subscription, deadlineNanos)
         stage = Iap2WiredControlStage.SUBSCRIBED
-        onProgress("iap2 power/subscriptions sent")
+        onProgress("iap2 power/subscriptions sent availableCurrentMa=$availableCurrentMilliAmps")
 
         var forwardedFrames = 0
+        val rxLog = Iap2RxLog()
         var carPlayStartSessions = 0
+        var startAgainDecided = false
         val location = Iap2LocationReporter(locationProvider, onProgress)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
@@ -67,7 +70,22 @@ class Iap2WiredControlClient(
                 }
                 location.tick { send(it, deadlineNanos) }
                 vehicleStatus.tick { send(it, deadlineNanos) }
-                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining))
+                var startAgainPending = false
+                if (!startAgainDecided && stage == Iap2WiredControlStage.CARPLAY_START_SENT) {
+                    when (startSessionAgain()) {
+                        StartAgain.WAIT -> startAgainPending = true
+                        StartAgain.DONE -> startAgainDecided = true
+                        StartAgain.SEND -> {
+                            startAgainDecided = true
+                            send(carPlayStartSession(endpoint), deadlineNanos)
+                            carPlayStartSessions++
+                            onProgress(START_SESSION_AGAIN_PROGRESS)
+                        }
+                    }
+                }
+                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining)).let {
+                    if (startAgainPending) minOf(it, START_AGAIN_POLL_MILLIS) else it
+                }
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
                     if (session.isClosed) {
@@ -110,7 +128,7 @@ class Iap2WiredControlClient(
                     }
 
                     else -> {
-                        onProgress("iap2 rx=0x${incoming.messageId.toString(16).padStart(4, '0')}")
+                        rxLog.line(incoming.messageId)?.let(onProgress)
                         onIncoming(incoming)
                         forwardedFrames++
                     }
@@ -125,8 +143,14 @@ class Iap2WiredControlClient(
         session.send(frame, requireRemaining(deadlineNanos))
     }
 
+    /** Asked while a session is awaited after `carplay-start-session`; see WiredStartAgain. */
+    enum class StartAgain { WAIT, SEND, DONE }
+
     companion object {
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
+        const val START_SESSION_AGAIN_PROGRESS =
+            "iap2 tx=0x4301 carplay-start-session again: no AirPlay connection since the USB network opened"
+        private const val START_AGAIN_POLL_MILLIS = 500L
         private const val CARPLAY_AVAILABILITY = 0x4300
         private const val CARPLAY_START_SESSION = 0x4301
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L

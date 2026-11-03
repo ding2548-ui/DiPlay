@@ -15,15 +15,19 @@ import java.util.Locale
 object AppLocale {
     const val SYSTEM = "system"
     const val ENGLISH = "en"
-    const val FRENCH = "fr"
     const val SIMPLIFIED_CHINESE = "zh"
     const val TRADITIONAL_CHINESE = "zh-TW"
     const val ARABIC = "ar"
     const val RUSSIAN = "ru"
     const val SPANISH = "es"
     const val UKRAINIAN = "uk"
+    const val JAPANESE = "ja"
+    const val KOREAN = "ko"
 
-    val ALL = listOf(SYSTEM, ENGLISH, FRENCH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN)
+    const val ITALIAN = "it"
+    const val TURKISH = "tr"
+
+    val ALL = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN, JAPANESE, KOREAN, ITALIAN, TURKISH)
 
     private const val PREFS = "diplay"
     private const val KEY_LANGUAGE = "app_language"
@@ -130,25 +134,31 @@ object AppLocale {
     fun displayName(context: Context, language: String): String = when (language) {
         SYSTEM -> context.getString(R.string.language_system_default)
         ENGLISH -> "English"
-        FRENCH -> "Français"
         SIMPLIFIED_CHINESE -> "简体中文"
         TRADITIONAL_CHINESE -> "繁體中文"
         ARABIC -> "العربية"
         RUSSIAN -> "Русский"
         SPANISH -> "Español"
         UKRAINIAN -> "Українська"
+        JAPANESE -> "日本語"
+        KOREAN -> "한국어"
+        ITALIAN -> "Italiano"
+        TURKISH -> "Türkçe"
         else -> language
     }
 
     private fun locale(language: String): Locale? = when (language) {
         ENGLISH -> Locale.ENGLISH
-        FRENCH -> Locale.FRENCH
         SIMPLIFIED_CHINESE -> Locale.SIMPLIFIED_CHINESE
         TRADITIONAL_CHINESE -> Locale.TRADITIONAL_CHINESE
         ARABIC -> Locale("ar")
         RUSSIAN -> Locale("ru")
         SPANISH -> Locale("es")
         UKRAINIAN -> Locale("uk")
+        JAPANESE -> Locale.JAPANESE
+        KOREAN -> Locale.KOREAN
+        ITALIAN -> Locale.ITALIAN
+        TURKISH -> Locale("tr")
         else -> null
     }
 }

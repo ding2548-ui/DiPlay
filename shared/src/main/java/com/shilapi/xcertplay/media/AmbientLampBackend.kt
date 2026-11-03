@@ -25,7 +25,7 @@ enum class AmbientFlowMode { SINGLE, MULTI }
 /**
  * The lamp state the Leapmotor protocol understands. The BYD path works in
  * `(colorIndex 1..31, brightness 1..6, area 1..3)`; the Leapmotor path works in
- * `(mode, angleDeg 0..10, true RGB)`. `tick()` produces a BYD-shaped triple for the first and a
+ * `(mode, brightness 0..10, true RGB)`. `tick()` produces a BYD-shaped triple for the first and a
  * [LeapmotorLamp] for the second, and each backend ignores the shape it does not use.
  */
 internal data class LeapmotorLamp(val mode: LmAmbientMode, val deg: Int, val rgb: Int)
@@ -42,8 +42,14 @@ internal interface AmbientLampSink {
     /** Called at most once per tick, already paced by the controller. */
     fun render(frame: AmbientLampFrame)
 
-    /** Hands the lamps back to the car's own control. */
-    fun restore()
+    /**
+     * Hands the lamps back to the car's own control.
+     *
+     * [lampDeg] is the user's configured brightness on the OEM 0..10 scale, for transports that
+     * carry one. A transport must not substitute a protocol default here: that would silently
+     * overwrite the setting the car (or the driver) already had.
+     */
+    fun restore(lampDeg: Int)
 
     /**
      * True once control is established, so [AmbientMusicController.checkSupport] can answer without

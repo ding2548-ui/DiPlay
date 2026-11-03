@@ -4,16 +4,23 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 
 /** Starts the CarPlay host after boot when the user has enabled the startup option. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        // Starts the watcher for other apps' calls when that setting is on, even without opening DiPlay.
+        PhoneAudioRoute.attach(context)
         val launchEnabled = AirPlayPersistence.loadAutoStartOnBoot(context)
         StartupDiagnosticSnapshot.received(context, launchEnabled)
         if (!launchEnabled) return
 
+        // Shaped like the launcher icon's intent: a USB authenticator or iPhone plugged in can open CarPlay
+        // before this broadcast, and DiPlayActivity then returns to that session instead of showing Home over it.
         val launch = Intent(context, DiPlayActivity::class.java).apply {
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or

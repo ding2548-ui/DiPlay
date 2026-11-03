@@ -92,6 +92,32 @@ class WifiDirectChannelSettingsTest {
     }
 
     private val choices get() = listOf(WifiP2pChannels.AUTO) + WifiP2pChannels.channels
+    @Test fun theScanPauseSwitchIsOnByDefaultAndCanBeTurnedOff() {
+        // #755: the pause also stops the car joining the phone's hotspot by itself, so drivers can turn it off.
+        assertTrue(AirPlayPersistence.loadWifiDirectScanPause(activity))
+        val title = activity.getString(R.string.settings_wifi_direct_scan_pause)
+        val switch = findSwitch(controls(), title)!!
+        assertTrue(switch.isChecked)
+        switch.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(AirPlayPersistence.loadWifiDirectScanPause(activity))
+        assertFalse(prefs.getBoolean(AirPlayPersistence.KEY_WIFI_DIRECT_SCAN_PAUSE, true))
+    }
+
+    @Test fun theScanPauseSwitchIsOnlyForWifiDirect() {
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        assertNull(findSwitch(controls(), activity.getString(R.string.settings_wifi_direct_scan_pause)))
+    }
+
+    private fun findSwitch(view: View, title: String): android.widget.Switch? {
+        if (view is android.widget.Switch && view.contentDescription == title) return view
+        if (view is ViewGroup) for (index in 0 until view.childCount) {
+            findSwitch(view.getChildAt(index), title)?.let { return it }
+        }
+        return null
+    }
+
+    private val choices get() = listOf(WifiP2pChannels.AUTO) + WifiP2pChannels.bandChoices + WifiP2pChannels.channels
 
     private fun select(dialog: AlertDialog, channel: Int) {
         val index = choices.indexOf(channel)

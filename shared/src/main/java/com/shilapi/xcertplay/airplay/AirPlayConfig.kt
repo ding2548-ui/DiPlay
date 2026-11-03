@@ -29,6 +29,17 @@ data class AirPlayDisplayConfig(
     val viewAreas: List<AirPlayViewArea>? = null,
     /** The area CarPlay starts in, an index into [viewAreas]. */
     val initialViewArea: Int = 0,
+    /**
+     * When true, CarPlay video stream fills the entire display with right-angled corners.
+     * With corner masks advertised, iOS sends an unclipped rectangular video stream alongside
+     * corner mask PNG assets for blending. On rectangular vehicle screens, advertising true allows
+     * the video stream to fill the entire display as right angles without requiring additional clipping.
+     */
+    val mainDisplayCornerMasks: Boolean? = null,
+    /** Separately opt into iOS's genuine corner-mask PNG stream (not the old square-corner mode). */
+    val useIphoneCornerMask: Boolean = false,
+    /** When true, do not declare safeArea in viewAreas dictionary to avoid conflict with cornerMasks. */
+    val mainDisplayDisableSafeArea: Boolean = (mainDisplayCornerMasks == true),
 )
 
 /**
@@ -82,6 +93,18 @@ data class AirPlayConfig(
      * ahead of time over TCP, so short Wi-Fi gaps do not interrupt it.
      */
     val mainBufferedAudio: Boolean = false,
+    /**
+     * Over USB the iPhone sent navigation prompts as 8 kHz PCM, the lowest rate offered for the
+     * default stream (#148, #341). When set, 8 and 16 kHz are not offered for default and alert audio.
+     */
+    val speechWithout8And16Khz: Boolean = false,
+    /**
+     * Calls arrive as a narrowband vocoder stream (8 kHz on the test car, `vocoderInfo`), which DiPlay otherwise
+     * plays through a 48 kHz Opus stream. When set, the call's output offer is PCM at 8, 16, 24 and 32 kHz only,
+     * so the iPhone picks the call's own rate, as the stock CarPlay receiver does. The call's microphone offer is
+     * restricted the same way, because the iPhone picks one format for both directions.
+     */
+    val callAtCallRate: Boolean = false,
 )
 
 /** The offer, SETUP and controls must all honor the user's audio-output setting. */

@@ -46,6 +46,10 @@ internal class BluetoothSuspendLease(
 
     fun isSuspended(): Boolean = pending() == true && enabled() == false
 
+    /** For the report: the radio state the pause starts from, and whether [ticket] still owns it. */
+    fun radioEnabled(): Boolean? = enabled()
+    fun isCurrent(ticket: Long): Boolean = current(ticket)
+
     fun suspend(ticket: Long): Boolean = synchronized(commandLock) {
         if (!current(ticket)) return false
         // Reconcile an interrupted older lease before observing this session's original state.
@@ -95,5 +99,17 @@ internal class BluetoothSuspendLease(
             null -> return false // Unknown state is not permission to enable a user's radio.
         }
         return runCatching { journal.write(false) }.getOrDefault(false)
+    }
+}
+
+/** One report line for each pause attempt, so a report shows why calls still ring on the car (#18). */
+internal object BluetoothPauseOutcome {
+    fun describe(paused: Boolean, radioBefore: Boolean?, stillCurrent: Boolean, adbAccess: String?): String = when {
+        paused -> "car Bluetooth paused: Android Bluetooth is off until CarPlay ends"
+        !stillCurrent -> "car Bluetooth pause cancelled: CarPlay ended first"
+        radioBefore == false -> "car Bluetooth pause skipped: Android Bluetooth was already off"
+        radioBefore == null -> "car Bluetooth pause skipped: Android Bluetooth state unknown"
+        adbAccess != null && adbAccess != "READY" -> "car Bluetooth pause failed: ADB access $adbAccess"
+        else -> "car Bluetooth pause failed: Android Bluetooth stayed on"
     }
 }

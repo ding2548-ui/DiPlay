@@ -44,6 +44,8 @@ class WifiP2pLegacyGroupManagerTest {
         shadowOf(context).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
         val wifi = context.getSystemService(WifiManager::class.java)
         wifi.isWifiEnabled = true
+        // A station on 5180 MHz implies a 5 GHz radio; Robolectric reports none by default.
+        shadowOf(wifi).setIs5GHzBandSupported(true)
         shadowOf(wifi.connectionInfo).setFrequency(5180)
         shadowOf(wifi.connectionInfo).setSupplicantState(SupplicantState.COMPLETED)
     }
@@ -77,6 +79,20 @@ class WifiP2pLegacyGroupManagerTest {
             assertNull(info.frequencyMHz)
             assertEquals("Auto", info.bandLabel)
             assertTrue(logs.any { it.contains("legacy channel rejected code=") })
+        }
+    }
+
+    @Test fun aChipWithoutFiveGhzIsAskedForTwoGhzFirst() {
+        // #582: an i.MX8 head unit (Android 8.1) reported no 5 GHz band and no station, and was asked for 36.
+        val wifi = context.getSystemService(WifiManager::class.java)
+        shadowOf(wifi).setIs5GHzBandSupported(false)
+        shadowOf(wifi.connectionInfo).setSupplicantState(SupplicantState.DISCONNECTED)
+        val logs = mutableListOf<String>()
+        WifiP2pGroupManager(context, logs::add).use { manager ->
+            val info = background { manager.start(5000) }
+            assertEquals(6, radio.channelRequests.first())
+            assertEquals(6, info.channel)
+            assertTrue(logs.any { it.contains("Wi-Fi P2P 5 GHz skipped") })
         }
     }
 

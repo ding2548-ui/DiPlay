@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.update
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -14,8 +15,11 @@ internal object UpdateApkExport {
     private const val APK_MIME = "application/vnd.android.package-archive"
     private val DOWNLOADS_DIRECTORY = "${Environment.DIRECTORY_DOWNLOADS}/DiPlay"
 
-    /** Returns the path to show the driver, or null when no public copy could be made. */
-    fun copy(context: Context, apk: File): String? {
+    /** [path] is shown to the driver. [uri] is set only for a MediaStore copy that file managers can open. */
+    class Saved(val path: String, val uri: Uri?)
+
+    /** Returns null when no public copy could be made. */
+    fun copy(context: Context, apk: File): Saved? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 return copyToDownloads(context.contentResolver, apk)
@@ -25,7 +29,7 @@ internal object UpdateApkExport {
         }
         return try {
             val directory = File(context.getExternalFilesDir(null) ?: return null, "update")
-            copyToDirectory(directory, apk).absolutePath
+            Saved(copyToDirectory(directory, apk).absolutePath, null)
         } catch (_: Exception) {
             null
         }
@@ -38,7 +42,7 @@ internal object UpdateApkExport {
         return apk.copyTo(File(directory, apk.name), overwrite = true)
     }
 
-    private fun copyToDownloads(resolver: ContentResolver, apk: File): String {
+    private fun copyToDownloads(resolver: ContentResolver, apk: File): Saved {
         // Only entries created by this app are visible to these queries, so other apps' files are safe.
         resolver.delete(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -64,7 +68,7 @@ internal object UpdateApkExport {
             val name = resolver.query(uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null)?.use {
                 if (it.moveToFirst()) it.getString(0) else null
             } ?: apk.name
-            return "$DOWNLOADS_DIRECTORY/$name"
+            return Saved("$DOWNLOADS_DIRECTORY/$name", uri)
         } catch (error: Exception) {
             runCatching { resolver.delete(uri, null, null) }
             throw error

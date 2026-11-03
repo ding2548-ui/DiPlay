@@ -6,6 +6,9 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.graphics.drawable.ColorDrawable
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.os.Looper
 import android.view.Surface
 import android.view.View
@@ -15,6 +18,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import com.shilapi.xcertplay.adb.LocalAdb
@@ -23,6 +27,8 @@ import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import java.time.Duration
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -36,6 +42,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.verify
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -52,8 +59,56 @@ class AdaptiveSettingsUiTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private var activity: DiPlayActivity? = null
 
+    @Test
+    @Config(sdk = [29], qualifiers = "ja-w320dp-h600dp")
+    fun japaneseSettingsDoNotEllipsizeVisibleTextOnNarrowScreens() {
+        verifySettingsDoNotEllipsizeVisibleText("アプリの言語")
+    }
+
+    @Test
+    @Config(sdk = [29], qualifiers = "zh-rTW-w320dp-h600dp-xhdpi")
+    fun traditionalChineseSettingsFitNarrowScreensWithLargeFonts() {
+        RuntimeEnvironment.setFontScale(1.3f)
+        AirPlayPersistence.saveAudioFocusEnabled(context, true)
+        verifySettingsDoNotEllipsizeVisibleText("應用程式語言")
+    }
+
+    @Test
+    @Config(sdk = [29], qualifiers = "zh-rTW-w1000dp-h700dp-xhdpi")
+    fun traditionalChineseSettingsFitExpandedScreensWithLargeFonts() {
+        RuntimeEnvironment.setFontScale(1.3f)
+        AirPlayPersistence.saveAudioFocusEnabled(context, true)
+        verifySettingsDoNotEllipsizeVisibleText("應用程式語言")
+    }
+
+    private fun verifySettingsDoNotEllipsizeVisibleText(languageLabel: String) {
+        val screen = openSettings()
+        assertEquals(languageLabel, screen.getString(R.string.language_app_language))
+
+        fun verifyVisibleText() {
+            layoutRoot(screen)
+            for (view in texts(screen)) {
+                if (view.visibility != View.VISIBLE) continue
+                val lines = view.layout ?: continue
+                for (line in 0 until lines.lineCount) {
+                    assertEquals("Truncated localized label: ${view.text}", 0, lines.getEllipsisCount(line))
+                }
+            }
+        }
+
+        verifyVisibleText()
+        for (category in SettingsCategory.entries.filter { it != SettingsCategory.OVERVIEW }) {
+            ReflectionHelpers.callInstanceMethod<Unit>(
+                screen, "openSettingsCategory",
+                ReflectionHelpers.ClassParameter(SettingsCategory::class.java, category),
+            )
+            verifyVisibleText()
+        }
+    }
+
     @After fun tearDown() {
         activity?.finish()
+        RuntimeEnvironment.setFontScale(1f)
         AppAppearanceRuntime.resetForTest()
         context.getSharedPreferences("diplay", 0).edit().clear().commit()
         context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
@@ -262,6 +317,23 @@ class AdaptiveSettingsUiTest {
         assertEquals("settings", ReflectionHelpers.getField<String>(screen, "page"))
     }
 
+    // #965: the CarPlay menu calls this switch HEVC (H.265), and search matches titles only.
+    @Test fun searchFindsTheHevcSwitchByItsCodec() {
+        val screen = openSettings()
+        val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
+        val results = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "searchSettings",
+            ReflectionHelpers.ClassParameter(List::class.java, index),
+            ReflectionHelpers.ClassParameter(String::class.java, "hevc"))
+        val hevc = results.single {
+            ReflectionHelpers.getField<String>(it, "title") == screen.getString(R.string.efficient_video)
+        }
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSearchResult",
+            ReflectionHelpers.ClassParameter(hevc.javaClass, hevc))
+
+        assertTrue(texts(screen).any { it.text == screen.getString(R.string.efficient_video) })
+    }
+
     @Test fun searchOpensTheCategoryThatOwnsTheSetting() {
         val screen = openSettings()
         val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
@@ -279,21 +351,53 @@ class AdaptiveSettingsUiTest {
         assertTrue(texts(screen).any { it.text.startsWith(screen.getString(R.string.frame_rate) + " · ") })
     }
 
-    @Test fun headerSearchBoxListsMatchesAsYouTypeAndOpensTheChosenSetting() {
+    @Test fun searchFindsASliderAndOpensItsCategory() {
+        val screen = openSettings()
+        val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
+        val results = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "searchSettings",
+            ReflectionHelpers.ClassParameter(List::class.java, index),
+            ReflectionHelpers.ClassParameter(String::class.java, "guidance volume"))
+        val title = screen.getString(R.string.settings_navigation_attenuation)
+        val slider = results.single { ReflectionHelpers.getField<String>(it, "title") == title }
+
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSearchResult",
+            ReflectionHelpers.ClassParameter(slider.javaClass, slider))
+
+        assertEquals(SettingsCategory.AUDIO, ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
+        assertTrue(texts(screen).any { it.text.toString() == title })
+    }
+
+    // Android 7.1 and 9 too: the result list once called a PopupWindow method that Android 10 added.
+    @Test
+    @Config(sdk = [25, 28, 29])
+    fun headerSearchBoxListsMatchesAsYouTypeAndOpensTheChosenSetting() {
         val screen = openSettings()
         fun box() = descendants(screen.window.decorView).filterIsInstance<EditText>()
             .single { it.contentDescription == screen.getString(R.string.settings_search) }
-        assertFalse("Opening settings must not focus the search box", box().hasFocus())
-        assertFalse(texts(screen).any { it is android.widget.Button && it.text == screen.getString(R.string.settings_search) })
+        assertTrue(descendants(screen.window.decorView).none { it is EditText })
+        descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.settings_search)
+        }.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(box().hasFocus())
 
+        val editor = box()
         box().setText("FRAME rate")
         shadowOf(Looper.getMainLooper()).idle()
 
-        // Indexing re-rendered the header; the new box keeps the query and focus.
+        // Typing and clearing a query must keep the keyboard's original editor.
+        assertSame(editor, box())
+        box().setText("")
+        shadowOf(Looper.getMainLooper()).idle()
+        box().setText("FRAME rate")
+        shadowOf(Looper.getMainLooper()).idle()
+        assertSame(editor, box())
         assertEquals("FRAME rate", box().text.toString())
         assertTrue(box().hasFocus())
         val popup = ReflectionHelpers.getField<PopupWindow>(screen, "settingsSearchPopup")
         assertTrue(popup.isShowing)
+        // The list's position is worked out in screen coordinates, so it is laid out in the screen.
+        assertTrue(ReflectionHelpers.getField<Boolean>(popup, "mLayoutInScreen"))
         val row = descendants(popup.contentView).first {
             it.isClickable && it.contentDescription?.startsWith(screen.getString(R.string.frame_rate) + ", ") == true
         }
@@ -303,13 +407,33 @@ class AdaptiveSettingsUiTest {
         assertFalse(popup.isShowing)
         assertEquals(SettingsCategory.DISPLAY, ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
         assertTrue(texts(screen).any { it.text.startsWith(screen.getString(R.string.frame_rate) + " · ") })
-        assertEquals("", box().text.toString())
+        assertTrue(descendants(screen.window.decorView).none { it is EditText })
+    }
+
+    @Test fun searchFindsTheCarPlaySizeRow() {
+        val screen = openSettings()
+        descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.settings_search)
+        }.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        descendants(screen.window.decorView).filterIsInstance<EditText>()
+            .single { it.contentDescription == screen.getString(R.string.settings_search) }
+            .setText(screen.getString(R.string.carplay_size))
+        shadowOf(Looper.getMainLooper()).idle()
+        val popup = ReflectionHelpers.getField<PopupWindow>(screen, "settingsSearchPopup")
+        assertTrue(descendants(popup.contentView).any {
+            it.isClickable && it.contentDescription?.startsWith(screen.getString(R.string.carplay_size) + ", ") == true
+        })
     }
 
     @Test fun backClosesAnOpenSearchBeforeLeavingSettings() {
         val screen = openSettings()
         fun box() = descendants(screen.window.decorView).filterIsInstance<EditText>()
             .single { it.contentDescription == screen.getString(R.string.settings_search) }
+        descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.settings_search)
+        }.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
         box().setText("no such setting zz")
         shadowOf(Looper.getMainLooper()).idle()
         val popup = ReflectionHelpers.getField<PopupWindow>(screen, "settingsSearchPopup")
@@ -320,9 +444,68 @@ class AdaptiveSettingsUiTest {
 
         assertEquals("settings", ReflectionHelpers.getField<String>(screen, "page"))
         assertFalse(popup.isShowing)
-        assertEquals("", box().text.toString())
+        assertTrue(descendants(screen.window.decorView).none { it is EditText })
         screen.onBackPressedDispatcher.onBackPressed()
         assertEquals("home", ReflectionHelpers.getField<String>(screen, "page"))
+    }
+
+    @Test fun rebuiltSearchFieldsDoNotLeaveLayoutListenersOnTheWindow() {
+        val screen = openSettings()
+        descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.settings_search)
+        }.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        fun globalLayoutListeners(): Int {
+            val listeners = ReflectionHelpers.getField<Any?>(screen.window.decorView.viewTreeObserver, "mOnGlobalLayoutListeners")
+                ?: return 0
+            return ReflectionHelpers.callInstanceMethod<Int>(listeners, "size")
+        }
+        val before = globalLayoutListeners()
+        repeat(5) {
+            ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+        assertTrue(descendants(screen.window.decorView).any { it is EditText })
+        assertEquals(before, globalLayoutListeners())
+    }
+
+    @Test
+    @Config(qualifiers = "en-w900dp-h600dp-land")
+    fun backCollapsesAnEmptySearchAndFullLayoutKeepsItsExistingLabel() {
+        val screen = openSettings()
+        val button = descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.settings_search)
+        }
+        assertTrue(button is android.widget.Button)
+        assertEquals(screen.getString(R.string.settings_search_hint), (button as TextView).text.toString())
+        button.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(descendants(screen.window.decorView).any { it is EditText && it.hasFocus() })
+        screen.onBackPressedDispatcher.onBackPressed()
+        assertEquals("settings", ReflectionHelpers.getField<String>(screen, "page"))
+        assertTrue(descendants(screen.window.decorView).none { it is EditText })
+        assertTrue(descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.settings_search)
+        }.hasFocus())
+    }
+
+    @Test
+    @Config(qualifiers = "en-w500dp-h400dp-land")
+    fun compactSearchUsesAnIconTheSameSizeAsAppearanceAndCollapsesAfterBack() {
+        val screen = openSettings()
+        fun search() = descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.settings_search)
+        }
+        val appearance = descendants(screen.window.decorView).single { it.tag == "app_appearance_button" }
+        assertTrue(search() is android.widget.ImageButton)
+        assertEquals(appearance.layoutParams.width, search().layoutParams.width)
+        assertEquals(appearance.layoutParams.height, search().layoutParams.height)
+        search().performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(search() is EditText)
+        screen.onBackPressedDispatcher.onBackPressed()
+        assertTrue(search() is android.widget.ImageButton)
+        assertEquals("settings", ReflectionHelpers.getField<String>(screen, "page"))
     }
 
     @Test
@@ -358,7 +541,7 @@ class AdaptiveSettingsUiTest {
 
     @Test
     @Config(shadows = [HotspotSearchProbe::class])
-    fun hotspotSearchKeepsTheBydAndCarHotspotAudienceGates() {
+    fun hotspotSearchKeepsTheCarHotspotAudienceGateAndNeedsNoAdbOffBydUnits() {
         installBydSettingsPackage()
         AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.EXISTING_WIFI)
         HotspotSearchProbe.workers.clear()
@@ -371,8 +554,21 @@ class AdaptiveSettingsUiTest {
         assertFalse(index().any { it.title == title })
         AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
         shadowOf(context.packageManager).removePackage("com.byd.carsettings")
-        assertFalse(index().any { it.title == title })
+        // Other head units up to Android 10 get the switch through "Modify system settings" access instead of ADB.
+        assertEquals(SettingsCategory.CONNECTION, index().single { it.title == title }.category)
         assertTrue(HotspotSearchProbe.workers.isEmpty())
+    }
+
+    @Test
+    @Config(sdk = [25, 33], shadows = [HotspotSearchProbe::class])
+    fun hotspotSwitchStaysHiddenOffBydUnitsWhereAndroidLetsNoAppStartTethering() {
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
+        HotspotSearchProbe.workers.clear()
+        HotspotSearchProbe.entered = CountDownLatch(1)
+        val screen = openSettings()
+        val index = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
+            screen, "buildSettingsSearchIndex")
+        assertFalse(index.any { it.title == screen.getString(R.string.auto_car_hotspot_title) })
     }
 
     @Test fun cardControlsShareOneHeightAndGap() {
@@ -559,10 +755,16 @@ class AdaptiveSettingsUiTest {
         val advanced = visibleIn(R.string.settings_advanced)
         val connection = visibleIn(R.string.connection)
 
+        assertTrue(display.any { it.startsWith(text(R.string.carplay_dock)) })
+        assertFalse(vehicle.any { it.startsWith(text(R.string.carplay_dock)) })
+
         assertTrue(connection.any { it.startsWith(text(R.string.settings_usb_charging)) })
         assertFalse(advanced.any { it.startsWith(text(R.string.settings_usb_charging)) })
-        assertTrue(audio.any { it.startsWith(text(R.string.music_buffer)) })
-        listOf(R.string.main_buffered_audio, R.string.settings_car_bluetooth_audio, R.string.efficient_video, R.string.smooth_video, R.string.settings_direct_video_output, R.string.settings_low_latency_decoder, R.string.call_echo_cancellation, R.string.call_voice_filter, R.string.contrib_audio_home_toggle_audio_focus).forEach {
+        assertTrue(audio.any { it.startsWith(text(R.string.settings_navigation_attenuation)) })
+        assertFalse(advanced.any { it.startsWith(text(R.string.settings_navigation_attenuation)) })
+        assertTrue(audio.any { it.startsWith(text(R.string.settings_music_buffer_wireless)) })
+        assertTrue(audio.any { it.startsWith(text(R.string.settings_music_buffer_wired)) })
+        listOf(R.string.main_buffered_audio, R.string.settings_car_bluetooth_audio, R.string.efficient_video, R.string.smooth_video, R.string.settings_direct_video_output, R.string.settings_low_latency_decoder, R.string.call_echo_cancellation, R.string.call_voice_filter, R.string.settings_disable_media_key_audio_focus, R.string.contrib_audio_home_toggle_audio_focus).forEach {
             assertTrue(text(it), text(it) in advanced)
             assertFalse(text(it), text(it) in audio)
         }
@@ -582,9 +784,74 @@ class AdaptiveSettingsUiTest {
         assertFalse(audio.any { it.startsWith(text(R.string.settings_app_appearance)) })
         assertFalse(vehicle.any { it.startsWith(text(R.string.settings_app_appearance)) })
         assertFalse(advanced.any { it.startsWith(text(R.string.settings_app_appearance)) })
-        listOf(R.string.main_buffered_audio, R.string.efficient_video, R.string.smooth_video, R.string.settings_direct_video_output, R.string.settings_low_latency_decoder, R.string.call_echo_cancellation, R.string.call_voice_filter, R.string.right_hand_drive, R.string.car_button_in_carplay,
+        listOf(R.string.main_buffered_audio, R.string.efficient_video, R.string.smooth_video, R.string.settings_direct_video_output, R.string.settings_low_latency_decoder, R.string.call_echo_cancellation, R.string.call_voice_filter, R.string.settings_disable_media_key_audio_focus, R.string.right_hand_drive, R.string.car_button_in_carplay,
             R.string.side_panel, R.string.split_screen_areas, R.string.carplay_rotation).forEach {
             assertFalse(text(it), text(it) in display)
+        }
+    }
+
+    @Test fun navigationAttenuationSliderSavesAndUpdatesActiveAudioWithoutReconnect() {
+        val screen = openSettings()
+        val session = mock(CarPlayController::class.java)
+        val sink = mock(AndroidMediaSink::class.java)
+        var disconnects = 0
+        CarPlayBackgroundSession.store(session, sink, 800, 480, Any(),
+            CarPlaySessionDisplay(800, 480, Surface.ROTATION_0, false, false, 800, 480)) { disconnects++ }
+        CarPlayBackgroundSession.active = true
+        try {
+            PendingReconnect.clear()
+            ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.AUDIO)
+            ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+            val slider = descendants(screen.window.decorView).filterIsInstance<SeekBar>().single()
+            assertEquals(20, slider.max)
+            assertEquals(20, slider.progress)
+            val listener = SeekBar::class.java.getDeclaredField("mOnSeekBarChangeListener")
+                .apply { isAccessible = true }.get(slider) as SeekBar.OnSeekBarChangeListener
+            slider.progress = 7
+            listener.onProgressChanged(slider, 7, true)
+            assertEquals(-13, AirPlayPersistence.loadNavigationAudioAttenuationDb(context))
+            verify(sink).setNavigationAttenuationDb(-13)
+            assertFalse(PendingReconnect.isPending(session))
+            assertEquals(0, disconnects)
+            assertSame(session, CarPlayBackgroundSession.snapshot()?.controller)
+        } finally {
+            CarPlayBackgroundSession.clear()
+            PendingReconnect.clear()
+        }
+    }
+
+    @Test @Config(sdk = [29], qualifiers = "ja-w320dp-h600dp")
+    fun navigationSliderScreenshotCompactJapaneseLargeFont() = captureNavigationSlider("compact-ja", 1.3f)
+
+    @Test @Config(sdk = [29], qualifiers = "en-w1000dp-h700dp")
+    fun navigationSliderScreenshotExpandedLargeFont() = captureNavigationSlider("expanded-en", 1.3f)
+
+    @Test @Config(sdk = [29], qualifiers = "ar-ldrtl-w320dp-h600dp")
+    fun navigationSliderScreenshotCompactArabicRtlLargeFont() = captureNavigationSlider("compact-ar-rtl", 1.3f)
+
+    private fun captureNavigationSlider(name: String, fontScale: Float) {
+        RuntimeEnvironment.setFontScale(fontScale)
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.AUDIO)
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        layoutRoot(screen)
+        val slider = descendants(screen.window.decorView).filterIsInstance<SeekBar>().single()
+        slider.requestRectangleOnScreen(Rect(0, 0, slider.width, slider.height), true)
+        layoutRoot(screen)
+        val rectangle = Rect()
+        assertTrue("Navigation volume slider should be visible", slider.getGlobalVisibleRect(rectangle))
+        assertTrue(rectangle.height() >= slider.height / 2)
+        val root = screen.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
+        val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+        try {
+            root.draw(Canvas(bitmap))
+            val output = Paths.get("build/reports/navigation-audio-ui/$name.png")
+            Files.createDirectories(output.parent)
+            Files.newOutputStream(output).use { stream ->
+                assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
+            }
+        } finally {
+            bitmap.recycle()
         }
     }
 
@@ -649,6 +916,108 @@ class AdaptiveSettingsUiTest {
             assertTrue(AirPlayPersistence.loadCallEchoCancellation(context))
             assertTrue(AirPlayPersistence.loadCallVoiceFilter(context))
         } finally {
+            CarPlayBackgroundSession.clear()
+            PendingReconnect.clear()
+        }
+    }
+
+    @Test
+    @Config(sdk = [28])
+    fun mtkDecoderTuningAppearsOnlyForMtkAndMarksReconnect() {
+        AirPlayPersistence.saveMtkDecoderTuning(context, false)
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.ADVANCED)
+        screen.selectedMtkDecoderName = { null }
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        assertFalse(texts(screen).any { it.text == screen.getString(R.string.settings_mtk_decoder_tuning) })
+
+        val decoderName = "OMX.MTK.VIDEO.DECODER.HEVC"
+        screen.selectedMtkDecoderName = { decoderName }
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        assertTrue(texts(screen).any {
+            it.text == screen.getString(R.string.settings_mtk_decoder_tuning_description, decoderName)
+        })
+
+        val session = mock(CarPlayController::class.java)
+        CarPlayBackgroundSession.store(session, mock(AndroidMediaSink::class.java), 800, 480, Any(),
+            CarPlaySessionDisplay(800, 480, Surface.ROTATION_0, false, false, 800, 480)) {}
+        CarPlayBackgroundSession.active = true
+        try {
+            val setting = descendants(screen.window.decorView).filterIsInstance<Switch>()
+                .single { it.contentDescription == screen.getString(R.string.settings_mtk_decoder_tuning) }
+            assertFalse(setting.isChecked)
+            setting.performClick()
+
+            assertTrue(AirPlayPersistence.loadMtkDecoderTuning(context))
+            assertTrue(PendingReconnect.isPending(session))
+            assertSame(session, CarPlayBackgroundSession.snapshot()?.controller)
+        } finally {
+            AirPlayPersistence.saveMtkDecoderTuning(context, false)
+            CarPlayBackgroundSession.clear()
+            PendingReconnect.clear()
+        }
+    }
+
+    @Test
+    @Config(sdk = [28, 33])
+    fun callAtCallRateIsOptInAndMarksTheActiveSessionForReconnectWithoutDroppingIt() {
+        AirPlayPersistence.saveCallAtCallRate(context, false)
+        val screen = openSettings()
+        val session = mock(CarPlayController::class.java)
+        var stops = 0
+        CarPlayBackgroundSession.store(session, mock(AndroidMediaSink::class.java), 800, 480, Any(),
+            CarPlaySessionDisplay(800, 480, Surface.ROTATION_0, false, false, 800, 480)) { stops++ }
+        CarPlayBackgroundSession.active = true
+        try {
+            ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.ADVANCED)
+            PendingReconnect.clear()
+            ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+            val setting = descendants(screen.window.decorView).filterIsInstance<Switch>()
+                .single { it.contentDescription == screen.getString(R.string.settings_call_at_call_rate) }
+            assertFalse(setting.isChecked)
+
+            setting.performClick()
+
+            assertTrue(AirPlayPersistence.loadCallAtCallRate(context))
+            assertTrue(PendingReconnect.isPending(session))
+            assertEquals(View.VISIBLE, ReflectionHelpers.getField<View>(screen, "reconnectBar").visibility)
+            assertSame(session, CarPlayBackgroundSession.snapshot()?.controller)
+            assertEquals(0, stops)
+        } finally {
+            AirPlayPersistence.saveCallAtCallRate(context, false)
+            CarPlayBackgroundSession.clear()
+            PendingReconnect.clear()
+        }
+    }
+
+    @Test
+    @Config(sdk = [28, 33])
+    fun disablingMediaKeyAudioFocusIsOptInAndMarksTheActiveSessionForReconnect() {
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(context, false)
+        val screen = openSettings()
+        val session = mock(CarPlayController::class.java)
+        var stops = 0
+        CarPlayBackgroundSession.store(session, mock(AndroidMediaSink::class.java), 800, 480, Any(),
+            CarPlaySessionDisplay(800, 480, Surface.ROTATION_0, false, false, 800, 480)) { stops++ }
+        CarPlayBackgroundSession.active = true
+        try {
+            ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.ADVANCED)
+            PendingReconnect.clear()
+            ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+            val setting = descendants(screen.window.decorView).filterIsInstance<Switch>()
+                .single { it.contentDescription == screen.getString(R.string.settings_disable_media_key_audio_focus) }
+            assertFalse(setting.isChecked)
+
+            setting.performClick()
+
+            assertTrue(AirPlayPersistence.loadDisableMediaKeyAudioFocus(context))
+            assertTrue(PendingReconnect.isPending(session))
+            assertEquals(View.VISIBLE, ReflectionHelpers.getField<View>(screen, "reconnectBar").visibility)
+            assertSame(session, CarPlayBackgroundSession.snapshot()?.controller)
+            assertEquals(0, stops)
+            assertEquals(null, shadowOf(screen).nextStartedActivity)
+        } finally {
+            AirPlayPersistence.saveDisableMediaKeyAudioFocus(context, false)
             CarPlayBackgroundSession.clear()
             PendingReconnect.clear()
         }
@@ -753,23 +1122,23 @@ class AdaptiveSettingsUiTest {
         val appearance = descendants(screen.window.decorView).single { it.tag == "app_appearance_button" }
         val actions = (appearance.parent as ViewGroup).let { header ->
             (0 until header.childCount).map(header::getChildAt)
-                .filter { it is android.widget.Button || it is EditText || it === appearance }
+                .filter { it is android.widget.Button || it is android.widget.ImageButton || it is EditText }
         }
         assertTrue(actions.size >= 3)
         assertEquals(1, actions.map { it.layoutParams.height }.toSet().size)
     }
 
     @Test fun compactLanguageAndAboutDestinationsWork() {
-        verifyLanguageAndAboutDestinations()
+        verifyLanguageAndAboutDestinations(expanded = false)
     }
 
     @Test
     @Config(qualifiers = "en-w1000dp-h700dp")
     fun expandedLanguageAndAboutDestinationsWork() {
-        verifyLanguageAndAboutDestinations()
+        verifyLanguageAndAboutDestinations(expanded = true)
     }
 
-    private fun verifyLanguageAndAboutDestinations() {
+    private fun verifyLanguageAndAboutDestinations(expanded: Boolean) {
         val screen = openSettings()
         val categoryScroll = ReflectionHelpers.getField<ScrollView>(screen, "rootScroll")
         val languageDestination = descendants(categoryScroll).single {
@@ -798,11 +1167,15 @@ class AdaptiveSettingsUiTest {
         ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSettingsCategory",
             ReflectionHelpers.ClassParameter(SettingsCategory::class.java, SettingsCategory.OVERVIEW))
         open(R.string.about)
-        assertEquals("about", ReflectionHelpers.getField<String>(screen, "page"))
+        assertEquals(SettingsCategory.ABOUT, ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
         assertTrue(texts(screen).any { it.text == screen.getString(R.string.carplay_at_home_in_your_car) })
         screen.onBackPressedDispatcher.onBackPressed()
-        assertEquals("settings", ReflectionHelpers.getField<String>(screen, "page"))
-        assertEquals(SettingsCategory.OVERVIEW, ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
+        if (expanded) {
+            assertEquals("home", ReflectionHelpers.getField<String>(screen, "page"))
+        } else {
+            assertEquals("settings", ReflectionHelpers.getField<String>(screen, "page"))
+            assertEquals(SettingsCategory.OVERVIEW, ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
+        }
     }
 
     @Test
@@ -898,6 +1271,21 @@ class AdaptiveSettingsUiTest {
             val workers = CopyOnWriteArrayList<Thread>()
             var entered = CountDownLatch(1)
         }
+    }
+
+    // The report is troubleshooting evidence: its way onto a phone starts in Diagnostics and returns there.
+    @Test fun diagnosticsOpensThePhonePageAndBackReturnsToDiagnostics() {
+        val screen = openSettings()
+        descendants(screen.window.decorView).first { candidate ->
+            candidate.contentDescription == screen.getString(R.string.settings_open_category, screen.getString(R.string.diagnostics))
+        }.performClick()
+        texts(screen).first { it.text == screen.getString(R.string.settings_report_on_phone) }.performClick()
+        // The phone page, under the name the driver tapped.
+        assertTrue(texts(screen).any { it.text == screen.getString(R.string.settings_report_on_phone) })
+        assertFalse(texts(screen).any { it.text == screen.getString(R.string.backup_title) })
+        assertFalse(texts(screen).any { it.text == screen.getString(R.string.save_diagnostic_report) })
+        screen.onBackPressedDispatcher.onBackPressed()
+        assertTrue(texts(screen).any { it.text == screen.getString(R.string.save_diagnostic_report) })
     }
 
     private fun openSettings(): DiPlayActivity = Robolectric.buildActivity(

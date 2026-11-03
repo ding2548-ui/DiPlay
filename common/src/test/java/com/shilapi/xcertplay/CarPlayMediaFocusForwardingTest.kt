@@ -28,7 +28,8 @@ class CarPlayMediaFocusForwardingTest {
     private val controllers = mutableListOf<CarPlayController>()
     private val sinks = mutableListOf<AndroidMediaSink>()
 
-    @Before fun resetFocusResponse() {
+    @Before fun enableFocusAndGrantRequests() {
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
         shadowOf(app.getSystemService(AudioManager::class.java))
             .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
     }
@@ -37,6 +38,7 @@ class CarPlayMediaFocusForwardingTest {
         controllers.forEach(CarPlayMediaKeys::detach)
         sinks.forEach(AndroidMediaSink::close)
         CarPlayBackgroundSession.clear()
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
         shadowOf(Looper.getMainLooper()).idle()
     }
 
@@ -108,6 +110,59 @@ class CarPlayMediaFocusForwardingTest {
         CarPlayMediaKeys.onMediaAudioChanged(true)
         shadowOf(Looper.getMainLooper()).idle()
         verify(sink).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+    }
+
+    @Test fun explicitIphonePlaybackResumeRetriesFocusAfterUnreturnedTransientCallLoss() {
+        val controller = mock(CarPlayController::class.java).also(controllers::add)
+        val sink = spy(AndroidMediaSink()).also(sinks::add)
+        val listener = start(controller, sink)
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        clearInvocations(sink)
+        // Some Android car firmwares never send AUDIOFOCUS_GAIN after a Bluetooth call.
+        // The iPhone's *new* playing event is an appropriate point to retry focus.
+        CarPlayMediaKeys::class.java.getDeclaredMethod("onIphonePlaying",
+            CarPlayController::class.java, Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+            .invoke(CarPlayMediaKeys, controller, true)
+        shadowOf(Looper.getMainLooper()).idle()
+        verify(sink).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+    }
+
+    @Test fun refusedResumedPlaybackFocusDoesNotUnmuteUntilAndroidGrantsIt() {
+        val controller = mock(CarPlayController::class.java).also(controllers::add)
+        val sink = spy(AndroidMediaSink()).also(sinks::add)
+        val listener = start(controller, sink)
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        val audio = shadowOf(app.getSystemService(AudioManager::class.java))
+        audio.setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        clearInvocations(sink)
+        CarPlayMediaKeys::class.java.getDeclaredMethod("onIphonePlaying",
+            CarPlayController::class.java, Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+            .invoke(CarPlayMediaKeys, controller, true)
+        shadowOf(Looper.getMainLooper()).idle()
+        verify(sink, never()).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+        // A later platform gain still restores audio; a rejected retry must not fake one.
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+        verify(sink).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+    }
+
+    @Test fun transientFocusLossDoesNotRetryUntilIphoneActuallyResumesPlaying() {
+        val controller = mock(CarPlayController::class.java).also(controllers::add)
+        val sink = spy(AndroidMediaSink()).also(sinks::add)
+        val listener = start(controller, sink)
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        clearInvocations(sink)
+        CarPlayMediaKeys.onMediaAudioChanged(true) // AudioTrack is still present during the call.
+        shadowOf(Looper.getMainLooper()).idle()
+        verify(sink, never()).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+        // Android's own return notification remains sufficient without a new play event.
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+        verify(sink).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+        clearInvocations(sink)
+        CarPlayMediaKeys::class.java.getDeclaredMethod("onIphonePlaying",
+            CarPlayController::class.java, Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+            .invoke(CarPlayMediaKeys, controller, true)
+        shadowOf(Looper.getMainLooper()).idle()
+        verify(sink, never()).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
     }
 
     @Test fun queuedRealLossInvalidatesEarlierImmediateGrantBeforeItCanRestoreAudio() {

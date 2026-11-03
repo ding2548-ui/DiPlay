@@ -9,15 +9,36 @@ internal enum class CarPlayVideoSurfaceMode { TEXTURE, SURFACE }
  * Decide from the attached window, not the declared manifest flag or vehicle model. Smooth video also
  * needs a SurfaceView: only the compositor honours the frame timestamps it releases with. Direct video
  * output (a setting) picks one too: frames go straight to the compositor instead of through the app's
- * own drawing, which can save about a refresh.
+ * own drawing, which can save about a refresh. So does a decoder whose pictures the app's drawing
+ * cannot take as a texture ([textureUnsafeDecoder]).
  */
 internal fun carPlayVideoSurfaceMode(
     hardwareAccelerated: Boolean,
     smoothVideo: Boolean = false,
     directVideoOutput: Boolean = false,
+    textureUnsafeDecoder: Boolean = false,
 ): CarPlayVideoSurfaceMode =
-    if (hardwareAccelerated && !smoothVideo && !directVideoOutput) CarPlayVideoSurfaceMode.TEXTURE
+    if (hardwareAccelerated && !smoothVideo && !directVideoOutput && !textureUnsafeDecoder) CarPlayVideoSurfaceMode.TEXTURE
     else CarPlayVideoSurfaceMode.SURFACE
+
+/** An installed video decoder, in MediaCodecList order. */
+internal data class VideoDecoderInfo(val name: String, val types: List<String>)
+
+/**
+ * The decoder MediaCodec.createDecoderByType picks for one of [mimes] (the first that lists it) when its
+ * pictures cannot be shown through a TextureView, otherwise null. Emteria's Android 17 for Raspberry Pi 5
+ * decodes with c2.ffmpeg.h264.decoder, which reports itself as hardware accelerated: the app's renderer
+ * aborts with "Invalid GrBackendTexture" right after the first frame drawn as a texture, while a
+ * SurfaceView shows the same pictures, composited by the system. Other FFmpeg-backed Codec2 decoders
+ * share its output, so the family is matched by name.
+ */
+internal fun textureUnsafeDecoder(decoders: List<VideoDecoderInfo>, mimes: List<String>): String? =
+    mimes.asSequence()
+        .mapNotNull { mime -> decoders.firstOrNull { decoder -> decoder.types.any { it.equals(mime, ignoreCase = true) } } }
+        .firstOrNull { it.name.startsWith(FFMPEG_CODEC2_PREFIX, ignoreCase = true) }
+        ?.name
+
+private const val FFMPEG_CODEC2_PREFIX = "c2.ffmpeg."
 
 /** Integer compositor bounds retain overscan when a CarPlay view area crops the canvas. */
 internal data class CarPlaySurfaceBounds(val left: Int, val top: Int, val width: Int, val height: Int) {
@@ -39,6 +60,13 @@ internal data class CarPlaySurfaceBounds(val left: Int, val top: Int, val width:
  * intervals plus 40 ms: 90 ms at 60 fps.
  */
 internal fun smoothVideoDelayMillis(fps: Int): Int = 40 + 3_000 / fps.coerceIn(30, 60)
+
+/**
+ * Whether the last picture shown over a SurfaceView that came back can go: a frame was rendered since it came
+ * back ([rendered] moved on from [baseline], also from 0 on a new decoder), or [maxMillis] passed.
+ */
+internal fun lastPictureDone(rendered: Long, baseline: Long, elapsedMillis: Long, maxMillis: Long): Boolean =
+    (rendered > 0 && rendered != baseline) || elapsedMillis > maxMillis
 
 /**
  * A retained background session can be adopted only when its sink's pacing matches the video view this

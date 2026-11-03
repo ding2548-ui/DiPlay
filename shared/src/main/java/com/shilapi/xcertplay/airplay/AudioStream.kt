@@ -17,6 +17,11 @@ data class AudioFormat(
     val channels: Int,
     val payloadType: Int,
     val audioType: String = "media",
+    /**
+     * The rate of the stream's RTP timestamps. Opus is always decoded at 48 kHz, but audioFormat
+     * 0x10000000 and 0x20000000 count at 16 and 24 kHz (see [MicrophoneConfig.opusClockRate]).
+     */
+    val rtpClockRate: Int = sampleRate,
 )
 
 /**
@@ -84,6 +89,8 @@ class AudioStream(
     }
 
     private fun runData(socket: DatagramSocket, listener: Listener) {
+        // When the head unit opens its 360° camera, default-priority audio threads wait behind it (#737).
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
         val stats = StreamReceiveStats("audio type=$streamType", onDiagnostic)
         val buffer = ByteArray(DATAGRAM_BYTES)
         try {
@@ -218,7 +225,10 @@ object AudioStreamCodec {
         val isOpus = (bits and OPUS_MONO) != 0L
         val pcm = PCM_FORMAT[bits]
         return when {
-            isOpus -> AudioFormat(AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType)
+            isOpus -> AudioFormat(
+                AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType,
+                rtpClockRate = MicrophoneConfig.opusClockRate(bits),
+            )
             isAacLc -> AudioFormat(
                 AudioCodecKind.AAC_LC,
                 if ((bits and AAC_LC_48K_STEREO) != 0L) 48_000 else 44_100,

@@ -1,16 +1,18 @@
 # DiPlay
 
+[English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
+
 **CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
 
 > **BYD support scope:** These projects focus on BYD cars. They may work on other brands, but other brands are unsupported and there are no plans to add support or fix brand-specific incompatibilities.
 
-[Download & website](https://shihabal3amri.github.io/DiPlay/) · [Release](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.17) · [Report a problem](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
+[Download & website](https://shihabal3amri.github.io/DiPlay/) · [Release](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.22) · [Report a problem](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
 
 ![DiPlay home](site/assets/home.png)
 
-## 0.2.17 — public preview
+## 0.2.22 — public preview
 
-Install on the **car**, not the iPhone. No jailbreak, dongle, Mac, account or authentication server is required for use. Core CarPlay does not require ADB; optional dashboard, battery, wheel-speed and parked-video features do. Your head unit must permit APK installation. The APK supports Android 7.1+ (API 25); Android 7.1–8.1 support is not yet confirmed on a vehicle. Wireless supports Wi-Fi Direct, the car’s existing hotspot or Existing Wi-Fi / Same LAN. Android 7.1–9 Wi-Fi Direct uses a firmware-dependent legacy path with generated group credentials and unverified requested frequency; see [Android 9 Wi-Fi Direct](docs/ANDROID9_WIFI_DIRECT.md). Android 10+ verifies its negotiated group frequency.
+Install on the **car**, not the iPhone. No jailbreak, dongle, Mac, account or authentication server is required for use. Core CarPlay does not require ADB; optional dashboard, battery, wheel-speed and parked-video features do. Your head unit must permit APK installation. The APK supports Android 7.0+ (API 24); on Android 7.0–8.1, wired CarPlay is confirmed on one car and wireless is not yet confirmed on a vehicle. Wireless supports Wi-Fi Direct, the car’s existing hotspot or Existing Wi-Fi / Same LAN. Android 7.0–9 Wi-Fi Direct uses a firmware-dependent legacy path with generated group credentials and unverified requested frequency; see [Android 9 Wi-Fi Direct](docs/ANDROID9_WIFI_DIRECT.md). Android 10+ verifies its negotiated group frequency.
 
 - Wired USB and wireless CarPlay with local authentication.
 - BYD HUD navigation with arrows, distance and street names on verified firmware.
@@ -24,19 +26,18 @@ This is **not an Apple-certified product**. The APK bundles an experimental acce
 
 Earlier releases were tested on the development DiLink5.1 car: live windshield guidance and street names work, Car hotspot now starts CarPlay, and Wi-Fi Direct performance is substantially improved. Audio underrun recovery is improved in 0.2.15; remaining cutouts need current diagnostic reports. The 0.2.16 software Opus microphone fallback was accepted on a BOS Mini A1 head unit (Android 9) with an iPhone 12 on iOS 27. The floating-map test build was installed on the development DiLink 5.1 car; feedback led to the pinch corrections in 0.2.9. Earlier wheel-speed and video contributions were tested on a BYD Tang with DiLink 5.0 and an iPhone 15 Pro on iOS 27; wheel-speed dead reckoning in tunnels remains unverified. Broader head-unit and iOS compatibility is not guaranteed. The HUD firmware scope and cleanup limits are documented in [BYD navigation](docs/BYD_NAVIGATION.md).
 
-## What’s new in 0.2.17
+## What’s new in 0.2.22
 
-- Wired sessions keep running when the head unit delivers a damaged USB network block, instead of reconnecting seconds after the picture appears.
-- Older iPhones get a second identification attempt, and USB auto-confirm recognizes the Android 10+ and Chinese permission prompts.
-- A new iPhone charging choice under **Settings → Connection → USB connection** for USB ports that cannot supply the iPhone's charging current.
-- Voice notes in apps such as WhatsApp record the head unit's microphone and no longer sound slurred.
-- Settings recommends the built-in car hotspot; with approved network ADB, the car's Wi-Fi network search pauses during Wi-Fi Direct on Android 7.1 and later.
-- A daily update check with an **Update available** notice on Home, which can be turned off in About.
-- Album-cover ambient lighting, plus experimental BYD call popup hiding and external controller keys.
+- Wireless CarPlay over the car hotspot connects again on BYD DiLink 3.0 and 4.0 head units where 0.2.21 stayed on "Opening CarPlay"; the **Hotspot interface (optional)** workaround can be cleared.
+- Music plays at the iPhone's speed over Wi-Fi again, from the first second of every song, without the 0.2.21 speed-up and stutter.
+- Over USB, WeChat voice messages, Voice Memos and dictation record your voice instead of silence.
+- Wired CarPlay connects on the first attempt after a replug, and the CarPlay screen and Home say why a connection failed and what to change.
+- DiPlay is available in Korean and Turkish.
+- New options, off by default: keep CarPlay in the launcher card, navigation prompts that ask for audio focus, calls at the call's own rate, a full-screen DiLink 3.0 dashboard map and the dashboard map on the Denza N9.
 
-See [0.2.17 release notes](docs/RELEASE-NOTES-0.2.17.md) and [validation](docs/VALIDATION.md) for contribution links and remaining physical tests. General stutter, calls/Siri, decoder and model-specific reports still need current-device evidence. [0.2.16 notes](docs/RELEASE-NOTES-0.2.16.md) remain available as historical guidance.
+See [0.2.22 release notes](docs/RELEASE-NOTES-0.2.22.md) and [validation](docs/VALIDATION.md) for contribution links and remaining physical tests. General stutter, calls/Siri, decoder and model-specific reports still need current-device evidence. [0.2.21 notes](docs/RELEASE-NOTES-0.2.21.md) remain available as historical guidance.
 
-If a problem remains, reproduce it on **0.2.17**, then use **Settings → Diagnostics → Save diagnostic report**. Android 10+ normally saves to **Downloads/DiPlay**; Android 7.1–9 asks for storage access and saves there too. If unavailable, use **View report** or **Share** from the confirmation, which identifies external/private fallback storage. Review the `.txt` and add it to a matching [existing issue](https://github.com/shihabal3amri/DiPlay/issues), or [create one](https://github.com/shihabal3amri/DiPlay/issues/new/choose). Include vehicle/head-unit model, exact firmware and Android/DiLink, phone/iOS, connection backend, relevant settings, steps and failure time. Reports are shared only when you choose; never post your hotspot password.
+If a problem remains, reproduce it on **0.2.22**, then use **Settings → Diagnostics → Save diagnostic report**. Android 10+ normally saves to **Downloads/DiPlay**; Android 7.0–9 asks for storage access and saves there too. If unavailable, use **View report** or **Share** from the confirmation, which identifies external/private fallback storage. Review the `.txt` and attach it as a file to a matching [existing issue](https://github.com/shihabal3amri/DiPlay/issues), or [create one](https://github.com/shihabal3amri/DiPlay/issues/new/choose). Include vehicle/head-unit model, exact firmware and Android/DiLink, phone/iOS, connection backend, relevant settings, steps and failure time. Reports are shared only when you choose; never post your hotspot password.
 
 ## Documentation
 
@@ -53,7 +54,7 @@ BYD DiLink 4.0 / Android 10 clean-install validation result.
 - [Release notes](CHANGELOG.md)
 - [Credits and licenses](docs/THIRD_PARTY_NOTICES.md)
 
-The app and release website are available in English, Arabic, Russian, Ukrainian, Spanish, Simplified Chinese and Traditional Chinese (Taiwan). Traditional Chinese uses Taiwan wording; the app also recognizes Hong Kong/Macao and explicit Hant selections without claiming separate regional translations. Choose the app language in Settings; on Android 13+, it stays synchronized with Android’s per-app language setting.
+The app and the website include English, Arabic, Russian, Ukrainian, Spanish, Simplified Chinese, Traditional Chinese (Taiwan), Japanese, Italian, Korean and Turkish. Traditional Chinese uses Taiwan wording; the app also recognizes Hong Kong/Macao and explicit Hant selections without claiming separate regional translations. Choose the app language in Settings; on Android 13+, it stays synchronized with Android’s per-app language setting. See the [Traditional Chinese guide](README.zh-TW.md) for installation, settings, troubleshooting, privacy and build instructions.
 
 ## Source and credits
 

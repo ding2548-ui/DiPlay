@@ -8,6 +8,8 @@
     <string name="settings_navigation">導航</string>
     <string name="settings_vehicle">車輛</string>
     <string name="settings_advanced">進階</string>
+    <string name="settings_more">更多</string>
+    <string name="settings_swipe_advanced">進階（實驗性）</string>
     <string name="settings_advanced_subtitle">適合有經驗使用者的實驗性與車型專用設定</string>
     <string name="settings_advanced_caution_title">請謹慎變更</string>
     <string name="settings_advanced_caution_description">這些功能可能取決於車輛韌體、ADB 存取權或 CarPlay 的實驗性行為。日常設定位於上方各類別中。</string>

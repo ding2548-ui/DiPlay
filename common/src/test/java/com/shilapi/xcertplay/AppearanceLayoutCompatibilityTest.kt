@@ -35,8 +35,7 @@ class AppearanceLayoutCompatibilityTest {
                     ReflectionHelpers.setField(activity, "page", "settings")
                     ReflectionHelpers.callInstanceMethod<Unit>(activity, "openSettingsCategory",
                         ReflectionHelpers.ClassParameter(SettingsCategory::class.java, category))
-                    assertEquals(if (category == SettingsCategory.ABOUT) "about" else "settings",
-                        ReflectionHelpers.getField<String>(activity, "page"))
+                    assertEquals("settings", ReflectionHelpers.getField<String>(activity, "page"))
                 }
                 assertTrue(SettingsLayoutPreferences.isActive(activity))
                 assertFalse(AirPlayPersistence.loadHideTopBar(activity))
