@@ -1005,4 +1005,7 @@
     <string name="cluster_projection_shape_description">يُبقي وضع نصف الشاشة السرعة وحالة السيارة اللتين تعرضهما اللوحة عادةً بجانب الخريطة؛ أما ملء الشاشة فتغطي الخريطة اللوحة بالكامل. يضبط DiPlay هذا الشكل عند ظهور خريطة CarPlay، وإلا فإنه يلغي الشكل المختار في السيارة. يتطلب ADB عبر الشبكة على وحدة القيادة.</string>
     <string name="settings_cluster_speedometer_album_color">استخدام لون الألبوم لخلفية عداد السرعة</string>
     <string name="settings_cluster_speedometer_album_color_description">يطابق لون إطار الألبوم بانتقالات سلسة مع الحفاظ على التعتيم المحدد.</string>
+        <string name="settings_ambient_brightness">أقصى سطوع</string>
+    <string name="settings_ambient_car_rhythm_feed">إرسال بيانات الموسيقى إلى إيقاع السيارة (الأجهزة الأقدم)</string>
+    <string name="settings_ambient_car_rhythm_feed_description">في بعض الأجهزة (مثل هان 2023) يبدأ إيقاع السيارة لكن تبقى الإضاءة مظلمة لأن السيارة لا تولّد طيفًا خاصًا بها لموسيقى CarPlay. يرسل هذا الخيار نطاقات التردد الستة عشر للموسيقى المشغَّلة إلى وحدة التحكم بالإضاءة، فيتبعها إيقاع السيارة بما في ذلك لوحة الراكب. يعمل فقط عند تشغيل إيقاع موسيقى السيارة أعلاه ويحتاج إلى ADB الشبكي للسيارة.</string>
 </resources>

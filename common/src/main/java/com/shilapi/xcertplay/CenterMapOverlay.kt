@@ -86,9 +86,9 @@ internal object CenterMapOverlay {
     fun show(
         context: Context,
         aspect: Double,
-        mainAspect: Double = aspect,
         onSurface: (Surface?) -> Unit,
         onTap: () -> Unit,
+        mainAspect: Double = aspect,
     ): Boolean {
         if (root != null) return true
         if (!aspect.isFinite() || aspect <= 0) return false
