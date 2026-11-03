@@ -27,6 +27,9 @@ class SettingsTranslationsTest {
     private fun strings(folder: File): Map<String, String> = folder.listFiles { file -> file.extension == "xml" }!!
         .flatMap { file ->
             val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file).getElementsByTagName("string")
-            (0 until nodes.length).map { nodes.item(it) }.map { it.attributes.getNamedItem("name").nodeValue to it.textContent }
+            (0 until nodes.length).map { nodes.item(it) }
+                // 零跑专用文案标为 translatable="false"，只有英文和简体中文
+                .filter { it.attributes.getNamedItem("translatable")?.nodeValue != "false" }
+                .map { it.attributes.getNamedItem("name").nodeValue to it.textContent }
         }.toMap()
 }

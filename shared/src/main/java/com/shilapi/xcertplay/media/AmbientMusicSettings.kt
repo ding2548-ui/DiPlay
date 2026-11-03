@@ -24,7 +24,12 @@ object AmbientMusicSettings {
          */
         val brightness: Int = 0, val flowBrightness: Int = FLOW_BRIGHTNESS_DEFAULT,
         val area: Int = 3,
-        val colorSource: AmbientColorSource = AmbientColorSource.SELECTED)
+        val colorSource: AmbientColorSource = AmbientColorSource.SELECTED,
+        val idle: AmbientIdleBehavior = AmbientIdleBehavior.STEADY,
+        // The car's own music rhythm while CarPlay music plays; DiPlay then leaves the lamps to the car.
+        val carRhythm: Boolean = false,
+        // Sends the played music's spectrum to the car for that rhythm, where the car makes none of its own.
+        val carRhythmFeed: Boolean = false)
 
     fun load(context: Context): Values {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -48,21 +53,25 @@ object AmbientMusicSettings {
                 .coerceIn(FLOW_BRIGHTNESS_RANGE.first, FLOW_BRIGHTNESS_RANGE.last),
             area = integer("area", 3).coerceIn(1, 3),
             colorSource = runCatching { AmbientColorSource.valueOf(text("colorSource", "SELECTED")) }.getOrDefault(AmbientColorSource.SELECTED),
-        )
+                        idle = runCatching { AmbientIdleBehavior.valueOf(text("idle", "STEADY")) }.getOrDefault(AmbientIdleBehavior.STEADY),
+            carRhythm = boolean("carRhythm", false),
+            carRhythmFeed = boolean("carRhythmFeed", false),
+                    )
     }
-
     fun save(context: Context, values: Values) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("enabled", values.enabled).putBoolean("music", values.music)
             .putBoolean("colorCycle", values.colorCycle).putString("colorMode", values.colorMode.name)
             .putString("speed", values.speed.name).putString("colorSource", values.colorSource.name)
+            .putString("idle", values.idle.name)
             .putString("flowMode", values.flowMode.name)
             .putStringSet("selectedColors", normalizeAmbientPalette(values.selectedColors, values.color).map { it.toString() }.toSet())
             .putInt("color", values.color.coerceIn(1, 31))
             .putInt("brightness", values.brightness.coerceIn(0, 6))
             .putInt("flowBrightness", values.flowBrightness
                 .coerceIn(FLOW_BRIGHTNESS_RANGE.first, FLOW_BRIGHTNESS_RANGE.last))
-            .putInt("area", values.area.coerceIn(1, 3)).apply()
+            .putInt("area", values.area.coerceIn(1, 3)).putBoolean("carRhythm", values.carRhythm)
+            .putBoolean("carRhythmFeed", values.carRhythmFeed).apply()
         AmbientMusicController.settingsChanged(context)
     }
 }

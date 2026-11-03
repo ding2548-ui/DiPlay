@@ -99,7 +99,6 @@ object AmbientAlbumPalette {
 
 internal fun ambientColorPalette(source: AmbientColorSource, selected: List<Int>, albumColor: Int?): List<Int> {
     if (source == AmbientColorSource.SELECTED) return normalizeAmbientPalette(selected)
-    // 专辑封面尚未解析出颜色时回退到用户选中的色板（而不是全部 31 色乱跳）。
-    val center = albumColor?.takeIf { it in 1..31 } ?: return normalizeAmbientPalette(selected)
+    val center = albumColor?.takeIf { it in 1..31 } ?: return (1..31).toList()
     return AmbientAlbumPalette.neighbors(center)
 }

@@ -9,11 +9,7 @@ internal class NavigationWheelKeyPolicy {
 
     fun onKey(action: Int, key: Int, device: Int, downTime: Long, repeat: Int,
         eligible: Boolean, adjust: (Int) -> Boolean): Boolean {
-        val delta = when (key) {
-            24, 291, 307 -> 1
-            25, 292, 308 -> -1
-            else -> return false
-        }
+        val delta = volumeStep(key) ?: return false
         val press = Press(device, key, downTime)
         if (action == 1) return consumed.remove(press)
         if (action != 0) return false
@@ -25,6 +21,15 @@ internal class NavigationWheelKeyPolicy {
         if (repeat != 0 || !eligible || !adjust(delta)) return false
         consumed.add(press)
         return true
+    }
+
+    companion object {
+        /** +1 or -1 for a volume key, Android's or BYD's; null for any other key. */
+        fun volumeStep(key: Int): Int? = when (key) {
+            24, 291, 307 -> 1
+            25, 292, 308 -> -1
+            else -> null
+        }
     }
 }
 

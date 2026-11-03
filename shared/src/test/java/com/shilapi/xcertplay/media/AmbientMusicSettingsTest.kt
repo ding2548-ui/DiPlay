@@ -84,6 +84,14 @@ class AmbientMusicSettingsTest {
         assertEquals(AmbientIdleBehavior.STEADY, values.idle)
     }
 
+    @Test fun carRhythmFeedRoundTripsAndDefaultsOff() {
+        assertFalse(AmbientMusicSettings.load(context).carRhythmFeed)
+        AmbientMusicSettings.save(context, AmbientMusicSettings.Values(carRhythm = true, carRhythmFeed = true))
+        assertTrue(AmbientMusicSettings.load(context).carRhythmFeed)
+        AmbientMusicSettings.save(context, AmbientMusicSettings.Values(carRhythm = true))
+        assertFalse(AmbientMusicSettings.load(context).carRhythmFeed)
+    }
+
     @Test fun idleChoiceRoundTripsAndUnknownValuesFallBackToTheSteadyGlow() {
         AmbientMusicSettings.save(context, AmbientMusicSettings.Values(idle = AmbientIdleBehavior.CAR))
         assertEquals(AmbientIdleBehavior.CAR, AmbientMusicSettings.load(context).idle)

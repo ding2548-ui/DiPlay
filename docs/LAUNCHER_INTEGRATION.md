@@ -44,10 +44,13 @@ Size and place are remembered. The card goes when you open another app and comes
 In DiPlay settings, under the dashboard map, turn on **Dashboard map on the centre screen** (off by default) and give two permissions:
 
 - **Draw over other apps**: the settings screen offers it, or over ADB:
+
   ```bash
   adb shell appops set com.shihab.diplay SYSTEM_ALERT_WINDOW allow
   ```
+
 - **Usage Access**, so the card shows only on home screens. Without it, the card shows over every app:
+
   ```bash
   adb shell appops set com.shihab.diplay GET_USAGE_STATS allow
   ```
@@ -107,6 +110,7 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
 ### Steps
 
 1. Declare that you look for DiPlay (package visibility on Android 11+):
+
    ```xml
    <queries>
        <intent>
@@ -114,7 +118,9 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
        </intent>
    </queries>
    ```
+
 2. Find and bind the service:
+
    ```kotlin
    val intent = Intent("com.shihab.diplay.action.EMBED_MAP")
    val info = packageManager.queryIntentServices(intent, 0).firstOrNull()?.serviceInfo
@@ -122,7 +128,9 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
    intent.setClassName(info.packageName, info.name)
    bindService(intent, connection, Context.BIND_AUTO_CREATE)
    ```
+
 3. Once the service is connected and your `SurfaceView` has its surface, ask for the map:
+
    ```kotlin
    service.send(Message.obtain(null, 1 /* ATTACH */).apply {
        data = Bundle().apply {
@@ -134,7 +142,9 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
        replyTo = replies
    })
    ```
+
 4. Handle the replies:
+
    ```kotlin
    val replies = Messenger(Handler(Looper.getMainLooper()) { message ->
        when (message.what) {
@@ -146,6 +156,7 @@ The map is 8:3. If your view has another shape, DiPlay fills it and crops the ed
        true
    })
    ```
+
 5. Send RESIZE (`2`) from `surfaceChanged`. Send DETACH (`3`) and unbind when your screen stops. DiPlay also cleans up when your process dies.
 
 ### Notes
@@ -192,17 +203,23 @@ Behaviour:
 It runs without system privileges. BYD's home stays installed, and the **BYD home** button opens it.
 
 - **Widgets.** A launcher needs the owner's consent to bind widgets. BYD head units have no consent screen, so allow it once over ADB:
+
   ```bash
   adb shell appwidget grantbind --package com.diplay.home --user 0
   ```
+
 - **Making it the home screen.** Pick it as the default home app, or over ADB:
+
   ```bash
   adb shell cmd package set-home-activity com.diplay.home/.HomeActivity
   ```
+
 - **Going back to BYD's home:**
+
   ```bash
   adb shell cmd package set-home-activity com.android.launcher3/.home.MainActivity
   ```
+
   BYD's map-mode button also returns to BYD's home, because BYD's own home list contains only BYD launchers.
 
 ## Troubleshooting

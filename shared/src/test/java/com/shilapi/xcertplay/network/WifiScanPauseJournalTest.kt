@@ -26,20 +26,19 @@ class WifiScanPauseJournalTest {
         val journal = storage.journal()
         var enabled = true
         val session = WifiScanPauseSession(
-            transactionCode = { 62 },
-            setEnabled = { _, value -> enabled = value; true },
+            setEnabled = { value -> enabled = value; WifiScanSwitchResult.DONE },
             loadJournal = { journal.pending },
             saveJournal = journal::save,
         )
-        assertFalse(session.acquire(Any()) { true })
+        assertFalse(session.acquire(Any()) { true }.paused)
         assertTrue(storage.memory)
         assertFalse(storage.disk)
         assertFalse(journal.pending)
-        assertFalse(session.acquire(Any()) { true })
+        assertFalse(session.acquire(Any()) { true }.paused)
         assertTrue(enabled)
         storage.writable = true
         val owner = Any()
-        assertTrue(session.acquire(owner) { true })
+        assertTrue(session.acquire(owner) { true }.paused)
         assertTrue(storage.disk)
         assertFalse(enabled)
         assertTrue(session.release(owner))
