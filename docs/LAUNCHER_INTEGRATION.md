@@ -280,9 +280,6 @@ current maneuver these keys are absent. `supported` (boolean) is present once th
 navigation app has declared SourceSupportsRouteGuidance in this session; AMap declares
 false until its "CarPlay dashboard" switch (更多 → CarPlay仪表盘投屏) is on.
 
-The Xiaoling build uses the package `com.shihab.diplay.xl` so it installs beside the
-official app; build it with `scripts/build-xiaoling.sh`.
-
 The Xiaoling repository contains `tools/test-diplay-android.sh`: on a dedicated
 API 25 emulator it compiles the actual `MapSurfaceEndpoint` with a test-only
 AVC producer in a separate APK and runs the production Xiaoling Surface/GL/AVC/HMI
