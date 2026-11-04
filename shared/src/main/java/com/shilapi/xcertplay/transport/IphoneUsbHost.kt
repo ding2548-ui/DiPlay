@@ -142,6 +142,9 @@ class IphoneUsbHost(
                 return PermissionRequest.AdbRequired(device)
             }
         }
+        // Arm the accessibility fallback for the prompt this call is about to raise. Disarmed as
+        // soon as the result arrives, and it expires on its own if the user never answers.
+        UsbPermissionArming.arm("${device.vendorId}:${device.productId} ${device.deviceName}")
         usbManager.requestPermission(device, permissionPendingIntent())
         return PermissionRequest.Requested(
             device,
@@ -154,11 +157,11 @@ class IphoneUsbHost(
         if (intent.action != permissionAction) return null
         val device = intent.usbDevice() ?: return null
         if (!matcher.matches(device.vendorId, device.productId)) return null
-        return if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-            PermissionResult.Granted(device)
-        } else {
-            PermissionResult.Denied(device)
-        }
+        val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+        // The wired flow can raise the prompt a second time for the re-enumerated device, so a
+        // granted result leaves the arming to expire on its own. A denial ends the attempt.
+        if (!granted) UsbPermissionArming.disarm()
+        return if (granted) PermissionResult.Granted(device) else PermissionResult.Denied(device)
     }
 
     /** Returns the new matching device after the vendor request caused Android USB re-enumeration. */

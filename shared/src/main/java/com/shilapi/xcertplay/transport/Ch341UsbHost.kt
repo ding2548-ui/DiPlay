@@ -60,6 +60,7 @@ class Ch341UsbHost(
         requireConfiguredDevice(device)
         if (usbManager.hasPermission(device)) return PermissionRequest.AlreadyGranted(device)
 
+        UsbPermissionArming.arm("${device.vendorId}:${device.productId} ${device.deviceName}")
         usbManager.requestPermission(device, permissionPendingIntent())
         return PermissionRequest.Requested(device)
     }
@@ -69,11 +70,9 @@ class Ch341UsbHost(
         if (intent.action != permissionAction) return null
         val device = intent.usbDevice() ?: return null
         if (!matcher.matches(device.vendorId, device.productId)) return null
-        return if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-            PermissionResult.Granted(device)
-        } else {
-            PermissionResult.Denied(device)
-        }
+        val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+        if (!granted) UsbPermissionArming.disarm()
+        return if (granted) PermissionResult.Granted(device) else PermissionResult.Denied(device)
     }
 
     /** Register once for this host instance and close the returned handle to unregister it. */

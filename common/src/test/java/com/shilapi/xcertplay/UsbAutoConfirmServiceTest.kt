@@ -1,7 +1,12 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.os.SystemClock
 import android.provider.Settings
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import com.shilapi.xcertplay.transport.UsbPermissionArming
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -21,6 +26,12 @@ class UsbAutoConfirmServiceTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
+        UsbPermissionArming.disarm()
+    }
+
+    @After
+    fun tearDown() {
+        UsbPermissionArming.disarm()
     }
 
     @Test
@@ -50,10 +61,7 @@ class UsbAutoConfirmServiceTest {
         assertFalse(UsbAutoConfirmService.openSettings(unavailable))
     }
 
-    // The exact AOSP activity allow-list ("com.android.systemui" plus the two Usb*PermissionActivity
-    // names) was removed: it only ever matched a stock ROM, and on the car's vendor ROM the prompt
-    // comes from a different component, so the service rejected the window before reading any of its
-    // content. The window's text is the gate now, which is what these two cases pin down.
+    // The window content is what decides the prompt; these cases pin down the wording.
     @Test fun promptContentIsWhatDecides() {
         assertTrue(UsbAutoConfirmService.isTargetPrompt("允许 DiPlay 访问 USB 设备？", "DiPlay"))
         assertFalse(UsbAutoConfirmService.isTargetPrompt("允许 其他应用 访问 USB 设备？", "DiPlay"))
@@ -96,34 +104,127 @@ class UsbAutoConfirmServiceTest {
         )
     }
 
+    @Test fun armingExpiresOnItsOwn() {
+        UsbPermissionArming.arm("test")
+        val now = SystemClock.uptimeMillis()
+        assertTrue(UsbPermissionArming.isArmed(now))
+        assertFalse(UsbPermissionArming.isArmed(now + 46_000))
+    }
+
+    @Test fun nothingIsClickedWithoutAUsbPermissionRequest() {
+        val service = service()
+        val prompt = prompt(service)
+        org.mockito.Mockito.doReturn(prompt.root).`when`(service).rootInActiveWindow
+        service.onAccessibilityEvent(stateChanged())
+        org.mockito.Mockito.verify(prompt.confirm, org.mockito.Mockito.never())
+            .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    @Test fun armedServiceIgnoresWindowsOwnedByOtherApps() {
+        val service = service()
+        val prompt = prompt(service, pkg = "com.example.music")
+        org.mockito.Mockito.doReturn(prompt.root).`when`(service).rootInActiveWindow
+        UsbPermissionArming.arm("test")
+        service.onAccessibilityEvent(stateChanged())
+        org.mockito.Mockito.verify(prompt.confirm, org.mockito.Mockito.never())
+            .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    @Test fun armedServiceRequiresTheDialogButtonPair() {
+        val service = service()
+        val prompt = prompt(service, withCancel = false)
+        org.mockito.Mockito.doReturn(prompt.root).`when`(service).rootInActiveWindow
+        UsbPermissionArming.arm("test")
+        service.onAccessibilityEvent(stateChanged())
+        org.mockito.Mockito.verify(prompt.confirm, org.mockito.Mockito.never())
+            .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    @Test fun everyPromptWindowIsConfirmedEvenWhenItReusesTheId() {
+        val service = service()
+        val prompt = prompt(service)
+        org.mockito.Mockito.doReturn(prompt.root).`when`(service).rootInActiveWindow
+        UsbPermissionArming.arm("test")
+        // The wired flow raises the prompt twice, and the second window can get the same id.
+        service.onAccessibilityEvent(stateChanged())
+        service.onAccessibilityEvent(stateChanged())
+        org.mockito.Mockito.verify(prompt.confirm, org.mockito.Mockito.times(2))
+            .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
     @Test fun systemUsbPromptClicksOnlyWhenTheNamedAppMatches() {
-        val service = org.mockito.Mockito.spy(org.robolectric.Robolectric.buildService(UsbAutoConfirmService::class.java).create().get())
-        val root = org.mockito.Mockito.mock(android.view.accessibility.AccessibilityNodeInfo::class.java)
-        val button = org.mockito.Mockito.mock(android.view.accessibility.AccessibilityNodeInfo::class.java)
-        org.mockito.Mockito.doReturn(root).`when`(service).rootInActiveWindow
-        org.mockito.Mockito.`when`(root.windowId).thenReturn(42)
-        org.mockito.Mockito.`when`(root.packageName).thenReturn("com.android.systemui")
-        org.mockito.Mockito.`when`(root.childCount).thenReturn(1)
-        org.mockito.Mockito.`when`(root.getChild(0)).thenReturn(button)
-        org.mockito.Mockito.`when`(button.isEnabled).thenReturn(true)
-        org.mockito.Mockito.`when`(button.isClickable).thenReturn(true)
-        org.mockito.Mockito.`when`(button.viewIdResourceName).thenReturn("android:id/button1")
-        org.mockito.Mockito.`when`(button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)).thenReturn(true)
-        val event = org.mockito.Mockito.mock(android.view.accessibility.AccessibilityEvent::class.java)
-        org.mockito.Mockito.`when`(event.eventType).thenReturn(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
-        org.mockito.Mockito.`when`(event.packageName).thenReturn("com.android.systemui")
-        org.mockito.Mockito.`when`(event.className).thenReturn("com.android.systemui.usb.UsbPermissionActivity")
-        org.mockito.Mockito.`when`(event.windowId).thenReturn(42)
+        val service = service()
+        val label = service.applicationInfo.loadLabel(service.packageManager)
+        val prompt = prompt(service)
+        org.mockito.Mockito.doReturn(prompt.root).`when`(service).rootInActiveWindow
+        UsbPermissionArming.arm("test")
         try {
-            org.mockito.Mockito.`when`(root.text).thenReturn("Allow OtherApp to access this USB device?")
-            service.onAccessibilityEvent(event)
-            org.mockito.Mockito.verify(button, org.mockito.Mockito.never()).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
-            val label = service.applicationInfo.loadLabel(service.packageManager)
-            org.mockito.Mockito.`when`(root.text).thenReturn("Allow $label to access this USB device?")
-            service.onAccessibilityEvent(event)
-            org.mockito.Mockito.verify(button).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+            org.mockito.Mockito.`when`(prompt.message.text)
+                .thenReturn("Allow OtherApp to access this USB device?")
+            service.onAccessibilityEvent(stateChanged())
+            org.mockito.Mockito.verify(prompt.confirm, org.mockito.Mockito.never())
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            org.mockito.Mockito.`when`(prompt.message.text)
+                .thenReturn("Allow $label to access this USB device?")
+            service.onAccessibilityEvent(stateChanged())
+            org.mockito.Mockito.verify(prompt.confirm)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK)
         } finally {
-            event.recycle()
+            UsbPermissionArming.disarm()
         }
+    }
+
+    private fun service(): UsbAutoConfirmService =
+        org.mockito.Mockito.spy(
+            org.robolectric.Robolectric.buildService(UsbAutoConfirmService::class.java).create().get(),
+        )
+
+    private class Dialog(
+        val root: AccessibilityNodeInfo,
+        val message: AccessibilityNodeInfo,
+        val confirm: AccessibilityNodeInfo,
+    )
+
+    /** Message plus a confirm/cancel row, shaped like the system's AlertDialog. */
+    private fun prompt(
+        service: UsbAutoConfirmService,
+        pkg: String = "android",
+        withCancel: Boolean = true,
+    ): Dialog {
+        val label = service.applicationInfo.loadLabel(service.packageManager)
+        val message = leaf(id = "android:id/message", text = "Allow $label to access this USB device?")
+        val confirm = leaf(id = "android:id/button1", text = "OK", clickable = true)
+        val cancel = leaf(id = "android:id/button2", text = "Cancel", clickable = true)
+        val children = if (withCancel) listOf(message, confirm, cancel) else listOf(message, confirm)
+        val root = org.mockito.Mockito.mock(AccessibilityNodeInfo::class.java).also { node ->
+            org.mockito.Mockito.`when`(node.packageName).thenReturn(pkg)
+            org.mockito.Mockito.`when`(node.windowId).thenReturn(WINDOW_ID)
+            org.mockito.Mockito.`when`(node.childCount).thenReturn(children.size)
+            children.forEachIndexed { index, child ->
+                org.mockito.Mockito.`when`(node.getChild(index)).thenReturn(child)
+            }
+        }
+        return Dialog(root, message, confirm)
+    }
+
+    private fun leaf(id: String? = null, text: String? = null, clickable: Boolean = false): AccessibilityNodeInfo =
+        org.mockito.Mockito.mock(AccessibilityNodeInfo::class.java).also { node ->
+            org.mockito.Mockito.`when`(node.viewIdResourceName).thenReturn(id)
+            org.mockito.Mockito.`when`(node.text).thenReturn(text)
+            org.mockito.Mockito.`when`(node.isClickable).thenReturn(clickable)
+            org.mockito.Mockito.`when`(node.isEnabled).thenReturn(true)
+            org.mockito.Mockito.`when`(node.isCheckable).thenReturn(false)
+            org.mockito.Mockito.`when`(node.performAction(AccessibilityNodeInfo.ACTION_CLICK)).thenReturn(true)
+        }
+
+    private fun stateChanged(): AccessibilityEvent =
+        org.mockito.Mockito.mock(AccessibilityEvent::class.java).also { event ->
+            org.mockito.Mockito.`when`(event.eventType)
+                .thenReturn(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
+            org.mockito.Mockito.`when`(event.windowId).thenReturn(WINDOW_ID)
+        }
+
+    private companion object {
+        const val WINDOW_ID = 42
     }
 }

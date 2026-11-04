@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  No android:packageNames filter on purpose. It used to be "com.android.systemui,android", which is
-  where AOSP puts UsbPermissionActivity — but this head unit is a vendor car ROM, and when the USB
-  prompt comes from a different package the service receives no events at all and stays silent. The
-  service decides by window content instead (the prompt must name this app and mention USB), so the
-  filter only ever cost coverage. Events are cheap: the handler bails out as soon as the window is
-  not a USB prompt.
+  Keep the package filter. It used to be blamed for the service staying silent, but the silence
+  came from the handler rejecting every window before reading a node; the handler now decides from
+  the window content, and only acts between our own requestPermission() call and its result. Every
+  system USB prompt seen on the supported head units is owned by one of these two packages, and
+  widening the filter would feed every app's dialogs into a service that clicks "OK".
+  "android" covers vendor ROMs that host the AlertDialog in the system process rather than
+  systemui. If a prompt is ever confirmed to come from another package, add it here deliberately.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/usb_auto_confirm_desc"

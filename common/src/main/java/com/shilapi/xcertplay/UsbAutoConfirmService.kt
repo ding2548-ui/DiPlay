@@ -10,6 +10,7 @@ import android.text.TextUtils
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.shilapi.xcertplay.transport.UsbPermissionArming
 
 /**
  * An accessibility service to automatically check "Always allow / Use by default"
@@ -19,45 +20,57 @@ import android.view.accessibility.AccessibilityNodeInfo
  * manifest, granted to the platform-signed build): the platform's USB permission check returns true
  * outright for a caller holding it, so the dialog is never shown in the first place. The service
  * matters when that permission did not land, and it has to cope with a vendor ROM whose prompt is
- * not the AOSP one — see [isUsbPromptCandidate].
+ * not the AOSP one — see [isTargetPrompt].
+ *
+ * It acts only while [UsbPermissionArming] is armed by an actual `UsbManager.requestPermission()`
+ * call, and then only on a system-owned AlertDialog that names this app and a USB device and has a
+ * confirm/cancel pair. The service stays enabled from boot, so anything looser clicks unrelated
+ * "OK" buttons: a settings page or another player's dialog that happens to mention DiPlay and USB.
  */
 class UsbAutoConfirmService : AccessibilityService() {
 
     private var lastClickTime = -DEBOUNCE_MILLIS
     private var usbWindowId: Int? = null
-    private var ignoredWindowId: Int? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        // Nothing may be clicked outside a USB permission request.
+        if (!UsbPermissionArming.isArmed()) return
+        val stateChange = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        if (stateChange) {
             // Every new window is a candidate. The prompt's package and activity name differ
             // between ROMs, so the decision is made from the window's content below; recording the
             // id here just keeps the content scan off unrelated windows.
             usbWindowId = event.windowId
         }
-        if (usbWindowId != event.windowId) return
+        val windowId = event.windowId
+        if (usbWindowId != windowId) return
         val now = SystemClock.uptimeMillis()
-        if (now - lastClickTime < DEBOUNCE_MILLIS) return
+        // The wired flow legitimately raises the prompt twice (the re-enumerated device asks
+        // again), and the second window can be handed the first one's id, so a new window is
+        // always examined. Only redraws of the same prompt are throttled.
+        if (!stateChange && now - lastClickTime < DEBOUNCE_MILLIS) return
         val root = runCatching { rootInActiveWindow }.getOrNull() ?: return
         try {
-            if (root.windowId != usbWindowId) return
-            if (!isUsbPromptCandidate(root.packageName?.toString())) return
-            val texts = mutableListOf<String>()
-            visit(root) { node ->
-                node.text?.toString()?.let(texts::add)
-                node.contentDescription?.toString()?.let(texts::add)
-                false
+            if (root.windowId != windowId) return
+            // A window id can be reused, and only the system may own a USB permission prompt.
+            if (!isSystemPromptWindow(root)) {
+                decline(root, "window")
+                return
             }
-            val joined = texts.joinToString(" ")
             val appLabel = applicationInfo.loadLabel(packageManager).toString()
-            // Forensics: without this the service is silent about the prompts it declines to touch,
-            // and "the dialog still appears" cannot be told apart from "the service never saw it".
-            if (joined.contains("USB", ignoreCase = true)) {
-                report(
-                    "usb auto-confirm: window pkg=${root.packageName} texts=${joined.take(160)}",
-                )
+            // Prefer the dialog's own title/message, but keep the whole-window fallback for vendor
+            // prompts that do not use the AOSP ids.
+            val target = isTargetPrompt(promptText(root), appLabel) ||
+                isTargetPrompt(allText(root), appLabel)
+            if (!target) {
+                decline(root, "prompt")
+                return
             }
-            if (!isTargetPrompt(joined, appLabel)) return
+            if (!hasConfirmAndCancel(root)) {
+                decline(root, "buttons")
+                return
+            }
             // Only the system USB dialog's optional default checkbox may be changed.
             visit(root) { node ->
                 node.isCheckable && !node.isChecked && node.isEnabled &&
@@ -65,11 +78,7 @@ class UsbAutoConfirmService : AccessibilityService() {
                     node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
             val confirmed = visit(root) { node ->
-                if (!node.isEnabled || !node.isClickable) return@visit false
-                val label = node.text?.toString()?.trim().orEmpty()
-                val matches = node.viewIdResourceName == CONFIRM_BUTTON_ID ||
-                    (label.isNotEmpty() && CONFIRM_LABELS.any { label.contains(it, ignoreCase = true) })
-                matches && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                isConfirmButton(node) && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
             if (confirmed) {
                 lastClickTime = now
@@ -84,6 +93,59 @@ class UsbAutoConfirmService : AccessibilityService() {
 
     override fun onInterrupt() { usbWindowId = null }
 
+    /** Only the system can own the USB permission prompt. */
+    private fun isSystemPromptWindow(root: AccessibilityNodeInfo): Boolean {
+        val pkg = root.packageName?.toString() ?: return false
+        return pkg in PROMPT_PACKAGES
+    }
+
+    /** The prompt is an AlertDialog: without its cancel button this is some other window. */
+    private fun hasConfirmAndCancel(root: AccessibilityNodeInfo): Boolean {
+        var confirm = false
+        var cancel = false
+        visit(root) { node ->
+            if (isConfirmButton(node)) confirm = true
+            if (isCancelButton(node)) cancel = true
+            confirm && cancel
+        }
+        return confirm && cancel
+    }
+
+    private fun isConfirmButton(node: AccessibilityNodeInfo): Boolean =
+        node.isEnabled && node.isClickable && !node.isCheckable &&
+            (node.viewIdResourceName == CONFIRM_BUTTON_ID || labeledWith(node, CONFIRM_LABELS))
+
+    private fun isCancelButton(node: AccessibilityNodeInfo): Boolean =
+        node.isEnabled && node.isClickable && !node.isCheckable &&
+            (node.viewIdResourceName == CANCEL_BUTTON_ID || labeledWith(node, CANCEL_LABELS))
+
+    private fun labeledWith(node: AccessibilityNodeInfo, labels: List<String>): Boolean {
+        val text = node.text?.toString()?.trim().orEmpty()
+        return text.isNotEmpty() && labels.any { text.contains(it, ignoreCase = true) }
+    }
+
+    private fun promptText(root: AccessibilityNodeInfo): String {
+        val parts = mutableListOf<String>()
+        visit(root) { node ->
+            if (node.viewIdResourceName == MESSAGE_ID || node.viewIdResourceName == TITLE_ID) {
+                node.text?.toString()?.let(parts::add)
+                node.contentDescription?.toString()?.let(parts::add)
+            }
+            false
+        }
+        return parts.joinToString(" ")
+    }
+
+    private fun allText(root: AccessibilityNodeInfo): String {
+        val texts = mutableListOf<String>()
+        visit(root) { node ->
+            node.text?.toString()?.let(texts::add)
+            node.contentDescription?.toString()?.let(texts::add)
+            false
+        }
+        return texts.joinToString(" ")
+    }
+
     private fun mentionsDefault(node: AccessibilityNodeInfo): Boolean {
         val text = listOfNotNull(node.text?.toString(), node.contentDescription?.toString())
             .joinToString(" ")
@@ -91,18 +153,16 @@ class UsbAutoConfirmService : AccessibilityService() {
     }
 
     /**
-     * True when [pkg] is a package that could be showing the system's USB prompt.
-     *
-     * This replaces an exact allow-list of "com.android.systemui" plus the two AOSP activity names.
-     * That matched a stock ROM only: on this head unit the prompt comes from a different component,
-     * and an exact class-name comparison rejected the window before a single node was read, so the
-     * service stayed silent no matter how the permission had been granted. The window's content is
-     * the gate now — it has to name this app and mention USB ([isTargetPrompt]) — and the only
-     * package rule left is that the service never acts on its own windows.
+     * Keeps the report useful without logging every screen: a declined window is only reported when
+     * it actually contains a word that made the service look at it.
      */
-    private fun isUsbPromptCandidate(pkg: String?): Boolean {
-        val name = pkg ?: return false
-        return name != packageName
+    private fun decline(root: AccessibilityNodeInfo, stage: String) {
+        val text = allText(root)
+        val appLabel = applicationInfo.loadLabel(packageManager).toString()
+        val interesting = USB_DEVICE_WORDS.containsMatchIn(text) ||
+            (appLabel.isNotBlank() && text.contains(appLabel, ignoreCase = true))
+        if (!interesting) return
+        report("usb auto-confirm: declined stage=$stage pkg=${root.packageName} text=${text.take(160)}")
     }
 
     private fun report(message: String) {
@@ -130,6 +190,12 @@ class UsbAutoConfirmService : AccessibilityService() {
         private const val DEBOUNCE_MILLIS = 800L
         private const val ALWAYS_USE_ID = "android:id/alwaysUse"
         private const val CONFIRM_BUTTON_ID = "android:id/button1"
+        private const val CANCEL_BUTTON_ID = "android:id/button2"
+        private const val MESSAGE_ID = "android:id/message"
+        private const val TITLE_ID = "android:id/alertTitle"
+
+        /** Packages that can own the system USB permission prompt on the supported head units. */
+        internal val PROMPT_PACKAGES = setOf("com.android.systemui", "android")
 
         /**
          * Where diagnostics go: both the logcat line and the app's exported report. The system
@@ -143,6 +209,9 @@ class UsbAutoConfirmService : AccessibilityService() {
         private val CONFIRM_LABELS = listOf(
             "确定", "确认", "允许", "同意", "OK", "Allow", "Confirm", "Agree", "Accept", "Yes",
         )
+
+        /** The prompt always offers a way out; without it the window is not the prompt. */
+        private val CANCEL_LABELS = listOf("取消", "拒绝", "否", "Cancel", "Deny", "No")
 
         /** Substring matches for the optional "always allow for this device" checkbox. */
         private val DEFAULT_LABELS = listOf("默认", "始终", "always", "default")
