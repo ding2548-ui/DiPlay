@@ -56,6 +56,16 @@ internal class BydHudRouteState(
     private var noRouteSinceNs: Long? = null
     private var holdingAcrossDrop = false
 
+    /**
+     * RouteGuidanceUpdate 0x14 SourceSupportsRouteGuidance as last sent; null until the phone says.
+     * AMap sends false (with only its SourceName) until its "CarPlay dashboard" switch is on.
+     */
+    var sourceSupportsGuidance: Boolean? = null
+        private set
+
+    /** A route ending keeps [sourceSupportsGuidance]; a new CarPlay session forgets it. */
+    fun forgetSource() { sourceSupportsGuidance = null }
+
     fun accept(messageId: Int, payload: ByteArray): BydHudRouteChange {
         if (!validTlvs(payload)) return BydHudRouteChange.NONE
         return when (messageId) {
@@ -128,6 +138,9 @@ internal class BydHudRouteState(
     private fun roadFor(maneuver: Maneuver): String = maneuver.afterRoad.ifEmpty { currentRoad }
 
     private fun parseRouteUpdate(data: ByteArray): BydHudRouteChange {
+        forEachTlv(data) { type, value, valueLength ->
+            if (type == 0x14 && valueLength >= 1) sourceSupportsGuidance = data[value] != 0.toByte()
+        }
         // A teardown NoRouteSet is not fresh guidance. Do not let repeated teardown frames
         // extend the retained instruction's lifetime or replace its road/arrival metadata.
         if (keepAcrossNoRoute) {

@@ -235,3 +235,54 @@ It runs without system privileges. BYD's home stays installed, and the **BYD hom
 | Embedded map stays on "waiting" | CarPlay is not connected, or "CarPlay map on instrument cluster" is off. |
 | Widget says "CarPlay is not connected" while CarPlay works | Open DiPlay once after installing it; the widget follows the running session. |
 | Bubble is missing | "Home-screen bubble" is on, "Draw over other apps" is allowed, and no DiPlay screen is in front. |
+
+## Surface output for Xiaoling instrument clusters (fork extension, protocol v1)
+
+This fork also exports `com.shihab.diplay.action.MAP_SURFACE` on Android API 25+.
+It sends the independent instrument-cluster video to a client-owned `Surface`,
+without `SurfaceControlViewHost`. The existing **Share the live map with other
+launchers** consent switch controls both interfaces. **CarPlay map on instrument
+cluster** must also be enabled. This interface does not enable a CarPlay session,
+change its negotiated dimensions, or route to BYD hardware.
+
+Only UIDs containing `local.t03.xiaoling` or `com.iflytek.cutefly.speechclient` may
+attach (up to two simultaneous clients). This is a package allowlist, not a
+cryptographic identity guarantee; consent remains necessary. Video uses a separate
+mirror decoder and does not take ownership of the primary display output.
+
+Discover the service by action in the selected DiPlay package and explicitly bind.
+Every Messenger message must carry `replyTo`:
+
+| Direction | what | Bundle |
+| --- | --- | --- |
+| Client → DiPlay | 1 ATTACH | `version` int = 1, `surface` Parcelable Surface |
+| Client → DiPlay | 3 DETACH | none |
+| DiPlay → client | 101 ATTACHED / 102 STATE | `version` int, `active` boolean, `navigating` boolean, `aspect` double, optional guidance keys (below) |
+| DiPlay → client | 199 ERROR | `version` int, `error` string |
+
+Errors: `forbidden`, `disabled`, `version`, `bad_surface`, `busy`, `bad_request`,
+`output_failed`. STATE arrives on stream changes and every second while attached.
+`navigating` reflects the current, expiring CarPlay route guidance; it is not a
+promise that every navigation application supplies route metadata. `aspect` is
+the negotiated stream aspect, not the destination surface size. Consumers must
+preserve that aspect when encoding a different canvas and stop displaying stale
+pictures when inactive or when the heartbeat times out.
+
+DETACH, client death, service destruction, or consent revocation removes the
+mirror and releases the service's received Surface reference. The client owns
+its original reference. Consent restoration requires a new ATTACH. The v1
+bridge exports no audio or input events.
+
+ATTACHED and STATE may also carry the raw iAP2 route guidance for clients that draw their own
+turn card: `maneuver` (Apple RouteGuidanceManeuverType), `side`, `dist` (m), `road`,
+and when the phone sends them `rdist` (m), `rtime` (s), `arrival` (epoch s). Without a
+current maneuver these keys are absent. `supported` (boolean) is present once the
+navigation app has declared SourceSupportsRouteGuidance in this session; AMap declares
+false until its "CarPlay dashboard" switch (更多 → CarPlay仪表盘投屏) is on.
+
+The Xiaoling repository contains `tools/test-diplay-android.sh`: on a dedicated
+API 25 emulator it compiles the actual `MapSurfaceEndpoint` with a test-only
+AVC producer in a separate APK and runs the production Xiaoling Surface/GL/AVC/HMI
+pipeline. This verifies the bridge with synthetic video, not iPhone compatibility
+or a full CarPlay session. `MapSurfaceServiceTest` exercises the production
+consent and MapMirrors adapter below API 30.
