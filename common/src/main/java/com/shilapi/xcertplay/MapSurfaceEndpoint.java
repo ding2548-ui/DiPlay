@@ -25,6 +25,9 @@ public abstract class MapSurfaceEndpoint extends Service {
     /** Optional turn-by-turn fields added to every STATE; absent keys mean no active maneuver. */
     protected void guidance(Bundle out) { }
 
+    /** Optional music metadata added to every STATE; absent keys mean no active track. */
+    protected void music(Bundle out) { }
+
     @Override public IBinder onBind(Intent intent) { return endpoint.getBinder(); }
     private boolean allowed(int uid) {
         String[] packages = getPackageManager().getPackagesForUid(uid);
@@ -51,7 +54,7 @@ public abstract class MapSurfaceEndpoint extends Service {
             if (error != null) { refuse(msg.replyTo, error); return; }
             remove(binder);
             if (clients.size() >= 2) { refuse(msg.replyTo, "busy"); return; }
-            final Client c = new Client(msg.replyTo, msg.sendingUid, surface, "surface:" + nextId++);
+            final Client c = new Client(msg.replyTo, msg.sendingUid, surface, MapMirrors.XIAOLING_PREFIX + nextId++);
             binder.linkToDeath(c.death, 0);
             clients.put(binder, c);
             surface = null; // Client now owns the received reference.
@@ -81,8 +84,9 @@ public abstract class MapSurfaceEndpoint extends Service {
     private void send(Client c, int what) {
         Message m = Message.obtain(null, what); Bundle b = new Bundle();
         b.putInt("version", VERSION); b.putBoolean("active", streamActive());
-        b.putBoolean("navigating", navigating()); b.putDouble("aspect", streamAspect());
+        b.putBoolean("navigating", navigating());         b.putDouble("aspect", streamAspect());
         try { guidance(b); } catch (RuntimeException ignored) { }
+        try { music(b); } catch (RuntimeException ignored) { }
         m.setData(b);
         try { c.replies.send(m); } catch (RemoteException e) { remove(c.replies.getBinder()); }
     }

@@ -493,8 +493,11 @@ open class CarPlayHostActivity : ComponentActivity() {
     // Copies of the CarPlay main screen (centre card, launcher maps) each get their own decoder.
     // PSA line: the centre card follows the cluster-screen profile source (110/111; MUSIC keeps no
     // mirror decoder at all); launcher embeds keep the dashboard stream.
+    // PSA line: the centre card and Xiaoling mirrors follow the cluster-screen profile source
+    // (110 main / 111 navigation); every other mirror keeps the dashboard stream (111).
     private fun mirrorTypeFor(key: String): Int? =
-        if (key == MapMirrors.CARD) ClusterScreenProfile.source(this).streamType else SCREEN_TYPE_ALT
+        if (key == MapMirrors.CARD || MapMirrors.isSourceMirror(key))
+            ClusterScreenProfile.source(this).streamType else SCREEN_TYPE_ALT
     private val mirrorSink: (String, Surface?) -> Unit = { key, surface ->
         val type = mirrorTypeFor(key)
         if (type != null) sink?.setMirrorSurface(type, key, surface)
@@ -516,10 +519,22 @@ open class CarPlayHostActivity : ComponentActivity() {
             sink?.setMirrorSurface(SCREEN_TYPE_MAIN, MapMirrors.CARD, null)
             val type = source.streamType
             if (surface != null && type != null) sink?.setMirrorSurface(type, MapMirrors.CARD, surface)
+            reapplyXiaolingMirrors(source)
             cardMirrorSource = source
         }
         if (source != dashboardSource) clusterSurface?.let(::attachClusterSurface)
         appendLog("Cluster profile: source=${source.label}")
+    }
+    /**
+     * Re-point every Xiaoling mirror to the source's stream. Both stream types are cleared first so a
+     * stale decoder entry never survives a 110<->111 switch, and none remains for MUSIC (no video).
+     */
+    private fun reapplyXiaolingMirrors(source: ClusterScreenProfile.Source) {
+        MapMirrors.sourceMirrorSurfaces().forEach { (key, surface) ->
+            sink?.setMirrorSurface(SCREEN_TYPE_ALT, key, null)
+            sink?.setMirrorSurface(SCREEN_TYPE_MAIN, key, null)
+            source.streamType?.let { sink?.setMirrorSurface(it, key, surface) }
+        }
     }
     // With Usage Access the card shows only over a home screen; null = not known (no monitor).
     private var homeMonitor: HomeScreenMonitor? = null

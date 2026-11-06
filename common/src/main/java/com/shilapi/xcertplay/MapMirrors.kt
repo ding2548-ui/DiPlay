@@ -13,6 +13,17 @@ import java.util.concurrent.CopyOnWriteArraySet
 internal object MapMirrors {
     const val CARD = "card"
 
+    /**
+     * Xiaoling (and any client that must show the *active content source*, not a fixed stream) uses
+     * this key prefix. The host routes these mirrors to whichever stream the cluster-screen profile
+     * selects (110 main / 111 navigation), so they follow the source like the centre card does,
+     * instead of being pinned to the ALT stream (111). MUSIC has no stream, so no mirror is set.
+     */
+    const val XIAOLING_PREFIX = "xiaoling:"
+    fun isSourceMirror(key: String) = key.startsWith(XIAOLING_PREFIX)
+    /** All currently registered source-following mirrors, for re-routing on a source switch. */
+    fun sourceMirrorSurfaces(): Map<String, Surface> = surfaces.filterKeys { isSourceMirror(it) }
+
     /** The physical dashboard stream's shape (1920x720, sent scaled to 1600x600 by default). */
     const val PHYSICAL_STREAM_ASPECT = 8.0 / 3
 

@@ -280,6 +280,23 @@ current maneuver these keys are absent. `supported` (boolean) is present once th
 navigation app has declared SourceSupportsRouteGuidance in this session; AMap declares
 false until its "CarPlay dashboard" switch (更多 → CarPlay仪表盘投屏) is on.
 
+The mirror follows the active content source, not a fixed stream. The centre card and every
+Xiaoling mirror are routed to whichever stream the cluster-screen profile selects: `MAIN`
+mirrors stream 110 (the CarPlay main screen), `NAVIGATION` mirrors stream 111 (the iPhone's
+independent cluster stream). When the source is `MUSIC` there is no video stream, so no mirror
+is set and `active` is reported `false`. Switching the source re-points the live surface between
+stream 110 and 111 (the old stream type is cleared first); a connected Xiaoling client therefore
+shows the main screen when the content source is `MAIN` and the independent navigation when it is
+`NAVIGATION`, with no separate negotiation.
+
+STATE may also carry music metadata for clients that draw their own song card: `music` (boolean,
+true only when the content source is `MUSIC`), `title`, `artist`, `album` (strings, present when a
+track is known), `playing` (boolean) and `hasArtwork` (boolean — no bitmap travels over Messenger).
+`music` tells the client the projection source is music (no video); the track fields let it render
+the card. When `music` is false but a track is playing in another source, the track fields are still
+filled so the client can choose to show them.
+
+
 The Xiaoling repository contains `tools/test-diplay-android.sh`: on a dedicated
 API 25 emulator it compiles the actual `MapSurfaceEndpoint` with a test-only
 AVC producer in a separate APK and runs the production Xiaoling Surface/GL/AVC/HMI
